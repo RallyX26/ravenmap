@@ -502,21 +502,32 @@ $('#clearsel').onclick = () => {
 /* -------------------------------------------------------------- cameras -- */
 
 let fittedOnce = false;
-
-// Open on the VISITOR's own area if their browser will share it. They are asked
-// once; a denial simply leaves the region/camera default. Deliberately NO IP
-// geolocation - SparrowMap does not hand anyone's location to a geo service to
-// guess where they are. Geo wins over the camera-fit and the configured centre,
-// unless the visitor has already panned the map themselves.
-let _userMovedMap = false;
+let _geoLoc = null, _spanBounds = null, _userMovedMap = false;
 map.on('dragstart zoomstart', () => { _userMovedMap = true; });
+
+// Choose the opening view. If there are watched roads AND the visitor is near
+// them (<60 km), show the roads - the data is the point. If the visitor is far,
+// open on THEIR own city instead of yanking them to another state's cameras.
+// With no cameras at all, open on their city. Runs when geolocation resolves or
+// the cameras load, whichever is last, and never fights a visitor who has
+// already panned. Deliberately NO IP lookup - SparrowMap does not send anyone's
+// location to a geo service to guess where they are; the browser asks, once.
+function chooseView() {
+  if (_userMovedMap) return;
+  if (_spanBounds) {
+    const near = !_geoLoc ||
+      _spanBounds.getCenter().distanceTo(L.latLng(_geoLoc)) < 60000;
+    fittedOnce = true;
+    if (near) map.fitBounds(_spanBounds.pad(0.35), { maxZoom: 17 });
+    else map.setView(_geoLoc, 11);
+  } else if (_geoLoc) {
+    fittedOnce = true;
+    map.setView(_geoLoc, 12);
+  }
+}
 if (navigator.geolocation) {
   navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      if (_userMovedMap) return;
-      fittedOnce = true;
-      map.setView([pos.coords.latitude, pos.coords.longitude], 12);
-    },
+    (pos) => { _geoLoc = [pos.coords.latitude, pos.coords.longitude]; chooseView(); },
     () => {},
     { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 },
   );
@@ -544,14 +555,11 @@ async function loadCameras() {
   // Spans only now - a span-less node contributes no geometry to fit to, and
   // that is correct: it has no published location to open on.
   const spans = cams.filter((c) => c.span && c.span.length);
-  if (!fittedOnce && spans.length) {
-    fittedOnce = true;
-    const pts = spans.flatMap((c) => c.span);
-    // maxZoom matters: a single node's watched span is ~80 m across, and
-    // fitting that tightly lands past zoom 20, where the basemap has no tiles
-    // and the map renders as an empty black field with dots floating on it.
-    map.fitBounds(L.latLngBounds(pts).pad(0.35), { maxZoom: 17 });
-  }
+  if (spans.length) _spanBounds = L.latLngBounds(spans.flatMap((c) => c.span));
+  // chooseView() decides between the watched roads and the visitor's own city.
+  // maxZoom in there matters: a single node's span is ~80 m across, and fitting
+  // that tightly lands past zoom 20 where the basemap has no tiles.
+  chooseView();
 
   // No count is rendered here on purpose: the stats bar already publishes
   // "<online>/<active> cameras online" from /api/stats, and that figure counts

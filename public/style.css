@@ -204,6 +204,11 @@ main{position:absolute; inset:52px 0 57px 0; display:flex}
   /* Search gets its own full-width row under the brand + LIVE dot. */
   .plateform{order:3; width:100%; margin-left:0; margin-top:2px}
   .plateform input{width:auto; flex:1; min-width:0}
+  /* Search results / the "type 3 characters" hint: drop it below the whole
+     (wrapped) header, full width, instead of at a fixed 56px that overlapped
+     the search row. */
+  .plateresults{top:calc(var(--headh, 110px) + 4px); left:8px; right:8px; width:auto;
+    max-width:none}
   main{position:static; inset:auto; display:block; height:auto; min-height:0}
   #map{height:56vh; flex:none}
   .panel{width:100%; flex:none; height:auto; min-height:0; overflow:visible;

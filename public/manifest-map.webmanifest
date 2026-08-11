@@ -1,0 +1,16 @@
+{
+  "name": "SparrowMap",
+  "short_name": "SparrowMap",
+  "description": "A public map of government vehicles on public roads, run by volunteers. Private number plates are destroyed on the camera and never stored.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0B0E13",
+  "theme_color": "#0B0E13",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
