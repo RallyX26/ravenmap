@@ -93,11 +93,13 @@ def pull(args) -> tuple[Path, bool]:
 # Applying the verdict: publish marked crops, discard the rest, and clear every
 # processed crop from the mirror.
 # --------------------------------------------------------------------------
-def apply_verdict(args, publish: list[dict], discard: list[int],
-                  local_dir: Path, is_local: bool) -> dict:
-    if not publish and not discard:
-        return {"ok": True, "published": 0, "discarded": 0, "errors": []}
-    payload = json.dumps({"publish": publish, "discard": discard})
+def apply_verdict(args, publish: list[dict], review: list[dict],
+                  discard: list[int], local_dir: Path, is_local: bool) -> dict:
+    if not publish and not review and not discard:
+        return {"ok": True, "published": 0, "reviewed": 0, "discarded": 0,
+                "errors": []}
+    payload = json.dumps({"publish": publish, "review": review,
+                          "discard": discard})
 
     if is_local:
         repo = Path(local_dir).resolve().parent.parent
@@ -130,7 +132,7 @@ def run_once(vid: VehicleIdentifier, args) -> dict:
     if args.limit:
         metas = metas[:args.limit]
 
-    publish, discard = [], []
+    publish, review, discard = [], [], []
     for jm in metas:
         stem = jm.stem
         jpg_path = jm.with_suffix(".jpg")
@@ -152,8 +154,12 @@ def run_once(vid: VehicleIdentifier, args) -> dict:
             continue
 
         r = vid.classify(img)
+        call = VehicleIdentifier.gov_call(r)
+        head_pos = call.get("source") == "head" and call.get("gov")
+        hc = call["conf"] if call.get("source") == "head" else None
         marked = (r["vclass"] in MARKED_CLASSES
                   and r["conf"] >= MIN_CONF and r["margin"] >= MIN_MARGIN)
+        candidate = r["vclass"] in MARKED_CLASSES or head_pos
 
         if marked:
             vclass = "police" if r["vclass"] == "police" else "gov"
@@ -162,21 +168,33 @@ def run_once(vid: VehicleIdentifier, args) -> dict:
                 "why": (f"contributor ({meta.get('node_name') or 'a phone'}); "
                         f"clearly-marked {r['vclass']} "
                         f"(conf {r['conf']:.2f}, margin {r['margin']:.2f})")})
+            tag = "  -> PUBLISH"
+        elif candidate:
+            vclass = "police" if r["vclass"] == "police" else "gov"
+            review.append({
+                "id": sid, "vclass": vclass, "head_conf": hc,
+                "node_name": meta.get("node_name"),
+                "why": (f"contributor ({meta.get('node_name') or 'a phone'}); "
+                        f"{r['vclass']} conf {r['conf']:.2f}"
+                        + (f", head {hc:.2f}" if hc is not None else "")
+                        + " - needs a human")})
+            tag = "  -> REVIEW"
         else:
             discard.append(sid)
+            tag = ""
 
         print(f"  #{sid}: {r['vclass']} conf={r['conf']:.2f} "
               f"margin={r['margin']:.2f}"
-              f"{'  -> PUBLISH' if marked else ''}"
+              f"{f' head={hc:.2f}' if hc is not None else ''}{tag}"
               f"{'  (dry)' if args.dry_run else ''}")
 
     if args.dry_run:
         return {"pulled": len(metas), "marked": len(publish),
-                "discarded": len(discard), "dry": True}
+                "review": len(review), "discarded": len(discard), "dry": True}
 
-    res = apply_verdict(args, publish, discard, src, is_local)
+    res = apply_verdict(args, publish, review, discard, src, is_local)
     return {"pulled": len(metas), "marked": len(publish),
-            "discarded": len(discard), "box": res}
+            "review": len(review), "discarded": len(discard), "box": res}
 
 
 def main() -> None:
@@ -228,9 +246,11 @@ def main() -> None:
         extra = ""
         if not s.get("dry") and box:
             extra = (f"; box published {box.get('published', '?')}, "
+                     f"queued {box.get('reviewed', '?')} for review, "
                      f"discarded {box.get('discarded', '?')}"
                      + (f", ERRORS {box['errors']}" if box.get("errors") else ""))
-        print(f"pulled {s['pulled']}, {s['marked']} marked -> publish, "
+        print(f"pulled {s['pulled']}, {s['marked']} publish, "
+              f"{s.get('review', 0)} review, "
               f"{s['discarded']} discarded{' (dry run)' if s.get('dry') else ''}"
               f"{extra} at {time.strftime('%H:%M:%S')}")
 

@@ -348,6 +348,26 @@ def subresolution_bytes(data_url: str) -> bytes:
     return buf.getvalue()
 
 
+def downscale_to_subres(data_url: str) -> bytes:
+    """Shrink a crop to plate-illegibility for the review pen.
+
+    subresolution_bytes REFUSES an oversized crop, which is right for a phone
+    node that must downscale on-device. A CAMERA node sends a full-size crop, so
+    the mirror shrinks it here instead: the longest edge is brought down to
+    SUBRES_MAX_EDGE, which destroys any readable plate before the crop is ever
+    parked in the pen or shown to a reviewer. EXIF is stripped by decode_upload.
+    """
+    import io
+    img = decode_upload(data_url)
+    if max(img.size) > SUBRES_MAX_EDGE:
+        s = SUBRES_MAX_EDGE / max(img.size)
+        img = img.resize((max(1, int(img.width * s)),
+                          max(1, int(img.height * s))), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "JPEG", quality=82)
+    return buf.getvalue()
+
+
 def blur_faces(img: Image.Image) -> Image.Image:
     """Blur faces in a full frame.
 

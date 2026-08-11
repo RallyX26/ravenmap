@@ -174,6 +174,31 @@ def quarantine_write(sighting_id: int, crop_bytes: bytes,
         return None
 
 
+REVIEW = INBOX.parent / "review"
+
+
+def review_write(sighting_id: int, crop_bytes: bytes, meta: dict) -> Optional[str]:
+    """Park a plate-less crop in the review pen, keyed by its sighting id.
+
+    Unlike quarantine_write (the inbox, which the home classifier pulls, scores
+    and empties), the review pen holds government CANDIDATES that already have a
+    score and are waiting for a HUMAN to confirm or reject them via the reviewer
+    UI. A camera node has already scored its own crop, so its ambiguous calls
+    land here directly rather than round-tripping through the home puller. The
+    crop is sub-resolution and plate-less, the same guarantee the inbox carries.
+    """
+    try:
+        REVIEW.mkdir(parents=True, exist_ok=True)
+        stem = str(int(sighting_id))
+        (REVIEW / f"{stem}.jpg").write_bytes(crop_bytes)
+        (REVIEW / f"{stem}.json").write_text(json.dumps(
+            {**meta, "sighting_id": int(sighting_id), "written": time.time()},
+            indent=1), encoding="utf-8")
+        return stem
+    except Exception:
+        return None
+
+
 def route_allowed(path: str) -> bool:
     """Operator routes do not exist on a mirror.
 

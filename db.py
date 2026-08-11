@@ -119,6 +119,24 @@ CREATE TABLE IF NOT EXISTS reports (
     resolved    REAL
 );
 CREATE INDEX IF NOT EXISTS ix_reports_sid ON reports(sighting_id);
+
+-- Reviewer access, separate from the single operator secret. Each trusted
+-- reviewer gets their own token (stored only as a hash), which can be scoped to
+-- the shared pool or to specific cameras they own, and revoked without touching
+-- anyone else's. Every verdict they cast is written to `audit` with their
+-- label, so trust is the default and abuse is recoverable rather than assumed.
+CREATE TABLE IF NOT EXISTS review_tokens (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash   TEXT UNIQUE,
+    label        TEXT,
+    scope        TEXT,          -- 'pool' = all pending, 'own' = only `nodes`
+    nodes        TEXT,          -- comma-separated node_ids for scope='own'
+    created_at   REAL,
+    created_by   TEXT,
+    revoked_at   REAL,
+    last_used_at REAL
+);
+CREATE INDEX IF NOT EXISTS ix_rvtok_hash ON review_tokens(token_hash);
 """
 
 
@@ -547,6 +565,49 @@ def resolve_reports(sighting_id: int) -> None:
     conn.execute("UPDATE reports SET resolved=? "
                  "WHERE sighting_id=? AND resolved IS NULL", (now(), sighting_id))
     conn.commit()
+
+
+# --------------------------------------------------------------------------
+# Reviewer tokens (multi-reviewer access, separate from the operator secret).
+# --------------------------------------------------------------------------
+def add_review_token(token_hash: str, label: str, scope: str,
+                     nodes: str, created_by: str) -> int:
+    conn = connect()
+    cur = conn.execute(
+        "INSERT INTO review_tokens(token_hash,label,scope,nodes,created_at,created_by) "
+        "VALUES(?,?,?,?,?,?)",
+        (token_hash, label, scope, nodes, now(), created_by))
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def review_token_by_hash(token_hash: str) -> Optional[dict]:
+    r = connect().execute(
+        "SELECT * FROM review_tokens WHERE token_hash=? AND revoked_at IS NULL",
+        (token_hash,)).fetchone()
+    return dict(r) if r else None
+
+
+def touch_review_token(tid: int) -> None:
+    conn = connect()
+    conn.execute("UPDATE review_tokens SET last_used_at=? WHERE id=?", (now(), tid))
+    conn.commit()
+
+
+def revoke_review_token(tid: int) -> bool:
+    conn = connect()
+    cur = conn.execute(
+        "UPDATE review_tokens SET revoked_at=? WHERE id=? AND revoked_at IS NULL",
+        (now(), tid))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def list_review_tokens(include_revoked: bool = True) -> list[dict]:
+    q = "SELECT id,label,scope,nodes,created_at,created_by,revoked_at,last_used_at FROM review_tokens"
+    if not include_revoked:
+        q += " WHERE revoked_at IS NULL"
+    return [dict(r) for r in connect().execute(q + " ORDER BY created_at DESC").fetchall()]
 
 
 def set_sighting_desc(sighting_id: int, body: Optional[str] = None,

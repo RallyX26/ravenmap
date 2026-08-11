@@ -30,6 +30,8 @@ import operator_auth
 import qr
 import nodes as node_mod
 import privacy
+import review_api
+import review_auth
 import snapshot
 from core import CONFIG, DATA, PUBLIC, SNAPS, is_operator_addr, now
 
@@ -315,7 +317,7 @@ class Handler(BaseHTTPRequestHandler):
         # Operator JSON is not, and a wildcard on it is needless surface even
         # with a SameSite=Strict cookie in front.
         if not self.path.startswith(("/api/review", "/api/operator",
-                                     "/api/purge")):
+                                     "/api/purge", "/api/rv")):
             self.send_header("Access-Control-Allow-Origin", "*")
         for k, v in (extra or {}).items():
             self.send_header(k, v)
@@ -491,6 +493,44 @@ class Handler(BaseHTTPRequestHandler):
             if p.startswith("/vendor/"): return self._file(PUBLIC / "vendor" / Path(p[8:]).name)
             if p.startswith("/static/"): return self._file(PUBLIC / Path(p[8:]).name)
             if p.startswith("/snap/"):   return self._file(SNAPS / Path(unquote(p[6:])).name)
+
+            # --- reviewer app (token-gated; separate from operator /review) ---
+            if p == "/rv":
+                return self._file(PUBLIC / "rv.html")
+            if p == "/rv/admin":
+                # Served open; the token endpoints it drives are operator-gated,
+                # and the page shows an operator sign-in until you are.
+                return self._file(PUBLIC / "rv-admin.html")
+            if p == "/api/rv/me":
+                r = review_auth.identify(self.headers)
+                if not r:
+                    return self._err(401, "not signed in")
+                return self._json({"ok": True, "label": r["label"],
+                                   "scope": r["scope"],
+                                   "nodes": sorted(r["nodes"]) if r["nodes"] else []})
+            if p == "/api/rv/queue":
+                r = review_auth.identify(self.headers)
+                if not r:
+                    return self._err(401, "not signed in")
+                scope = (q.get("scope") or ["pool"])[0]
+                return self._json(review_api.queue(r, scope))
+            if p.startswith("/api/rv/crop/"):
+                r = review_auth.identify(self.headers)
+                if not r:
+                    return self._err(401, "not signed in")
+                try:
+                    sid = int(p.rsplit("/", 1)[-1])
+                except ValueError:
+                    return self._err(400, "bad id")
+                b = review_api.crop_bytes(sid)
+                if not b:
+                    return self._err(404, "no crop")
+                return self._send(200, b, "image/jpeg",
+                                  {"Cache-Control": "no-store"})
+            if p == "/api/rv/tokens":
+                if not self._is_local():
+                    return self._err(403, "operator only")
+                return self._json(review_api.list_tokens())
 
             if p == "/api/health":
                 return self._json({"ok": True, "version": VERSION, "ts": now()})
@@ -795,7 +835,9 @@ class Handler(BaseHTTPRequestHandler):
     # CSRF defence beyond the cookie itself.
     _CSRF_SENSITIVE = {"/api/review", "/api/review/bulk", "/api/review/edit",
                        "/api/purge", "/api/key/rotate", "/api/operator/login",
-                       "/api/operator/logout", "/api/report"}
+                       "/api/operator/logout", "/api/report",
+                       "/api/rv/login", "/api/rv/logout", "/api/rv/verdict",
+                       "/api/rv/tokens/new", "/api/rv/tokens/revoke"}
 
     def do_POST(self) -> None:
         try:
@@ -1023,6 +1065,53 @@ class Handler(BaseHTTPRequestHandler):
                            "application/json",
                            {"Set-Cookie": operator_auth.cookie_header("", clear=True)})
                 return
+
+            # --- reviewer session + verdicts (token-gated) --------------------
+            if p == "/api/rv/login":
+                val = review_auth.login_value((self._body() or {}).get("token", ""))
+                if not val:
+                    time.sleep(0.3)          # slow blind guessing of a token
+                    return self._err(401, "invalid token")
+                self._send(200, json.dumps({"ok": True}).encode(),
+                           "application/json",
+                           {"Set-Cookie": review_auth.cookie_header(val)})
+                return
+            if p == "/api/rv/logout":
+                self._send(200, json.dumps({"ok": True}).encode(),
+                           "application/json",
+                           {"Set-Cookie": review_auth.cookie_header("", clear=True)})
+                return
+            if p == "/api/rv/verdict":
+                r = review_auth.identify(self.headers)
+                if not r:
+                    return self._err(401, "not signed in")
+                b = self._body()
+                try:
+                    sid = int(b.get("id"))
+                except (TypeError, ValueError):
+                    return self._err(400, "bad id")
+                return self._json(review_api.verdict(
+                    r, sid, b.get("verdict"), privacy.audit_ip(self.client_ip)))
+
+            # --- token administration (operator only) -------------------------
+            if p == "/api/rv/tokens/new":
+                if not self._is_local():
+                    return self._err(403, "operator only")
+                b = self._body()
+                nodes = b.get("nodes") if isinstance(b.get("nodes"), list) else []
+                return self._json(review_api.issue_token(
+                    str(b.get("label") or "reviewer")[:60],
+                    "own" if b.get("scope") == "own" else "pool",
+                    [str(n)[:32] for n in nodes]))
+            if p == "/api/rv/tokens/revoke":
+                if not self._is_local():
+                    return self._err(403, "operator only")
+                b = self._body()
+                try:
+                    tid = int(b.get("id"))
+                except (TypeError, ValueError):
+                    return self._err(400, "bad id")
+                return self._json(review_api.revoke_token(tid))
             if p == "/api/review/bulk":
                 # Clearing the possibly-missed queue in one action, after a
                 # human has scrolled it and promoted the government vehicles.
@@ -1186,6 +1275,21 @@ class Handler(BaseHTTPRequestHandler):
         if source == "phone":
             c["why"] = f"human-submitted by {nid}, unverified; " + c["why"]
 
+        # A camera node scores its own crop, so its GOVERNMENT candidates go
+        # straight to the review pen for a human to confirm - captured here as a
+        # sub-resolution, plate-less crop BEFORE the mirror strips the image
+        # below. Phone-node crops take the inbox path instead (box_puller pulls
+        # and scores them at home first), so they are excluded here.
+        review_crop = None
+        if (source not in ("phone", "phone_node") and mirror.relay_enabled()
+                and ev.get("snap_b64") and c["vclass"] in ("police", "gov_dot")):
+            try:
+                # Shrink (never reject) a camera's full-size crop to a
+                # plate-illegible thumbnail for the pen.
+                review_crop = snapshot.downscale_to_subres(ev["snap_b64"])
+            except Exception:
+                review_crop = None
+
         dropped_image = None
         banked_stem = None
         if ev.get("snap_b64") and not mirror.may_store_image(tier):
@@ -1345,6 +1449,12 @@ class Handler(BaseHTTPRequestHandler):
             mirror.quarantine_write(rec["id"], relay_crop, {
                 "ts": ts, "pub_lat": s_lat, "pub_lon": s_lon,
                 "node_name": nd.get("name") or "",
+                "det_conf": ev.get("det_conf"), "body": ev.get("body")})
+        # A camera's government candidate parks in the review pen for a human.
+        if review_crop is not None:
+            mirror.review_write(rec["id"], review_crop, {
+                "ts": ts, "node_id": nid, "node_name": nd.get("name") or "",
+                "score": c.get("conf"), "vclass": c["vclass"],
                 "det_conf": ev.get("det_conf"), "body": ev.get("body")})
 
         # A node that is posting is self-evidently awake, so a submission is
