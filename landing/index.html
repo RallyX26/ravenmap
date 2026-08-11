@@ -223,6 +223,19 @@ footer a{color:var(--steel)}
       <li>You can shut it off and take your camera out of the network at any time</li>
     </ul>
     <div class="actions" id="actions"></div>
+
+    <h3 style="margin-top:2rem">Want an always-on camera?</h3>
+    <p>
+      A spare PC with a webcam can run the full detector locally — it tells a
+      patrol car from an ordinary one on the machine, and reads plates. One
+      command sets it up and starts contributing to the map:
+    </p>
+    <ul class="specs">
+      <li><strong>Windows:</strong> run <code>irm https://sparrowmap.com/install-node-windows.ps1 | iex</code> in PowerShell, or download <a href="https://github.com/SparrowMap/sparrowmap/releases">SparrowMapCameraSetup.exe</a></li>
+      <li><strong>Linux</strong> (help us test): <code>curl -fsSL https://sparrowmap.com/install-node-linux.sh | bash</code></li>
+      <li>Everything still runs on your machine — only detections leave it, never video</li>
+      <li>Full guide: <a href="https://github.com/SparrowMap/sparrowmap/blob/main/docs/DESKTOP_NODE.md">Running a desktop camera</a></li>
+    </ul>
   </section>
 
   <footer>

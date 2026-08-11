@@ -30,6 +30,40 @@ and only a small detection event leaves it. Video never does.**
 
 ---
 
+## Turn-key install (recommended)
+
+One command sets up everything — Python, the models, autostart — and takes you
+straight to aiming your camera. It contributes to the public map at
+`https://map.sparrowmap.com`; no account, no manual enrollment.
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://sparrowmap.com/install-node-windows.ps1 | iex
+```
+
+or download **SparrowMapCameraSetup.exe** from the
+[latest release](https://github.com/SparrowMap/sparrowmap/releases) and run it.
+
+**Linux** (⚠ untested — help us test, report at
+[issues](https://github.com/SparrowMap/sparrowmap/issues)):
+
+```bash
+curl -fsSL https://sparrowmap.com/install-node-linux.sh | bash
+```
+
+The installer downloads ~2.5 GB of models, installs a **SparrowMap Camera**
+shortcut, starts it at login, and opens the setup page. Aim your camera, draw
+the stretch of road it watches, and click Save — that enrolls it and it starts
+contributing. To review your camera's catches, ask for a reviewer link to
+`/rv`.
+
+Running a **private instance** instead of contributing to the public map? Set
+`SPARROW_HUB` to your own hub before installing and everything points there.
+The manual steps below are the same thing by hand.
+
+---
+
 ## What you need
 
 - **Python 3.12** (3.11 works too).

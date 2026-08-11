@@ -29,6 +29,7 @@ take and does not.
 from __future__ import annotations
 
 import json
+import os
 import queue
 import threading
 import time
@@ -402,13 +403,20 @@ def save_placement(p: dict) -> None:
     PLACEMENT.write_text(json.dumps(p, indent=2), encoding="utf-8")
 
 
-def enroll_with_hub(p: dict, hub: str = "http://localhost:8150") -> dict:
+# Where a camera enrolls by default. SparrowMap is the point, so the public
+# network is the default; a self-hoster sets SPARROW_HUB to their own hub
+# (e.g. http://localhost:8150) and everything else is unchanged.
+PUBLIC_HUB = os.environ.get("SPARROW_HUB", "https://map.sparrowmap.com").rstrip("/")
+
+
+def enroll_with_hub(p: dict, hub: str = None) -> dict:
     """Register (or re-register) this camera as a node on the hub.
 
     The node id and token are kept here, on the machine that owns the camera,
     so re-saving a placement updates the same node instead of littering the map
     with duplicates every time someone nudges the heading.
     """
+    hub = (hub or PUBLIC_HUB)
     import urllib.request
     body = {
         "name": p.get("name") or "Camera node",
@@ -667,7 +675,7 @@ class Handler(BaseHTTPRequestHandler):
             p = load_placement()
             p.update({k: v for k, v in body.items() if k != "hub"})
             try:
-                r = enroll_with_hub(p, body.get("hub", "http://localhost:8150"))
+                r = enroll_with_hub(p, body.get("hub") or PUBLIC_HUB)
                 p["node_id"] = r["id"]
                 if r.get("token"):
                     p["token"] = r["token"]

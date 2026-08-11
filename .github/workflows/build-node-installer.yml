@@ -1,0 +1,45 @@
+# Build the Windows camera-node installer (SparrowMapCameraSetup.exe) with Inno
+# Setup and attach it to the release. Runs on a version tag (v*) or on demand.
+name: build-node-installer
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write        # needed to attach the .exe to the release
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Compile installer
+        run: iscc desktop\sparrowmap-node.iss
+        # Inno writes to Output\ next to the .iss by default.
+        working-directory: ${{ github.workspace }}
+
+      - name: Locate the built exe
+        id: find
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Recurse -Filter SparrowMapCameraSetup.exe | Select-Object -First 1
+          if (-not $exe) { throw "installer not found" }
+          "path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SparrowMapCameraSetup
+          path: ${{ steps.find.outputs.path }}
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.find.outputs.path }}
