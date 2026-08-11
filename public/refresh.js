@@ -15,7 +15,7 @@
  */
 (function () {
   const css = `
-    .swrefresh{position:fixed;right:12px;top:60px;z-index:9000;
+    .swrefresh{position:fixed;right:12px;top:calc(var(--headh, 56px) + 10px);z-index:9000;
       width:44px;height:44px;border-radius:50%;cursor:pointer;
       display:flex;align-items:center;justify-content:center;
       background:#111621ee;border:1px solid #2a3547;color:#8794a8;
