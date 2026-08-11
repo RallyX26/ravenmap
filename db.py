@@ -549,6 +549,24 @@ def resolve_reports(sighting_id: int) -> None:
     conn.commit()
 
 
+def set_sighting_desc(sighting_id: int, body: Optional[str] = None,
+                      color: Optional[str] = None) -> None:
+    """Operator correction of the cosmetic description (e.g. the detector said
+    'motorcycle' for an SUV). Only the descriptive fields - never the class, the
+    plate, or the position, which have their own review paths."""
+    sets, args = [], []
+    if body is not None:
+        sets.append("body=?"); args.append(body.strip() or None)
+    if color is not None:
+        sets.append("color=?"); args.append(color.strip() or None)
+    if not sets:
+        return
+    args.append(sighting_id)
+    conn = connect()
+    conn.execute(f"UPDATE sightings SET {', '.join(sets)} WHERE id=?", args)
+    conn.commit()
+
+
 def promote_sighting(sighting_id: int, vclass: str = "police",
                      conf: Optional[float] = None, why: str = "") -> None:
     """Put a wrongly-private sighting onto the public map.

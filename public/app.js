@@ -503,6 +503,25 @@ $('#clearsel').onclick = () => {
 
 let fittedOnce = false;
 
+// Open on the VISITOR's own area if their browser will share it. They are asked
+// once; a denial simply leaves the region/camera default. Deliberately NO IP
+// geolocation - SparrowMap does not hand anyone's location to a geo service to
+// guess where they are. Geo wins over the camera-fit and the configured centre,
+// unless the visitor has already panned the map themselves.
+let _userMovedMap = false;
+map.on('dragstart zoomstart', () => { _userMovedMap = true; });
+if (navigator.geolocation) {
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      if (_userMovedMap) return;
+      fittedOnce = true;
+      map.setView([pos.coords.latitude, pos.coords.longitude], 12);
+    },
+    () => {},
+    { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 },
+  );
+}
+
 /* A camera is drawn as ONE thing: the stretch of road it watches.
  *
  * There used to be a second thing - a dot at the camera's jittered position,

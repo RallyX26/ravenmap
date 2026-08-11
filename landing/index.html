@@ -170,7 +170,7 @@ footer a{color:var(--steel)}
   <header class="top">
     <img src="mark.png" alt="">
     <span class="wordmark">SPARROWMAP</span>
-    <span class="state"><span class="dot"></span><span class="txt">Open source. Going live soon.</span></span>
+    <span class="state"><span class="dot"></span><span class="txt">The map is live.</span></span>
   </header>
 
   <section class="hero framed">
@@ -181,34 +181,6 @@ footer a{color:var(--steel)}
       keeps the government ones, and <strong>destroys everything else on the device</strong>,
       before anything is sent anywhere.
     </p>
-  </section>
-
-  <!--
-    ⚠️ THE NUMBERS BELOW ARE A FALLBACK, NOT THE SOURCE OF TRUTH.
-    They are the figures as written on 10 August 2026 and they WILL drift. The
-    page fetches /api/stats.json and replaces them; if that fetch fails for any
-    reason the page still renders these, with the date beside them saying what
-    they are. A page arguing "we do not publish unverified claims" must never
-    show a bare number that quietly went stale, and must never show a blank
-    where a number should be.
-  -->
-  <section class="ledger">
-    <p class="sec-label" id="ledger-asof">What it has actually done, as of 10 August 2026</p>
-
-    <div class="row">
-      <div class="fig" id="fig-seen">1,811</div>
-      <p><b>Vehicles have driven past</b><span id="cap-seen">Two cameras, one street, real traffic. That is 2,811 recorded sightings, because one car crossing the view is often caught more than once.</span></p>
-    </div>
-
-    <div class="row">
-      <div class="fig" id="fig-confirmed">25</div>
-      <p><b>Government vehicles confirmed by a person</b>A human looked at the photo and agreed. These are the only ones treated as a record.</p>
-    </div>
-
-    <div class="row">
-      <div class="fig zero" id="fig-plates">0</div>
-      <p><b>Private number plates stored</b><span id="cap-plates">Out of 2,757 vehicles that were not government.</span> The plate is destroyed on the camera itself, so there is nothing to store, nothing to leak and nothing to hand over.</p>
-    </div>
   </section>
 
   <!-- Page behaviour lives in /app.js so a strict CSP (script-src 'self') can

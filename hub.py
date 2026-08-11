@@ -588,7 +588,7 @@ class Handler(BaseHTTPRequestHandler):
                     item = {k: d.get(k) for k in
                             ("id", "ts", "vclass", "vclass_conf", "vclass_why",
                              "plate_text", "snap", "node_id", "reviewed",
-                             "reviewed_at", "source")}
+                             "reviewed_at", "source", "color", "body")}
                     # Attach any public flags so the operator sees WHAT a
                     # stranger disputed, not just that something is disputed.
                     item["reports"] = (db.reports_for(d["id"])
@@ -778,8 +778,8 @@ class Handler(BaseHTTPRequestHandler):
     # State-changing routes authenticated by the operator COOKIE. A browser
     # attaches that cookie to any cross-site request automatically, so these need
     # CSRF defence beyond the cookie itself.
-    _CSRF_SENSITIVE = {"/api/review", "/api/review/bulk", "/api/purge",
-                       "/api/key/rotate", "/api/operator/login",
+    _CSRF_SENSITIVE = {"/api/review", "/api/review/bulk", "/api/review/edit",
+                       "/api/purge", "/api/key/rotate", "/api/operator/login",
                        "/api/operator/logout", "/api/report"}
 
     def do_POST(self) -> None:
@@ -855,6 +855,24 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(401, "bad node token")
                 db.heartbeat(nd["id"])
                 return self._json({"ok": True, "ts": now()})
+
+            if p == "/api/review/edit":
+                # Operator fixes a cosmetic description (e.g. the detector called
+                # an SUV a 'motorcycle'). Descriptive fields only - class, plate
+                # and position have their own review paths and are not touched.
+                if not self._is_local():
+                    return self._err(403, "local only")
+                b = self._body()
+                try:
+                    sid = int(b.get("id"))
+                except (TypeError, ValueError):
+                    return self._err(400, "bad id")
+                if not db.sighting(sid):
+                    return self._err(404, "no such sighting")
+                db.set_sighting_desc(sid, body=b.get("body"), color=b.get("color"))
+                db.audit("edit_desc", str(sid), actor="operator",
+                         ip=privacy.audit_ip(self.client_ip))
+                return self._json({"ok": True})
 
             if p == "/api/report":
                 # A public flag on a published sighting. Anyone may send one: it

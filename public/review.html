@@ -43,6 +43,10 @@ header a{color:var(--dim);text-decoration:none;font-size:12.5px}
 .card.flagged{border-color:var(--warn)}
 .flags{margin:6px 0;padding:6px 8px;border-radius:6px;background:#2a1a0a;
   color:var(--warn);font-size:11px;line-height:1.5}
+.desc{margin:5px 0;font-size:12px;color:var(--dim);font-family:var(--mono)}
+.editdesc{background:none;border:1px solid var(--line2);color:var(--dim2);border-radius:5px;
+  font:10px var(--mono);padding:1px 6px;margin-left:6px;cursor:pointer}
+.editdesc:hover{color:var(--police);border-color:var(--police)}
 .card img{width:100%;display:block;background:#000;aspect-ratio:16/9;object-fit:cover;cursor:zoom-in}
 .card .noimg{aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;
   background:#0a0e15;color:var(--dim2);font-size:11.5px;text-align:center;padding:12px}
@@ -60,6 +64,20 @@ header a{color:var(--dim);text-decoration:none;font-size:12.5px}
 .verdict{padding:9px 11px 11px;font:600 11px var(--mono);letter-spacing:.05em}
 .verdict.confirmed{color:var(--good)} .verdict.retracted{color:var(--hot)}
 .empty{max-width:640px;margin:60px auto;text-align:center;color:var(--dim);line-height:1.7}
+
+/* ---------- phone ---------- */
+@media (max-width:600px){
+  header{height:auto;min-height:52px;flex-wrap:wrap;align-items:flex-start;
+    gap:4px 14px;padding:9px 14px}
+  header .spacer{display:none}
+  header a{order:2;font-size:12px}          /* keep the back-to-map link on row 1 */
+  .counts{order:3;width:100%;gap:14px;flex-wrap:wrap;font-size:11.5px;margin-top:2px}
+  .note{margin:12px 12px 0}
+  .grid{grid-template-columns:1fr;padding:0 12px;margin:12px auto 32px;gap:12px}
+  .acts button{padding:13px 6px;font-size:12px}   /* bigger tap targets */
+  .editdesc{padding:4px 9px;font-size:11px}
+  .card img{aspect-ratio:4/3}                      /* taller photo = more legible plate/livery */
+}
 .empty b{color:var(--ink);font-size:16px}
 #lightbox{position:fixed;inset:0;background:#05070ae8;z-index:100;display:none;
   align-items:center;justify-content:center;cursor:zoom-out;padding:24px}
@@ -180,6 +198,10 @@ async function load(){
         <div class="cls">${esc(s.vclass)}${s.vclass_conf != null
           ? ' &middot; ' + Math.round(s.vclass_conf*100) + '%' : ''}</div>
         <div class="why">${esc(s.vclass_why || '')}</div>
+        <div class="desc" data-id="${s.id}"><span class="descval">${
+          (esc(s.color || '') + ' ' + esc(s.body || '')).trim() || '<i>no description</i>'}</span>
+          <button class="editdesc" data-id="${s.id}" data-body="${esc(s.body || '')}"
+            data-color="${esc(s.color || '')}">edit</button></div>
         ${(s.reports && s.reports.length) ? `<div class="flags">&#9873; ${s.reports.length}
           public flag${s.reports.length > 1 ? 's' : ''}: ${s.reports.map(r =>
             esc(REPORT_REASONS[r.reason] || r.reason)
@@ -242,6 +264,24 @@ async function onClick(e){
   if (img){
     $('#lightbox').style.display = 'flex';
     $('#lightbox img').src = img.src;
+    return;
+  }
+  const ed = e.target.closest('.editdesc');
+  if (ed){
+    const val = prompt('Correct the vehicle description (e.g. SUV, sedan, van, truck):',
+                       ed.dataset.body || '');
+    if (val === null) return;
+    ed.disabled = true;
+    const r = await (await fetch('/api/review/edit', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id: Number(ed.dataset.id), body: val})
+    })).json();
+    ed.disabled = false;
+    if (r.error) return alert(r.error);
+    const color = ed.dataset.color || '';
+    ed.closest('.desc').querySelector('.descval').textContent =
+      (color + ' ' + val).trim() || 'no description';
+    ed.dataset.body = val;
     return;
   }
   const b = e.target.closest('button[data-v]');
