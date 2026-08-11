@@ -197,8 +197,13 @@ main{position:absolute; inset:52px 0 57px 0; display:flex}
   html,body{overflow:visible; height:auto}
   body{padding-bottom:64px}                 /* last list row clears the fixed bar */
   /* Solid + on top: the sticky header must HIDE whatever scrolls under it. It
-     was transparent, so a pane's heading bled through and read as "cut off". */
-  .bar{position:sticky; top:0; z-index:1200; gap:10px; background:#0d1219}
+     was transparent, so a pane's heading bled through and read as "cut off".
+     flex-wrap so the plate search drops to its own row instead of overlapping
+     the logo on a narrow phone. */
+  .bar{position:sticky; top:0; z-index:1200; gap:8px 10px; background:#0d1219; flex-wrap:wrap}
+  /* Search gets its own full-width row under the brand + LIVE dot. */
+  .plateform{order:3; width:100%; margin-left:0; margin-top:2px}
+  .plateform input{width:auto; flex:1; min-width:0}
   main{position:static; inset:auto; display:block; height:auto; min-height:0}
   #map{height:56vh; flex:none}
   .panel{width:100%; flex:none; height:auto; min-height:0; overflow:visible;
