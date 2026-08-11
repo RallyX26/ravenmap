@@ -1,0 +1,5 @@
+# Shell scripts must stay LF or bash breaks (a CRLF script served to
+# `curl | bash` fails on the first line). PowerShell is fine either way; keep it
+# CRLF so it reads naturally on Windows.
+*.sh   text eol=lf
+*.ps1  text eol=crlf
