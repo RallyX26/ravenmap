@@ -46,6 +46,7 @@
 /* ---- call-to-action buttons --------------------------------------------
    Fill either value in and its button appears; leave it empty and the button
    is simply not rendered, so the page never ships a dead link. */
+const GITHUB_URL = "https://github.com/SparrowMap/sparrowmap";
 const INSTAGRAM_URL = "https://instagram.com/sparrowmap";
 const CONTACT_EMAIL = "sparrowmap@icloud.com";
 
@@ -53,9 +54,15 @@ const CONTACT_EMAIL = "sparrowmap@icloud.com";
   const host = document.getElementById("actions");
   if (!host) return;
   const out = [];
+  if (GITHUB_URL) {
+    const a = document.createElement("a");
+    a.className = "btn"; a.href = GITHUB_URL; a.rel = "noopener";
+    a.textContent = "Read the code on GitHub";
+    out.push(a);
+  }
   if (INSTAGRAM_URL) {
     const a = document.createElement("a");
-    a.className = "btn"; a.href = INSTAGRAM_URL; a.rel = "noopener";
+    a.className = "btn ghost"; a.href = INSTAGRAM_URL; a.rel = "noopener";
     a.textContent = "Follow for the opening";
     out.push(a);
   }
