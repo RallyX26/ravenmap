@@ -26,6 +26,12 @@
     .swrefresh.spin svg{transform:rotate(360deg)}
     .swrefresh.hard{border-color:#ffb547;color:#ffb547}
     @media print{.swrefresh{display:none}}
+    /* On a phone the header wraps to two rows and the search row would sit under
+       this button. Move it to the bottom-right instead (above the mode bar),
+       clear of the header entirely - no dependence on measuring header height. */
+    @media (max-width:860px){
+      .swrefresh{top:auto;bottom:calc(64px + env(safe-area-inset-bottom))}
+    }
   `;
   const style = document.createElement('style');
   style.textContent = css;
