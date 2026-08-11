@@ -329,6 +329,25 @@ def store_subresolution(data_url: str, meta: dict) -> str:
     return name
 
 
+def subresolution_bytes(data_url: str) -> bytes:
+    """The bytes of a sub-resolution (plate-illegible) crop, for the relay inbox.
+
+    Same guarantee as store_subresolution and enforced the same way: the image
+    is decoded and MEASURED, and anything a plate could be read from is refused
+    rather than quietly shrunk. Returns re-encoded JPEG bytes so a mirror can
+    park the crop for the home classifier without storing it as a snapshot.
+    """
+    import io
+    img = decode_upload(data_url)
+    if max(img.size) > SUBRES_MAX_EDGE:
+        raise ValueError(
+            f"sub-resolution submission is {img.width}x{img.height}; "
+            f"longest edge must be <= {SUBRES_MAX_EDGE}px")
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "JPEG", quality=85)
+    return buf.getvalue()
+
+
 def blur_faces(img: Image.Image) -> Image.Image:
     """Blur faces in a full frame.
 

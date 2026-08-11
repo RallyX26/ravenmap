@@ -1,0 +1,41 @@
+# SparrowMap desktop camera node — Python dependencies.
+#
+# A desktop node runs the FULL recognition pipeline locally: vehicle detection,
+# plate localisation + OCR, and the CLIP + trained-head government-vehicle
+# classifier. This is the accurate path — it tells a truck from a car and a
+# patrol car from an ordinary one, because it runs real detection models on
+# your machine instead of the tiny in-browser model a phone uses.
+#
+# A phone camera needs NONE of this (it runs in the browser). See
+# docs/DESKTOP_NODE.md for who should use which.
+#
+#   pip install -r requirements-node.txt
+#
+# The hub itself (hub.py, the map, the API) uses only the Python standard
+# library and needs nothing here — these are for running a camera.
+
+# --- core, always needed ---
+opencv-python>=4.9        # camera capture + image ops
+numpy>=1.26
+Pillow>=10                # CLIP image preprocessing
+cryptography>=42          # ed25519 node identity + signed detection events
+
+# --- detection (ONNX; the detector needs no torch) ---
+# CPU works for one camera. For an NVIDIA card with CUDA 12.x, replace the line
+# below with:  onnxruntime-gpu==1.22.0   (1.27+ is built for CUDA 13 and will
+# not load against 12.x — see detect/cuda_setup.py).
+onnxruntime>=1.22
+open-image-models>=0.3    # vehicle box (rf-detr-small-512-coco) + plate box (yolo-v9-s-608)
+fast-plate-ocr>=0.3       # plate reader (cct-s-v2-global-model)
+
+# --- government-vehicle classifier (recommended) ---
+# CLIP + the trained head are what separate a patrol car from an ordinary one.
+# Omit these two and the node still runs and still reports vehicles and plates,
+# but it cannot make the government call and treats every vehicle as civilian.
+# ~2.5 GB installed. Install torch to match your hardware BEFORE the rest:
+#   NVIDIA (CUDA 12.1):
+#     pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+#   CPU only:
+#     pip install torch==2.5.1
+torch==2.5.1
+transformers==4.51.3

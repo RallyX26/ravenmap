@@ -177,7 +177,7 @@ async function loadModel() {
   ort.env.wasm.numThreads = 1;
   ort.env.wasm.simd = true;
   ort.env.wasm.wasmPaths = '/vendor/';
-  session = await ort.InferenceSession.create('/vendor/yolo11n.onnx',
+  session = await ort.InferenceSession.create('/vendor/yolo11s.onnx',
     { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
   $('#loadbar').style.width = '100%';
   say($('#watchMsg'), 'Detector ready — cached now, instant next time.', true);

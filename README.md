@@ -21,6 +21,11 @@ The hub ships with a **simulated town** (`sources/synthetic.py`) so the whole
 system is testable against known ground truth with no hardware attached. It is
 off by default; `python hub.py --sim` turns it on.
 
+**Running a camera?** The one-tap browser camera needs no install — open the
+site and press *Add a camera*. For the full local pipeline (accurate vehicle
+classification, plate reading, and the trained government-vehicle head), see
+**[docs/DESKTOP_NODE.md](docs/DESKTOP_NODE.md)**.
+
 ---
 
 ## The design decision everything else follows from

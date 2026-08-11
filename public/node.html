@@ -121,7 +121,7 @@ ul.plain{margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--dim);line
   </div>
 
   <div class="bar" id="loadbar"><i></i></div>
-  <div class="msg" id="runMsg">The detector downloads once (about 21 MB) and is
+  <div class="msg" id="runMsg">The detector downloads once (about 47 MB) and is
     then cached on this phone.</div>
 
   <button class="big" id="btnStart" disabled>Start watching</button>
@@ -297,7 +297,7 @@ async function loadModel() {
   ort.env.wasm.numThreads = 1;          // phone browsers rarely allow more
   ort.env.wasm.simd = true;
   ort.env.wasm.wasmPaths = '/vendor/';
-  session = await ort.InferenceSession.create('/vendor/yolo11n.onnx',
+  session = await ort.InferenceSession.create('/vendor/yolo11s.onnx',
     { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
   bar.style.width = '100%';
   say($('#runMsg'), 'Detector ready. It is cached now — next time is instant.', true);

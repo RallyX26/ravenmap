@@ -91,8 +91,9 @@ brand/*.py
 # than by accident: a node operator downloads them, a mirror never needs them.
 #
 # NOTE public/vendor/ is NOT ignored, on purpose. The browser detector loads
-# ort-wasm-simd-threaded.wasm and yolo11n.onnx (20.8 MB) directly from this
+# ort-wasm-simd-threaded.wasm and yolo11s.onnx (36 MB) directly from this
 # server, and no CDN can reach a LAN phone. Those two files are the
 # contributor app working or not working.
 testvideo/
 *.pt
+.wrangler/

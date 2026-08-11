@@ -613,6 +613,8 @@ class Handler(BaseHTTPRequestHandler):
                         "SELECT * FROM sightings WHERE tier='private' AND ts > ? "
                         "AND reviewed IS NULL ORDER BY ts DESC LIMIT 400",
                         (day,)).fetchall()
+                    from detect import head as _head
+                    hthr = _head.threshold() if _head.available() else None
                     for r in rows2:
                         # One indexed column, one file read - no scanning.
                         if not r["bank_ref"]:
@@ -622,11 +624,19 @@ class Handler(BaseHTTPRequestHandler):
                             continue
                         meta = json.loads(j.read_text(encoding="utf-8"))
                         clip = meta.get("clip") or {}
-                        # A floor, or the queue fills with coin flips. CLIP's
-                        # argmax alone calls 13% of ordinary traffic police, so
-                        # an unfiltered list is noise - and a review queue
-                        # nobody trusts is a review queue nobody opens.
-                        if (clip.get("vclass") != "police"
+                        # The trained head decides when it has looked at the
+                        # crop; CLIP's raw argmax only gates the ones it never
+                        # saw. This matters most for PHONE crops: a phone cannot
+                        # run the head, so classify_worker scores them here later
+                        # and records `head_conf`. CLIP's argmax alone calls ~13%
+                        # of ordinary traffic police, so gating on it floods the
+                        # queue with exactly the false positives the head exists
+                        # to reject - honour the head whenever there is one.
+                        hc = clip.get("head_conf")
+                        if hc is not None and hthr is not None:
+                            if hc < hthr:
+                                continue
+                        elif (clip.get("vclass") != "police"
                                 or (clip.get("conf") or 0) < 0.50
                                 or (clip.get("margin") or 0) < 0.20):
                             continue
@@ -634,8 +644,13 @@ class Handler(BaseHTTPRequestHandler):
                         missed.append({
                             **{k: d.get(k) for k in
                                ("id", "ts", "vclass", "snap", "node_id")},
-                            "clip_conf": clip.get("conf"),
+                            # Sort and show the head's confidence when it decided,
+                            # so the strongest head calls float to the top rather
+                            # than being ordered by a CLIP score the head overrode.
+                            "clip_conf": hc if (hc is not None and hthr is not None)
+                            else clip.get("conf"),
                             "clip_margin": clip.get("margin"),
+                            "by_head": hc is not None and hthr is not None,
                             "label": meta.get("label"),
                         })
                     missed.sort(key=lambda m: -(m.get("clip_conf") or 0))
@@ -1140,6 +1155,20 @@ class Handler(BaseHTTPRequestHandler):
         evidence.pop("human_confirmed", None)
         evidence.pop("visual_police", None)
 
+        # A public mirror cannot score a phone crop (no GPU, no trained head),
+        # so it parks a plate-less copy for the home classifier to pull. Captured
+        # HERE, before the mirror drops the image below, and written to the inbox
+        # after the row exists so it can be keyed by the sighting id. The size is
+        # re-verified (subresolution_bytes), so an oversized crop is refused, not
+        # quarantined. See mirror.quarantine_write.
+        relay_crop = None
+        if (source == "phone_node" and ev.get("snap_b64")
+                and mirror.relay_enabled()):
+            try:
+                relay_crop = snapshot.subresolution_bytes(ev["snap_b64"])
+            except Exception:
+                relay_crop = None
+
         c = classify.classify(evidence)
 
         # A public SIGHTING and a published PLATE are different decisions.
@@ -1310,6 +1339,14 @@ class Handler(BaseHTTPRequestHandler):
                 _bank.link_sighting(banked_stem, rec["id"])
             except Exception:
                 pass
+        # Park the plate-less crop for the home classifier, keyed by this row.
+        # After strip_sighting, so nothing about the mirror's own record changed.
+        if relay_crop is not None:
+            mirror.quarantine_write(rec["id"], relay_crop, {
+                "ts": ts, "pub_lat": s_lat, "pub_lon": s_lon,
+                "node_name": nd.get("name") or "",
+                "det_conf": ev.get("det_conf"), "body": ev.get("body")})
+
         # A node that is posting is self-evidently awake, so a submission is
         # also a heartbeat. Detectors that never learn to beat still show
         # online while they are actually working.

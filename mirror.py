@@ -48,7 +48,21 @@ transmitted.**
 
 from __future__ import annotations
 
-from core import CONFIG
+import json
+import time
+from pathlib import Path
+from typing import Optional
+
+from core import CONFIG, DATA
+
+# Where a mirror parks a phone contributor's crop for the home classifier to
+# pull. A mirror has no GPU and no trained head, so it cannot decide whether a
+# public phone catch is a patrol car - only the home node can. The crop waits
+# here, already destroyed below plate legibility, until the home puller scores
+# it and deletes it. NOT the training bank (a mirror never banks); a short-lived
+# outbox, pruned on every write.
+INBOX = DATA / "inbox"
+INBOX_TTL = 12 * 3600     # a crop nobody pulled in 12h is stale; drop it
 
 
 def enabled() -> bool:
@@ -107,6 +121,57 @@ def node_fields(rec: dict) -> dict:
     out["lon"] = out.get("pub_lon")
     out["contact"] = None
     return out
+
+
+def relay_enabled() -> bool:
+    """Does this mirror quarantine phone crops for the home classifier?
+
+    On by default for a mirror, because the whole point of a public map is that
+    volunteers' phones contribute to it - and a phone cannot make the
+    government call itself. Off (`relay_inbox: false`) reverts to the old
+    behaviour: a phone crop on the mirror is dropped, never scored.
+    """
+    return enabled() and bool(CONFIG.get("relay_inbox", True))
+
+
+def _prune_inbox() -> None:
+    """Drop crops the home puller never came for. Best-effort, never raises."""
+    try:
+        cutoff = time.time() - INBOX_TTL
+        for j in INBOX.glob("*.json"):
+            try:
+                if float(json.loads(j.read_text(encoding="utf-8"))
+                         .get("written", 0)) < cutoff:
+                    j.with_suffix(".jpg").unlink(missing_ok=True)
+                    j.unlink(missing_ok=True)
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
+def quarantine_write(sighting_id: int, crop_bytes: bytes,
+                     meta: dict) -> Optional[str]:
+    """Park one plate-less phone crop for the home classifier to pull.
+
+    The crop is ALREADY below plate legibility when it reaches here (the phone
+    destroyed it; snapshot.subresolution_bytes re-verified the size). The mirror
+    keeps it only long enough for the home node to read it over an out-of-band
+    channel and delete it. Nothing here is served by any HTTP route - a mirror
+    grows no operator surface for this. Best-effort: a sighting is never failed
+    because its crop could not be parked.
+    """
+    try:
+        INBOX.mkdir(parents=True, exist_ok=True)
+        _prune_inbox()
+        stem = str(int(sighting_id))
+        (INBOX / f"{stem}.jpg").write_bytes(crop_bytes)
+        (INBOX / f"{stem}.json").write_text(json.dumps(
+            {**meta, "sighting_id": int(sighting_id), "written": time.time()},
+            indent=1), encoding="utf-8")
+        return stem
+    except Exception:
+        return None
 
 
 def route_allowed(path: str) -> bool:
