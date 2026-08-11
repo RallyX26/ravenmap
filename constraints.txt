@@ -1,0 +1,11 @@
+# Pins for anything installed into the SparrowMap venv.
+# On the development machine that venv is shared with other GPU work, where torch 2.5.1
+# and transformers 4.51.3 are load-bearing. ultralytics happily upgrades torch
+# if you let it, so it does not get to.
+torch==2.5.1+cu121
+torchvision==0.27.1
+torchaudio==2.5.1+cu121
+transformers==4.51.3
+numpy==2.4.6
+pillow==12.2.0
+scipy==1.18.0

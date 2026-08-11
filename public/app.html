@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- Installable app (PWA): "Add to Home Screen" / "Install" turns this into a
+     standalone camera app. No binary to download, sign, or tamper with - it is
+     the live page, which is the safest form for something people run 24/7. -->
+<link rel="manifest" href="/static/manifest.webmanifest">
+<meta name="theme-color" content="#0B0E13">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SparrowMap">
+<title>SparrowMap</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<style>
+/* SparrowMap, as one program.
+ *
+ * There were several contributor pages and a person had to know which one
+ * they wanted before they could do anything. That is a website's shape, not a
+ * program's.
+ *
+ * One page, three modes, one piece of state (the camera this device holds).
+ * The modes that make no sense yet are simply not offered: before a camera is
+ * registered there is exactly one thing to do, so there is exactly one button.
+ *
+ * Deliberately no framework. The whole app is smaller than the runtime it
+ * would have needed, it loads on a ten-year-old phone, and the strict CSP that
+ * protects this deployment costs nothing because there is nothing external to
+ * allow.
+ */
+:root{
+  --bg:#0a0d12; --bg2:#111621; --line:#1e2634; --line2:#2a3547;
+  --ink:#e6ecf5; --dim:#8794a8; --dim2:#5c6879;
+  --blue:#3d8cff; --good:#3ddc97; --warn:#ffb547; --hot:#ff3b47;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.5 ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;
+  display:flex;flex-direction:column;overflow:hidden}
+
+/* ---- chrome ---------------------------------------------------------- */
+header{display:flex;align-items:center;gap:12px;padding:10px 14px;flex:0 0 auto;
+  background:linear-gradient(180deg,#121826,#0d1219);border-bottom:1px solid var(--line)}
+header .mark{width:28px;height:28px;display:block}
+header b{letter-spacing:.16em;font-size:13px}
+header .who{display:block;font:10.5px var(--mono);color:var(--dim2)}
+header .sp{margin-left:auto}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--dim2);
+  margin-right:6px;vertical-align:middle}
+.dot.on{background:var(--good);box-shadow:0 0 8px var(--good)}
+.dot.busy{background:var(--warn)}
+
+/* min-height:0 is the fix for "can't scroll on the phone": a flex child will not
+   shrink below its content without it, so overflow-y:auto never has anything to
+   scroll and the page felt frozen. */
+main{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
+  padding:16px 14px calc(24px + env(safe-area-inset-bottom))}
+.wrap{max-width:640px;margin:0 auto}
+
+/* ---- the mode bar, which IS the program ------------------------------- */
+nav.modes{flex:0 0 auto;display:flex;gap:0;background:#0d1219;
+  border-top:1px solid var(--line)}
+nav.modes button{flex:1;background:none;border:0;color:var(--dim2);cursor:pointer;
+  padding:11px 4px calc(11px + env(safe-area-inset-bottom));
+  font:600 10.5px var(--mono);letter-spacing:.09em;text-transform:uppercase;
+  border-top:2px solid transparent;-webkit-tap-highlight-color:transparent}
+nav.modes button.on{color:var(--ink);border-top-color:var(--blue);background:#111621}
+nav.modes button:disabled{opacity:.3;cursor:default}
+nav.modes .ic{display:block;font-size:16px;margin-bottom:3px;letter-spacing:0}
+
+h1{font-size:19px;margin:2px 0 4px}
+h2{font:600 10.5px var(--mono);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--dim2);margin:22px 0 8px}
+p.note{font-size:13px;color:var(--dim);line-height:1.65;margin:8px 0}
+p.note b{color:var(--ink)}
+.box{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:14px}
+label{display:block;font-size:11.5px;color:var(--dim);margin:10px 0 4px}
+input,select{width:100%;background:#0a0e15;color:var(--ink);border:1px solid var(--line2);
+  border-radius:9px;padding:11px;font:14px var(--mono)}
+input:focus,select:focus{outline:none;border-color:var(--blue)}
+button.big{width:100%;margin-top:10px;padding:13px;border-radius:10px;cursor:pointer;
+  background:var(--blue);color:#04101f;border:0;font:700 12.5px ui-sans-serif,system-ui;
+  letter-spacing:.03em;-webkit-tap-highlight-color:transparent}
+button.big.alt{background:#0d121c;color:var(--ink);border:1px solid var(--line2)}
+button.big.stop{background:var(--hot);color:#fff}
+button.big.warn{background:#2a1a0a;color:var(--warn);border:1px solid #6b4a17}
+button.big:disabled{opacity:.4;cursor:default}
+.msg{font-size:12.5px;margin-top:9px;color:var(--dim);min-height:1.2em;line-height:1.5}
+.msg.ok{color:var(--good)} .msg.bad{color:var(--hot)}
+.hidden{display:none !important}
+
+.stage{position:relative;background:#000;border-radius:10px;overflow:hidden;
+  border:1px solid var(--line2);aspect-ratio:4/3}
+.stage:not(.live)::after{content:"camera off";position:absolute;inset:0;
+  display:flex;align-items:center;justify-content:center;background:#000c;
+  color:var(--dim);font:600 11px var(--mono);letter-spacing:.18em;text-transform:uppercase}
+.stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.stage video{object-fit:cover}
+.stage:not(.live) video{opacity:0}
+.stage canvas{pointer-events:none}
+
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.stat{background:#0a0e15;border:1px solid var(--line);border-radius:9px;padding:9px;text-align:center}
+.stat b{display:block;font:700 17px var(--mono)}
+.stat span{font-size:10px;color:var(--dim2);letter-spacing:.06em;text-transform:uppercase}
+.pills{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;line-height:1;padding:3px 9px;
+  border-radius:99px;font:600 10.5px var(--mono);border:1px solid var(--line2);color:var(--dim)}
+.pill.on{color:var(--good);border-color:#1d5c43}
+.pill.warn{color:var(--warn);border-color:#5c4a1d}
+.bar{height:4px;background:#0a0e15;border-radius:99px;overflow:hidden;margin-top:9px}
+.bar i{display:block;height:100%;background:var(--blue);width:0;transition:width .3s}
+
+.row{display:flex;gap:9px} .row>*{flex:1}
+.qrwrap{display:flex;justify-content:center;padding:6px 0}
+.qrwrap img{width:min(240px,66vw);border-radius:10px;background:#fff;padding:8px;
+  image-rendering:pixelated}
+.warnbox{background:#231015;border:1px solid #4a2029;border-radius:10px;padding:12px 14px;
+  font-size:12.5px;line-height:1.6;color:#ffb3bd;margin-top:12px}
+.warnbox b{color:#ff9aa6}
+ul.plain{margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--dim);line-height:1.75}
+a{color:var(--blue)}
+</style>
+</head>
+<body>
+
+<header>
+  <img src="/static/mark.png" class="mark" alt="SparrowMap" width="28" height="28">
+  <div><b>SPARROWMAP</b><span class="who" id="who">no camera on this device</span></div>
+  <span class="sp"></span>
+  <a href="/" style="color:var(--dim2);text-decoration:none;font:600 12px ui-monospace,Consolas,monospace;padding:5px 10px;border:1px solid var(--line);border-radius:7px;margin-right:8px;white-space:nowrap" title="Back to the map">&larr; Map</a>
+  <span class="pill" id="netpill"><i class="dot" id="netdot"></i><span id="nettext">idle</span></span>
+</header>
+
+<main>
+  <div class="wrap">
+
+    <!-- ============ SETUP ============ -->
+    <section id="m-setup">
+      <h1>Set up this camera</h1>
+      <p class="note">Any device with a camera and a browser &mdash; a phone in
+        a window, a laptop, a USB webcam. <b>Nothing to install, no account.</b>
+        Detection runs here; <b>no video is ever uploaded</b>.</p>
+      <div class="box">
+        <label for="nname">Name it (shown on the map)</label>
+        <input id="nname" placeholder="Main St, facing south" autocomplete="off" maxlength="60">
+        <label for="kindsel">What is this camera?</label>
+        <select id="kindsel">
+          <option value="phone">A device I carry or move around</option>
+          <option value="fixed">Fixed in a window, watching one road</option>
+        </select>
+        <label for="camsel">Camera</label>
+        <select id="camsel"><option value="">default camera</option></select>
+        <label for="reach">How far down the road it sees (metres)</label>
+        <input id="reach" type="number" value="30" min="5" max="120">
+        <button class="big alt" id="btnGeo">Use my location</button>
+        <p class="note" style="margin-top:-2px">SparrowMap does not keep your exact
+          location. It is used only to work out which <b>road</b> your camera
+          watches &mdash; the map stores just that road and a point blurred by
+          about 60&nbsp;m, never your address or your precise spot.</p>
+        <button class="big" id="btnEnroll">Register this camera</button>
+        <div class="msg" id="setupMsg"></div>
+      </div>
+      <p class="note">Already have a camera elsewhere? Scan its key with this
+        device's camera app, or open the key file from a USB stick.</p>
+    </section>
+
+    <!-- ============ WATCH ============ -->
+    <section id="m-watch" class="hidden">
+      <h1>Watch the road</h1>
+      <div class="box">
+        <div class="stage" id="stage">
+          <video id="video" playsinline muted autoplay></video>
+          <canvas id="ov"></canvas>
+        </div>
+        <div class="bar"><i id="loadbar"></i></div>
+        <div class="msg" id="watchMsg">The detector downloads once (~21 MB) and is
+          then cached on this device.</div>
+        <button class="big" id="btnStart">Start watching</button>
+        <button class="big stop hidden" id="btnStop">Stop</button>
+        <div class="grid3">
+          <div class="stat"><b id="sFps">&mdash;</b><span>fps</span></div>
+          <div class="stat"><b id="sSeen">0</b><span>vehicles</span></div>
+          <div class="stat"><b id="sSent">0</b><span>sent</span></div>
+        </div>
+        <div class="pills">
+          <span class="pill" id="pWake">screen lock</span>
+          <span class="pill" id="pBatt">battery</span>
+        </div>
+      </div>
+      <h2>Leaving it running</h2>
+      <div class="box"><ul class="plain">
+        <li>Keep it <b>plugged in</b>.</li>
+        <li>Leave this window <b>visible</b> &mdash; browsers freeze hidden tabs,
+            and a frozen tab sees nothing. It does not need to be focused.</li>
+        <li>On battery it stops itself at <b>20%</b> rather than killing the device.</li>
+        <li>Wedge it against the glass; reflections are the usual reason a window
+            camera sees nothing at night.</li>
+      </ul></div>
+    </section>
+
+    <!-- Log-by-hand was REMOVED deliberately. It let a person type any plate,
+         tick the evidence boxes themselves and submit it at plate_conf 0.95
+         attributed to a real camera at a real position. A confirmed public
+         sighting is what makes a plate searchable, so that path could publish
+         an arbitrary plate about an arbitrary vehicle, and no amount of
+         warning text under the form changes what the form can do. The camera
+         decides what it sees; a person only reviews it. -->
+
+    <!-- ============ KEY ============ -->
+    <section id="m-key" class="hidden">
+      <h1>This camera's key</h1>
+      <p class="note">An account without an account.</p>
+      <div class="box">
+        <div class="qrwrap"><img id="qr" alt="Camera key"></div>
+        <p class="note"><b>Photograph this with another device</b> to give it
+          control of this camera. No sign-in, nothing to remember.</p>
+        <button class="big alt" id="kFile">Save a key file (USB stick)</button>
+        <button class="big alt" id="kPrint">Print it</button>
+        <button class="big warn" id="kRotate">Rotate the key</button>
+        <div class="msg" id="kMsg"></div>
+      </div>
+      <div class="warnbox">
+        <b>Whoever holds this key controls the camera.</b> That is what makes it
+        anonymous &mdash; there is no account tying it to a person. It also means
+        a photograph of this screen is enough. Treat it like a house key.
+        <br><br>Rotating mints a new key and kills every copy of the old one,
+        including any you printed or shared.
+      </div>
+      <p class="note">The secret sits after a <code>#</code> in the link, and
+        <b>browsers never send that part to a server</b>. Scanning a key
+        transmits nothing to us. We cannot recover it for you, because we do
+        not have it.</p>
+    </section>
+
+  </div>
+</main>
+
+<nav class="modes">
+  <button data-m="setup" class="on"><span class="ic">&#9881;</span>Setup</button>
+  <button data-m="watch" disabled><span class="ic">&#128065;</span>Watch</button>
+  <button data-m="key" disabled><span class="ic">&#128273;</span>Key</button>
+</nav>
+
+<script src="/vendor/ort.wasm.min.js"></script>
+<script src="/static/sparrow-app.js"></script>
+</body>
+</html>

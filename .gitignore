@@ -1,0 +1,98 @@
+# What must never leave this machine.
+#
+# This repository is public, so anything committed here is published to
+# everyone who browses it, and to everyone who clones it to run their own
+# instance.
+#
+# THREAT_MODEL.md spends its length arguing that a breach of the public box
+# should yield only the already-published record. A `git add .` without this
+# file hands over more than a breach of the box ever could, because the box
+# runs in public_mirror mode and this directory does not.
+#
+# Rule: this file denies whole DIRECTORIES, not extensions. A rule like
+# "*.token" protects the files you thought of; "data/" protects the ones you
+# did not.
+
+# ---------------------------------------------------------------------------
+# THE OPERATIONAL DATA. 313 MB, 22,849 files.
+#
+#   data/sparrow.db     2,348 sightings, and the node table holds TRUE lat/lon.
+#                       Publishing it defeats the 44 m jitter that exists to
+#                       keep a volunteer's home address out of the record -
+#                       for every node, including the ones that are not his.
+#   data/snaps/         2,716 photographs of vehicles on a real street.
+#   data/training/      19,790 crops, private-tier included.
+#   data/operator.token the credential that can retract, promote and CONFIRM,
+#                       and confirming is what makes a plate searchable.
+#   data/models/        the trained head - his labels, not redistributable
+#                       without deciding to.
+data/
+
+# ---------------------------------------------------------------------------
+# CAMERA CREDENTIALS AND TRUE POSITION.
+#
+# placement.json carries node_id AND token together. The token is a BEARER
+# credential: whoever holds it owns that camera - can post as it, move it,
+# rename it. It also carries the camera's true lat/lon, unjittered.
+camctl/placement.json
+
+# TLS private key for the LAN https listener the phone nodes use.
+certs/
+
+# ---------------------------------------------------------------------------
+# LOCAL STATE, not settings anyone else should inherit.
+#
+# config.json is the LAN hub's config: operator auth OFF, public_mirror OFF.
+# Publishing it would invite someone to launch a public box carrying the
+# development posture. config.launch.json is the one to copy, and it IS
+# committed, with the reason for each value written beside it.
+config.json
+logs/
+*.log
+*.err
+
+# ---------------------------------------------------------------------------
+# BUILD AND ENVIRONMENT
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.DS_Store
+Thumbs.db
+
+# ---------------------------------------------------------------------------
+# ONE OPERATOR'S MACHINE, not the project.
+#
+# These are launchers and one-shot scripts wired to a specific PC: absolute
+# D: paths, a venv location, a hostname, and registration into a private
+# cockpit and pages hub that only exist on that machine. They would not run
+# for anybody else, and publishing them advertises the layout and the machine
+# name of the person running the cameras for no benefit to a reader.
+Resume Sparrow.ps1
+Start Sparrow.bat
+Start Camera Node.bat
+camctl/Start Camera Control.bat
+register.py
+register_camctl.py
+vmlab/
+
+# The brand GENERATORS read a source photo from a personal folder. The
+# finished marks (png/ico) are kept - they are what a contributor needs.
+brand/*.py
+
+# ---------------------------------------------------------------------------
+# LARGE FIXTURES AND WEIGHTS the public box never loads.
+#
+# testvideo/ is 94 MB of Wikimedia sample clips used for offline detector
+# runs. The mirror does not detect anything, so it is dead weight in a clone.
+#
+# The .pt weights are Ultralytics (AGPL) and are detector-side only - the
+# mirror imports neither cv2 nor ultralytics. Left out deliberately rather
+# than by accident: a node operator downloads them, a mirror never needs them.
+#
+# NOTE public/vendor/ is NOT ignored, on purpose. The browser detector loads
+# ort-wasm-simd-threaded.wasm and yolo11n.onnx (20.8 MB) directly from this
+# server, and no CDN can reach a LAN phone. Those two files are the
+# contributor app working or not working.
+testvideo/
+*.pt

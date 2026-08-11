@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Label vehicles — SparrowMap</title>
+<link rel="icon" href="data:,">
+<style>
+/* Built for speed, not for looking at. Hundreds of these get labelled in a
+   sitting, so the image is huge, the buttons are enormous, and the keyboard
+   does everything. Every pixel that is not the vehicle is wasted. */
+:root{
+  --bg:#0a0d12; --bg2:#111621; --line:#1e2634; --line2:#2a3547;
+  --ink:#e6ecf5; --dim:#8794a8; --dim2:#5c6879;
+  --blue:#3d8cff; --good:#3ddc97; --warn:#ffb547; --hot:#ff5b6e;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);overflow:hidden;
+  font:14px/1.45 ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;
+  display:flex;flex-direction:column}
+
+header{height:50px;flex:none;display:flex;align-items:center;gap:16px;
+  padding:0 14px;background:linear-gradient(180deg,#121826,#0d1219);
+  border-bottom:1px solid var(--line)}
+header b{letter-spacing:.16em;font-size:12.5px}
+header .sub{font-size:10.5px;color:var(--dim2);display:block}
+header a{color:var(--dim);text-decoration:none;font-size:12.5px}
+header a:hover{color:var(--ink)}
+.spacer{margin-left:auto}
+
+.counts{display:flex;gap:15px;font:11.5px var(--mono);color:var(--dim)}
+.counts b{color:var(--ink)}
+.counts i{font-style:normal;color:var(--good)}
+.counts .warn{color:var(--warn)}
+.counts .dim{color:var(--dim2)}
+
+.modes{display:flex;gap:4px}
+.mode{font:600 10.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;
+  padding:6px 10px;border-radius:6px;cursor:pointer;color:var(--dim);
+  background:#0d121c;border:1px solid var(--line2)}
+.mode.on{color:#080c12;background:var(--blue);border-color:transparent}
+
+main{flex:1;display:flex;align-items:center;justify-content:center;
+  padding:16px;min-height:0;position:relative}
+/* Scale UP to fill the space, not just down to fit it. These crops are a few
+   hundred pixels across, and at native size the thing being judged is a
+   postage stamp in the middle of a black screen. A big soft image is far
+   easier to call than a small sharp one, and the call is what matters. */
+#img{width:100%;height:100%;border-radius:10px;
+  border:1px solid var(--line2);background:#000;
+  image-rendering:auto;object-fit:contain}
+#empty{text-align:center;color:var(--dim);max-width:460px;line-height:1.6}
+#empty b{color:var(--ink);font-size:16px}
+
+.bar{flex:none;padding:12px 14px 16px;border-top:1px solid var(--line);
+  background:var(--bg2)}
+.btns{display:flex;gap:10px;max-width:900px;margin:0 auto}
+.b{flex:1;padding:16px 10px;border-radius:10px;cursor:pointer;border:1px solid var(--line2);
+  background:#0d121c;color:var(--ink);font:600 15px ui-sans-serif,system-ui;
+  display:flex;flex-direction:column;align-items:center;gap:3px}
+.b kbd{font:600 10px var(--mono);color:var(--dim2);background:#080c12;
+  border:1px solid var(--line2);border-radius:4px;padding:1px 5px}
+.b:hover{border-color:var(--blue)}
+.b.police{background:#2a1013;border-color:#7a2630}
+.b.police:hover{border-color:#ff3b47}
+.b.gov{background:#101d2a;border-color:#26506e}
+.b.gov:hover{border-color:#4aa3e0}
+.b.fleet{background:#241f14;border-color:#4a3a1c}
+.b.fleet:hover{border-color:#ffb547}
+
+.b.civ{background:#1a1f28}
+.b.unsure{background:#241f14;border-color:#4a3a1c}
+.b.undo{flex:0 0 110px;background:#0a0e15;color:var(--dim)}
+
+.reveal{max-width:900px;margin:10px auto 0;min-height:34px;
+  font:12px var(--mono);color:var(--dim2);text-align:center;line-height:1.5}
+.reveal .agree{color:var(--dim)}
+.reveal .disagree{color:var(--warn)}
+.reveal b{color:var(--ink)}
+
+.note{max-width:900px;margin:0 auto 10px;font-size:11.5px;color:var(--dim2);
+  text-align:center;line-height:1.5}
+.note b{color:var(--dim)}
+/* The rest of the same vehicle pass. One car becomes several crops because
+   the tracker loses and re-acquires it, and each one used to arrive as its own
+   labelling decision - about one click in three. Shown rather than merged: no
+   automatic rule was both safe and useful (see labelbank.same_pass), and two
+   different cars side by side is obvious to a person. */
+#pass{max-width:900px;margin:10px auto 0}
+.passhint{font:11.5px var(--mono);color:var(--dim2);margin-bottom:6px}
+.strip{display:flex;gap:6px;flex-wrap:wrap}
+.strip img{height:74px;border-radius:6px;border:1px solid var(--line2);background:#000}
+.passtoggle{display:flex;align-items:center;gap:7px;margin-top:8px;
+  font:11.5px var(--mono);color:var(--dim);cursor:pointer}
+.passtoggle input{accent-color:var(--blue)}
+</style>
+</head>
+<body>
+
+<header>
+  <div><b>LABEL VEHICLES</b><span class="sub">ground truth for the classifier</span></div>
+  <div class="modes">
+    <button class="mode on" data-m="review">Review</button>
+    <button class="mode" data-m="likely">Likely gov</button>
+    <button class="mode" data-m="hunt">Hunt</button>
+    <button class="mode" data-m="recheck">Recheck</button>
+    <button class="mode" data-m="remote">Remote</button>
+    <button class="mode" data-m="marked">Marked gov</button>
+    <button class="mode" data-m="split">Split police/gov</button>
+  </div>
+  <div class="spacer"></div>
+  <div class="counts" id="counts"></div>
+  <a href="/">&larr; camera</a>
+</header>
+
+<main>
+  <img id="img" alt="" style="display:none">
+  <div id="pass" style="display:none">
+    <div class="passhint"></div>
+    <div class="strip"></div>
+    <label class="passtoggle">
+      <input type="checkbox" id="passall">
+      same vehicle — apply my answer to all of them
+    </label>
+  </div>
+  <div id="empty" style="display:none"></div>
+</main>
+
+<div class="bar">
+  <div class="btns">
+    <!-- ⚠️ P AND G ARE NO LONGER THE SAME BUTTON. Both used to write `police`
+         because there was only one government key. Police = a law-enforcement
+         vehicle; Government = publicly owned but not police (a city pickup, a
+         DPW truck, a county van). See labelbank.VALID. -->
+    <button class="b police" data-l="police">Police<kbd>P</kbd></button>
+    <button class="b gov"    data-l="gov">Gov, not police<kbd>G</kbd></button>
+    <button class="b fleet"  data-l="fleet">Fleet / commercial<kbd>F</kbd></button>
+    <button class="b civ"    data-l="civilian">Private vehicle<kbd>C</kbd></button>
+    <button class="b unsure" data-l="unsure">Can't tell<kbd>U</kbd></button>
+    <button class="b undo"   id="undo">Undo<kbd>Z</kbd></button>
+  </div>
+  <div class="reveal" id="reveal"></div>
+  <div class="note" id="modenote"></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let cur = null, last = null, mode = 'review', busy = false;
+const PASSKEY = 'sparrow.passall';
+
+const NOTES = {
+  likely: `<b>Likely government first:</b> sorted by how strongly the model
+           called it a government vehicle. This is the fastest way to find the
+           thing that is actually holding the classifier back &mdash; there are
+           only ten confirmed government vehicles from this camera, and recall
+           moves in ten-point steps until there are more.
+           <b>These labels train, they never measure:</b> the ordering itself
+           tells you what to expect, so they are excluded from the measurable
+           set automatically.`,
+  review: `<b>Review mode:</b> random order, so these labels are a fair sample and
+           can be used to MEASURE precision and recall. This is the mode that
+           decides whether the public tier is safe to turn on.`,
+  hunt:   `<b>Hunt mode:</b> the cases the model finds hardest, first. Fastest way
+           to IMPROVE it &mdash; but these labels are a biased sample by
+           construction and must never be quoted as a performance figure.`,
+  marked: `<b>Marked government:</b> every crop YOU called a government vehicle,
+           newest first, so a mistake can be taken back. Answering
+           <b>Private vehicle</b> here does not just change the label &mdash; it
+           <b>retracts the sighting from the public map</b>, because marking a
+           crop government is what put it there. This mode exists because an
+           accidental keypress had no route back and twice needed the database
+           edited by hand.`,
+  remote: `<b>Remote mode:</b> crops from <b>other people's nodes</b> - a phone in
+           someone else's window, not the camera this project has always been
+           measured on. Different street, angle, lens and light, which is the
+           whole point: it is the only data here whose conditions nobody chose.
+           Oldest first, which is simply fair to whoever contributed them.
+           Nothing has guessed about these, so there is no model call to reveal
+           and no ranking to anchor you.`,
+  split:  `<b>Split police / government:</b> every crop labelled back when one
+           button said "Government" and meant both. It is being re-asked as two
+           questions, because <b>there is no police-vs-gov classifier and this is
+           why</b> &mdash; classify.py has always had four classes and the label
+           set only ever had three, so a marked patrol car and a city pickup are
+           the same answer in the data. Ordered by camera then time, so the
+           several crops of one vehicle arrive together. Your original label is
+           not changed until you answer; nothing here is inferred.`,
+  recheck:`<b>Recheck mode:</b> already marked <b>private</b>, but the model saw a
+           fleet or government vehicle. Until the Fleet button existed there was
+           nothing truer to click for a box truck or an ambulance &mdash; and those
+           labels are what is currently holding the classifier's accuracy down.
+           Correcting one here is worth more than three new labels.`,
+};
+
+async function api(path, opts){ return (await fetch(path, opts)).json(); }
+
+function showCounts(s){
+  if (!s || s.total == null) return;
+  // 🚨 SHOW VEHICLE PASSES, NOT CROPS.
+  // This read "242 gov" while the camera had seen SIXTEEN government vehicles.
+  // 201 of the 242 were scraped MSP photographs (three degraded copies each of
+  // 67 originals, and measured to make the classifier worse), and the local
+  // remainder was fragmented by the tracker into several crops per car. A
+  // number that grows when you augment your data is measuring augmentation.
+  // The pass count is the one that has actually capped this classifier.
+  const passes = s.positive_passes != null ? s.positive_passes : (s.positives || 0);
+  const pos = s.positives || 0;
+  const extra = s.positive_public
+    ? `${pos} crops incl. ${s.positive_public} public photos`
+    : `${pos} crops`;
+  $('#counts').innerHTML =
+    `<span><b>${s.labelled}</b>/${s.total} labelled</span>
+     <span class="${passes ? '' : 'warn'}" title="distinct government vehicles this camera has seen — ${extra}"><i>${passes}</i> gov vehicles</span>
+     <span class="dim">(${extra})</span>
+     <span>${s.fleet || 0} fleet</span>
+     <span class="${s.unsplit ? 'warn' : ''}" title="crops labelled when one button meant both police and government — split mode re-asks them">${s.unsplit || 0} unsplit</span>
+     <span class="${s.recheck ? 'warn' : ''}">${s.recheck || 0} to recheck</span>
+     <span>${s.measurable || 0} measurable</span>`;
+}
+
+/* Show the rest of the pass, so one decision can cover the whole car. */
+/* ⚠️ DEFAULTS TO OFF, AND THAT IS DELIBERATE.
+   The 2-second window is generous on purpose - being wrong costs a glance, not
+   a bad label - but at a busy moment it will put two different cars in one
+   strip, and it visibly does. Ticking this by default would spend that
+   generosity on silent mislabels, and a wrong label is worse than no label:
+   it is indistinguishable from signal at training time.
+   The choice is remembered, so a run of clean groups costs one tick, not one
+   per car. */
+function renderPass(d){
+  const g = d.group || [];
+  const box = $('#pass');
+  if (!g.length){ box.style.display = 'none'; return; }
+  box.style.display = '';
+  box.querySelector('.passhint').textContent =
+    `${g.length} more crop${g.length===1?'':'s'} from the same second — probably `
+    + `this same vehicle. Check they are before answering.`;
+  $('#passall').checked = localStorage.getItem(PASSKEY) === '1';
+  box.querySelector('.strip').innerHTML = g.map(x =>
+    `<img src="/api/bank/img/${encodeURIComponent(x.day)}/${encodeURIComponent(x.stem)}" alt="">`
+  ).join('');
+}
+
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'passall')
+    localStorage.setItem(PASSKEY, e.target.checked ? '1' : '0');
+});
+
+async function load(){
+  // Deliberately does NOT clear the reveal. It describes the crop you just
+  // judged, and it is worth reading while you look at the next one - a
+  // disagreement with the model is the interesting case. Clearing it here made
+  // it flash for a few milliseconds and vanish, which is the same as not
+  // having built it.
+  const d = await api('/api/bank/next?mode=' + mode);
+  showCounts(d);
+  if (d.done){
+    cur = null;
+    $('#img').style.display = 'none';
+    const e = $('#empty');
+    e.style.display = '';
+    e.innerHTML = `<b>Everything banked has been labelled.</b><br><br>
+      ${d.labelled} crops done, ${d.positives || 0} of them police.<br><br>
+      Leave the camera node running and come back &mdash; it banks every
+      vehicle it sees. ${d.positives ? '' :
+      'No police vehicle has been labelled yet, so recall is still unknown and the public tier stays off.'}`;
+    return;
+  }
+  cur = d;
+  $('#empty').style.display = 'none';
+  renderPass(d);
+  const im = $('#img');
+  im.style.display = '';
+  im.src = `/api/bank/img/${d.day}/${d.stem}`;
+}
+
+async function label(l){
+  if (!cur || busy) return;
+  busy = true;
+  const item = cur;
+  const r = await api('/api/bank/label', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({day:item.day, stem:item.stem, label:l, mode,
+      // Only sent when he chose it, and he was looking at every crop in the
+      // strip when he did.
+      also: ($('#passall').checked && item.group) ? item.group : []})
+  });
+  last = item;
+  showCounts(r);
+  // The model's guess appears only NOW. Before the call it is not sent to this
+  // page at all, so it cannot anchor the decision it is being measured against.
+  if (r.clip && r.clip.vclass){
+    const ok = r.agreed;
+    $('#reveal').innerHTML =
+      `<span class="${ok ? 'agree' : 'disagree'}">CLIP said
+       <b>${r.clip.vclass}</b> at ${Math.round((r.clip.conf||0)*100)}%
+       &mdash; ${ok ? 'agreed' : 'you disagreed'}</span>`;
+  }
+  busy = false;
+  load();
+}
+
+$('#undo').onclick = async () => {
+  if (!last) return;
+  const undo = await api('/api/bank/label', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({day:last.day, stem:last.stem, clear:true})
+  });
+  // Say what the undo REVERSED. Labelling a crop "Government" also puts its
+  // sighting on the public map, and for a while Undo silently left it there -
+  // #27421, a night frame nobody can identify, sat published for 14 hours
+  // after an accidental keypress. An undo has to report what it undid.
+  if (undo && undo.undone){
+    $('#reveal').innerHTML = `<span class="agree">Undone — <b>${undo.undone}</b>.</span>`;
+  }
+  cur = last; last = null;
+  $('#reveal').innerHTML = '';
+  $('#empty').style.display = 'none';
+  const im = $('#img'); im.style.display = '';
+  im.src = `/api/bank/img/${cur.day}/${cur.stem}?r=` + Math.random();
+  showCounts(await api('/api/bank/stats'));
+};
+
+document.querySelectorAll('.b[data-l]').forEach(b =>
+  b.onclick = () => label(b.dataset.l));
+
+document.querySelectorAll('.mode').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.mode').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  mode = b.dataset.m;
+  $('#modenote').innerHTML = NOTES[mode];
+  load();
+});
+
+// The keyboard is the real interface. Anyone labelling hundreds of these will
+// never touch the mouse.
+addEventListener('keydown', e => {
+  if (e.repeat) return;
+  const k = e.key.toLowerCase();
+  // 🚨 P AND G NOW WRITE DIFFERENT LABELS. They were an alias for `police` while
+  // one button meant every publicly owned vehicle. Splitting the class splits
+  // the key: P = police, G = government but not police. Muscle memory will send
+  // a few city pickups to P on the first session - Undo (Z) and `marked` mode
+  // both reverse it, and the vocab stamp means an old label is never mistaken
+  // for a new one.
+  if (k === 'p') label('police');
+  else if (k === 'g') label('gov');
+  else if (k === 'f') label('fleet');
+  else if (k === 'c') label('civilian');
+  else if (k === 'u' || k === ' ') { e.preventDefault(); label('unsure'); }
+  else if (k === 'z') $('#undo').click();
+});
+
+$('#modenote').innerHTML = NOTES.review;
+load();
+setInterval(async () => { if (!cur) showCounts(await api('/api/bank/stats')); }, 15000);
+
+window.sparrowRefresh = async () => { await load(); };
+</script>
+<script src="/static/refresh.js"></script>
+</body>
+</html>

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Transparency — SparrowMap</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body{overflow:auto}
+  .doc{max-width:800px; margin:0 auto; padding:34px 20px 90px}
+  h1{font-size:27px; margin:0 0 4px}
+  .sub{color:var(--dim2); margin:0 0 30px}
+  h2{font:600 11.5px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+     color:var(--dim2); margin:34px 0 12px}
+  .back{display:inline-block; margin-bottom:20px; font:11px var(--mono);
+        letter-spacing:.12em; text-transform:uppercase; color:var(--dim); text-decoration:none}
+  .back:hover{color:var(--ink)}
+  .cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px}
+  .card{background:#0d1219; border:1px solid var(--line2); border-radius:9px; padding:13px 15px}
+  .card b{display:block; font:600 25px/1.1 var(--mono); letter-spacing:-.01em}
+  .card span{font-size:11px; color:var(--dim2); letter-spacing:.05em}
+  table{width:100%; border-collapse:collapse; font-size:12.5px}
+  th,td{text-align:left; padding:8px 10px; border-bottom:1px solid #151c28}
+  th{font:600 10.5px/1 var(--mono); letter-spacing:.11em; text-transform:uppercase; color:var(--dim2)}
+  td.v{font-family:var(--mono); color:var(--ink)}
+  td.n{color:var(--dim)}
+  .yes{color:var(--cam)} .no{color:var(--hot)}
+  .note{font-size:12.5px; color:var(--dim); background:#0a1018; border-left:2px solid var(--line2);
+        padding:11px 14px; border-radius:0 7px 7px 0; margin:14px 0}
+</style>
+</head>
+<body>
+<div class="doc">
+  <a class="back" href="/">&larr; back to the map</a>
+  <h1>Transparency</h1>
+  <p class="sub">What this deployment actually does, read live from the running hub.</p>
+
+  <h2>Right now</h2>
+  <div class="cards" id="cards"></div>
+
+  <h2>Policy in force</h2>
+  <p class="note">These values come from <code>/api/policy</code> on this server, not from
+     this page. Anyone auditing or mirroring the network can fetch the same
+     endpoint and diff it. A promise you cannot check is not a promise.</p>
+  <table id="policy"></table>
+
+  <h2>What the operators have done</h2>
+  <p class="note">Every decision made about the map is logged and shown here:
+     each government-vehicle confirmation, each retraction, each public flag. If
+     we are going to build a network that watches, the first thing it watches
+     should be its own decisions. Searches are deliberately NOT here: looking up
+     a public record is nobody's business but the reader's.</p>
+  <table id="audit"></table>
+</div>
+
+<script src="/static/transparency.js"></script>
+<script nonce="@@NONCE@@">sparrowTransparency();</script>
+<script src="/static/refresh.js"></script>
+</body>
+</html>

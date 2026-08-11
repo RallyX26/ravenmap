@@ -1,0 +1,16 @@
+# Security headers for the sparrowmap.com static site (Cloudflare Pages).
+# The hub sets its own headers in code; this file covers the Pages-served
+# landing page and the Worker responses, which otherwise ship with none.
+#
+# script-src 'self' is strict and real: all page behaviour is in /app.js, there
+# is no inline <script>. style-src allows 'unsafe-inline' only because the page
+# carries an inline <style> block - styles cannot execute, so this is a minor,
+# deliberate allowance, not a script hole. connect-src 'self' lets /app.js fetch
+# /api/stats.json (same origin) and nothing else.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: geolocation=(), camera=(), microphone=(), interest-cohort=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains

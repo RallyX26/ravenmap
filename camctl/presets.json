@@ -1,0 +1,46 @@
+{
+  "Front": {
+    "controls": {
+      "focus": 0.0,
+      "autofocus": 0.0,
+      "auto_exposure": 0.0,
+      "exposure": -5.0,
+      "gain": 0.0,
+      "brightness": 128.0,
+      "contrast": 128.0,
+      "backlight": 0.0,
+      "saturation": 128.0,
+      "sharpness": 128.0,
+      "wb": null,
+      "auto_wb": null
+    },
+    "mode": "1920x1080",
+    "roi": {
+      "cx": 0.5,
+      "cy": 0.5,
+      "z": 1.0
+    }
+  },
+  "Night": {
+    "controls": {
+      "focus": 0.0,
+      "autofocus": 0.0,
+      "auto_exposure": 0.0,
+      "exposure": -5.0,
+      "gain": 0.0,
+      "brightness": 128.0,
+      "contrast": 128.0,
+      "backlight": 0.0,
+      "saturation": 128.0,
+      "sharpness": 128.0,
+      "wb": null,
+      "auto_wb": null
+    },
+    "mode": "1920x1080",
+    "roi": {
+      "cx": 0.5,
+      "cy": 0.5,
+      "z": 1.0
+    }
+  }
+}

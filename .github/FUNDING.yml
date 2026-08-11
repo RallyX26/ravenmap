@@ -1,0 +1,15 @@
+# Shows a "Sponsor" button on the GitHub repo.
+#
+# Open Collective, hosted by the Open Source Collective (a non-profit fiscal
+# host). Every dollar in and every dollar out is public - the same principle
+# this project holds itself to. Funds are held by the non-profit host, not by any
+# person or company, and only documented expenses (hosting, reviewer time) are
+# paid, in the open. That is the "nobody profits" model, enforced by structure.
+#   -> create the collective at https://opencollective.com (slug: sparrowmap),
+#      apply to the "Open Source Collective" host, and this button lights up.
+open_collective: sparrowmap
+
+# Deliberately NOT pointing GitHub Sponsors at a personal account: routing
+# donations to an individual would break the non-profit model. If GitHub Sponsors
+# is added later, enrol the SparrowMap ORG and route its payouts to the Open
+# Collective above, so there is still one transparent destination.

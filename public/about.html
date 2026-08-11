@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>About — SparrowMap</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body{overflow:auto}
+  .doc{max-width:720px; margin:0 auto; padding:38px 20px 90px}
+  .doc h1{font-size:30px; letter-spacing:-.01em; margin:0 0 6px}
+  .doc h2{font-size:15px; letter-spacing:.14em; text-transform:uppercase;
+          color:var(--dim2); margin:38px 0 10px; font-weight:600}
+  .doc p{color:#c3ccda; margin:0 0 14px}
+  .doc strong{color:var(--ink)}
+  blockquote{
+    margin:22px 0 26px; padding:16px 20px; border-left:2px solid var(--fleet);
+    background:#0f1420; border-radius:0 8px 8px 0;
+  }
+  blockquote p{font-size:17px; line-height:1.5; color:var(--ink); margin:0 0 6px}
+  blockquote cite{font:11.5px var(--mono); color:var(--dim2); font-style:normal;
+                  letter-spacing:.1em; text-transform:uppercase}
+  .tiers{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:18px 0}
+  .tier{border:1px solid var(--line2); border-radius:9px; padding:14px 15px; background:#0d1219}
+  .tier h3{margin:0 0 8px; font:600 12px/1 var(--mono); letter-spacing:.1em; text-transform:uppercase}
+  .tier.pub h3{color:var(--police)} .tier.priv h3{color:var(--civilian)}
+  .tier ul{margin:0; padding-left:16px; font-size:12.5px; color:var(--dim); line-height:1.7}
+  .back{display:inline-block; margin-bottom:22px; font:11px var(--mono);
+        letter-spacing:.12em; text-transform:uppercase; color:var(--dim); text-decoration:none}
+  .back:hover{color:var(--ink)}
+  @media (max-width:640px){ .tiers{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<div class="doc">
+  <a class="back" href="/">&larr; back to the map</a>
+  <h1>SparrowMap</h1>
+  <p style="color:var(--dim2)">A camera network the neighbourhood owns.</p>
+
+  <blockquote>
+    <p>“And ye shall be brought before governors and kings for my sake,
+       <strong>for a testimony against them</strong>.”</p>
+    <cite>Matthew 10:18</cite>
+  </blockquote>
+
+  <h2>What this is</h2>
+  <p>Private companies sell automated licence plate readers to police
+     departments. The cameras sit on public roads, record every vehicle that
+     passes, and the resulting history is searchable by the agency that bought
+     the subscription. The public pays for it and cannot see it.</p>
+  <p>SparrowMap is the same technology pointed the other way. Volunteers put a
+     camera in a window or on a porch facing a public road. The camera reads
+     what passes. The results go on a map that <strong>anyone</strong> can
+     open, with no account, no agency, and no subscription.</p>
+
+  <h2>The line we drew</h2>
+  <p>A network like this can be built two ways, and only one of them is worth
+     building. If every plate is public and searchable, then anyone can look up
+     an ex-partner's week with photographs. That is not accountability. That is
+     a stalking service with a civic-sounding name.</p>
+  <p>So SparrowMap keeps two tiers, and the split is enforced in code rather than
+     in a policy document.</p>
+
+  <div class="tiers">
+    <div class="tier pub">
+      <h3>Public tier</h3>
+      <ul>
+        <li>Government vehicles, local and federal</li>
+        <li>Plate stored readable and searchable</li>
+        <li>Full history, kept indefinitely</li>
+        <li>Every operator decision on it is logged publicly</li>
+        <li>Searching it is free and never logged</li>
+      </ul>
+    </div>
+    <div class="tier priv">
+      <h3>Private tier</h3>
+      <ul>
+        <li>Everybody else</li>
+        <li>Plate hashed at the camera, never stored readable</li>
+        <li>Deleted after a short window</li>
+        <li>No search path exists, by design</li>
+      </ul>
+    </div>
+  </div>
+
+  <p>The reasoning is old and simple. A publicly owned vehicle, doing public
+     work, on a public road, is a public record, the same way a council minute
+     is. A private person driving to work is not.</p>
+
+  <h2>Four things that are true about how it is built</h2>
+  <p><strong>No video ever leaves the camera.</strong> Recognition runs on the
+     device. What reaches the hub is a few hundred bytes of structured claim and
+     one cropped still. There is no stream to intercept, subpoena or leak,
+     because there is no stream.</p>
+  <p><strong>Snapshots are crops of the vehicle, not the frame.</strong> The
+     pedestrian on the sidewalk, the house number behind, the kid in the yard,
+     none of them are in a tight crop of a car's rear end.</p>
+  <p><strong>The hash key rotates.</strong> Private plates are stored as a keyed
+     hash so the same car still re-identifies across cameras. That key is
+     rotated on a schedule, so after a rotation the same car hashes differently
+     and old trails cannot be joined to new ones. This caps how long anyone can
+     follow a private citizen <em>including whoever runs the database</em>.</p>
+  <p><strong>Nothing gets published on plate text alone.</strong> A vehicle only
+     enters the public tier at high confidence and only when something other
+     than the plate agrees, because a single misread should never be able to
+     make a stranger public.</p>
+
+  <h2>What it is not</h2>
+  <p>SparrowMap does not identify people, only vehicles. It does not do face
+     recognition, and the crop rule is there specifically to make faces hard to
+     collect even by accident. It has no enforcement function, no alerting to
+     any agency, and no hotlist that a stranger can add your car to.</p>
+  <p>It will also be wrong sometimes. Every classification on the map shows the
+     evidence behind it rather than only the verdict, so a bad call is visible
+     and arguable instead of authoritative.</p>
+
+  <h2>Why a sparrow</h2>
+  <p>Matthew 10 is Jesus sending people out with a warning that they will be
+     handed to councils and dragged in front of governors. In the middle of it:
+     <em>“there is nothing covered, that shall not be revealed”</em>, and then
+     <em>“what ye hear in the ear, that preach ye upon the housetops.”</em> A
+     porch camera is close to a literal reading of that instruction.</p>
+  <p>Then the sparrow, which was the cheapest animal in the market, sold two for
+     a farthing and the fifth thrown in free. The point of the line is that even
+     the creature nobody bothered to count is not unwatched when it falls. Which
+     is the argument for the two tiers, in one image: the powerful get watched,
+     and the ordinary person is the one whose fall nobody gets to sell.</p>
+
+  <h2>Found a bug, or want to help?</h2>
+  <p>The whole system is open source, so a claim you doubt can be checked against
+     the code that makes it. If something is wrong &mdash; a vehicle classified
+     incorrectly, a broken page, a number that does not add up &mdash; report it
+     where it can be fixed in the open:
+     <a href="https://github.com/SparrowMap/sparrowmap/issues" rel="noopener"
+        style="color:#5aa9ff">report a bug on GitHub &rarr;</a></p>
+  <p>For anything else &mdash; running a camera, a question, or a correction that
+     should not be public &mdash;
+     <a href="mailto:sparrowmap@icloud.com" style="color:#5aa9ff">sparrowmap@icloud.com</a>.</p>
+  <p style="color:var(--dim2);font-size:13px">The code is open source (AGPL-3.0):
+     run your own instance, please do. The <b>SparrowMap</b> name and mark are
+     the project's identity, not part of that licence &mdash; a fork is welcome,
+     under its own name.</p>
+
+  <p style="margin-top:34px"><a class="back" href="/transparency">See what this
+     deployment actually does &rarr;</a></p>
+</div>
+<script src="/static/refresh.js"></script>
+</body>
+</html>

@@ -1,0 +1,315 @@
+/* SparrowMap — dark, dense, built to be read on a phone in daylight.
+   The palette encodes the politics: public-tier vehicles are bright and
+   legible, private vehicles are deliberately dim and unnamed. The map is
+   about the watchers, so the watchers are what glows. */
+
+:root{
+  --bg:#0a0d12; --bg2:#111621; --line:#1e2634; --line2:#2a3547;
+  --ink:#e6ecf5; --dim:#8794a8; --dim2:#5c6879;
+
+  --police:#ff3b47;      /* the subject - publicly owned, so it is red */
+  --gov:#ff3b47;
+  --fleet:#ffb547;
+  --civilian:#55637a;    /* deliberately quiet */
+  --cam:#3ddc97;
+  --hot:#ff5b6e;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,"SF Mono",monospace;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  overflow:hidden;
+}
+
+/* ---------- top bar ---------- */
+.bar{
+  height:52px; display:flex; align-items:center; gap:18px; padding:0 14px;
+  background:linear-gradient(180deg,#121826,#0d1219);
+  border-bottom:1px solid var(--line); position:relative; z-index:1000;
+}
+.brand{display:flex; align-items:center; gap:10px; min-width:0}
+.brand b{letter-spacing:.20em; font-size:13.5px}
+/* The mark is the generated PNG rather than an inline SVG copy, so the header
+   can never drift out of sync with the brand assets in brand/. */
+.mark{width:28px; height:28px; display:block}
+.tag{display:block; font-size:10.5px; color:var(--dim2); letter-spacing:.06em}
+
+.stats{display:flex; gap:16px; margin-left:auto; font-family:var(--mono); font-size:11.5px; color:var(--dim)}
+.stats b{color:var(--ink); font-weight:600}
+.stats i{font-style:normal; color:var(--police)}
+
+nav{display:flex; align-items:center; gap:14px; font-size:12.5px}
+nav a{color:var(--dim); text-decoration:none; border-bottom:1px solid transparent; padding-bottom:2px}
+nav a:hover{color:var(--ink); border-color:var(--line2)}
+
+.live{display:flex; align-items:center; gap:6px; font-family:var(--mono);
+      font-size:10.5px; color:var(--dim2); text-transform:uppercase; letter-spacing:.1em}
+.live i{width:7px; height:7px; border-radius:50%; background:var(--dim2)}
+.live.on i{background:var(--cam); box-shadow:0 0 0 0 rgba(61,220,151,.6); animation:pulse 2.2s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 7px rgba(61,220,151,0)}100%{box-shadow:0 0 0 0 rgba(61,220,151,0)}}
+
+/* ---------- layout ---------- */
+/* Bottom inset clears the fixed mode bar (57px) so the map fills the space above
+   it and the Leaflet attribution is never hidden behind the bar. On a phone the
+   media query switches `main` to static flow, so this inset applies to desktop
+   only. */
+main{position:absolute; inset:52px 0 57px 0; display:flex}
+#map{flex:1; background:#0a0d12}
+.panel{
+  width:352px; flex:none; background:var(--bg2); border-left:1px solid var(--line);
+  display:flex; flex-direction:column; overflow:hidden;
+}
+
+/* ---------- filters ---------- */
+.filters{display:flex; gap:5px; padding:10px 10px 8px; flex-wrap:wrap; border-bottom:1px solid var(--line)}
+.chip{
+  font:600 11px/1 var(--mono); letter-spacing:.05em; text-transform:uppercase;
+  padding:6px 9px; border-radius:999px; cursor:pointer; color:var(--dim);
+  background:#0d121c; border:1px solid var(--line2);
+}
+.chip:hover{color:var(--ink)}
+.chip.on{color:#080c12; background:var(--dim); border-color:transparent}
+.chip[data-c="police"].on{background:var(--police)}
+.chip[data-c="gov"].on{background:var(--gov)}
+.chip[data-c="fleet"].on{background:var(--fleet)}
+.chip[data-c="civilian"].on{background:var(--civilian); color:#e6ecf5}
+
+.win{display:flex; align-items:center; gap:9px; padding:8px 10px; border-bottom:1px solid var(--line);
+     font-size:11.5px; color:var(--dim)}
+.win select{
+  background:#0d121c; color:var(--ink); border:1px solid var(--line2);
+  border-radius:6px; padding:4px 6px; font:inherit;
+}
+.win .cams{margin-left:auto; display:flex; align-items:center; gap:5px; cursor:pointer}
+
+/* ---------- detail card ---------- */
+.detail{border-bottom:1px solid var(--line); padding:11px 12px; background:#0d1420}
+.detail.hidden, .hidden{display:none}
+.detail img{width:100%; border-radius:7px; border:1px solid var(--line2); display:block; background:#000}
+.detail .plate{
+  font:700 21px/1 var(--mono); letter-spacing:.09em; margin:10px 0 3px;
+}
+.detail .plate.priv{color:var(--dim); font-size:14px; letter-spacing:.04em; font-weight:500}
+.kv{display:grid; grid-template-columns:78px 1fr; gap:3px 8px; font-size:11.5px; margin-top:8px}
+.kv span{color:var(--dim2)}
+.kv b{font-weight:500; font-family:var(--mono); font-size:11px}
+.why{
+  margin-top:9px; padding:7px 9px; border-radius:6px; font-size:11.5px; line-height:1.4;
+  background:#0a1018; border-left:2px solid var(--line2); color:var(--dim);
+}
+.why b{color:var(--ink); font-weight:600}
+.acts{display:flex; gap:7px; margin-top:10px}
+.btn{
+  flex:1; font:600 11px/1 var(--mono); letter-spacing:.06em; text-transform:uppercase;
+  padding:8px; border-radius:6px; cursor:pointer; color:#080c12; background:var(--police); border:0;
+}
+.btn.alt{background:#0d121c; color:var(--dim); border:1px solid var(--line2)}
+.btn.alt:hover{color:var(--ink)}
+.btn.alt.on{color:var(--police); border-color:var(--police)}
+.ghost{background:none; border:0; color:var(--dim2); font-size:11px; cursor:pointer}
+
+/* Public "report a problem" form inside the detail panel. */
+.reportbox{margin-top:10px; padding-top:10px; border-top:1px solid var(--line)}
+.reportbox.hidden{display:none}
+.rlabel{font:600 11px var(--mono); letter-spacing:.06em; text-transform:uppercase;
+  color:var(--dim); margin-bottom:7px}
+.rreasons{display:flex; flex-direction:column; gap:6px}
+.rreasons .btn{flex:none; text-transform:none; letter-spacing:0; text-align:left;
+  font-weight:500; font-size:12px}
+.reportbox textarea{width:100%; margin-top:8px; background:#0a0e15; color:var(--ink);
+  border:1px solid var(--line2); border-radius:6px; padding:8px; font:12px var(--sans);
+  resize:vertical; box-sizing:border-box}
+.reportbox textarea:focus{outline:none; border-color:var(--police)}
+.rmsg{font-size:12px; color:var(--dim); margin-top:8px; line-height:1.5}
+.rmsg.ok{color:var(--cam)}
+.ghost:hover{color:var(--ink)}
+
+/* ---------- live traffic ----------
+   Private passes are a rate, not a list. This bar is the whole civilian view:
+   how busy the road is right now, and nothing that outlives the dot. */
+.trafficbar{
+  display:flex; align-items:baseline; gap:8px; padding:8px 12px;
+  border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+  background:#0c111a;
+}
+.trafficbar span{
+  font:600 11.5px var(--mono); letter-spacing:.06em; color:var(--dim2);
+  transition:color .3s;
+}
+.trafficbar span.busy{color:var(--civilian); color:#7f8ea6}
+.trafficbar em{font-style:normal; font-size:10px; color:var(--dim2); opacity:.75;
+  margin-left:auto; text-align:right; line-height:1.3}
+
+/* ---------- list ---------- */
+.listhead{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:9px 12px 6px; font:600 10.5px/1 var(--mono);
+  letter-spacing:.13em; text-transform:uppercase; color:var(--dim2);
+}
+.list{list-style:none; margin:0; padding:0 0 20px; overflow-y:auto; flex:1}
+.list li{
+  display:flex; gap:9px; align-items:center; padding:7px 12px; cursor:pointer;
+  border-bottom:1px solid #151c28;
+}
+.list li:hover{background:#141c2a}
+.list li.sel{background:#16203150; box-shadow:inset 2px 0 0 var(--police)}
+.list .sw{width:3px; align-self:stretch; border-radius:2px; flex:none}
+.list .who{flex:1; min-width:0}
+.list .who b{display:block; font:600 12.5px/1.3 var(--mono); letter-spacing:.05em}
+.list .who b.priv{font-weight:400; color:var(--dim); letter-spacing:.02em}
+.list .who span{display:block; font-size:10.5px; color:var(--dim2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.list .when{font:11px var(--mono); color:var(--dim2); flex:none}
+
+/* ---------- legend ---------- */
+.legend{
+  position:absolute; left:12px; bottom:12px; z-index:900; display:flex; gap:13px;
+  background:#0d1219e6; border:1px solid var(--line); border-radius:8px;
+  padding:7px 11px; font-size:11px; color:var(--dim); backdrop-filter:blur(6px);
+}
+.legend span{display:flex; align-items:center; gap:5px}
+.dot{width:8px; height:8px; border-radius:50%; display:inline-block}
+.dot.police{background:var(--police)} .dot.gov{background:var(--gov)}
+.dot.fleet{background:var(--fleet)} .dot.civilian{background:#93a7c4}
+.dot.cam{background:transparent; border:2px solid var(--cam)}
+.dash{width:14px; height:4px; border-radius:2px; display:inline-block;
+      background:var(--cam); opacity:.75}
+
+/* ---------- leaflet overrides ---------- */
+.leaflet-container{background:#0a0d12; font:inherit}
+.leaflet-control-attribution{background:#0d1219cc!important; color:#5c6879!important; font-size:10px!important}
+.leaflet-control-attribution a{color:#8794a8!important}
+.leaflet-bar a{background:#111621!important; color:#e6ecf5!important; border-color:#1e2634!important}
+.leaflet-bar a:hover{background:#1a2231!important}
+.ping{border-radius:50%; border:1.5px solid #0a0d12}
+.trail{stroke-dasharray:1 6; stroke-linecap:round}
+
+/* ---------- phone ---------- */
+@media (max-width:860px){
+  /* NATURAL DOCUMENT FLOW on a phone. The desktop layout is one absolute box
+     split by flex into map + side panel. On a phone that fought iOS twice: the
+     sightings list lived in a short flex child Safari would not scroll, and the
+     map was sized a beat after load so Leaflet left a grey band beneath it.
+     Here the page just scrolls: a sticky header, a fixed bottom bar, and between
+     them the map (a fixed-height block) followed by the panel at full height. */
+  html,body{overflow:visible; height:auto}
+  body{padding-bottom:64px}                 /* last list row clears the fixed bar */
+  /* Solid + on top: the sticky header must HIDE whatever scrolls under it. It
+     was transparent, so a pane's heading bled through and read as "cut off". */
+  .bar{position:sticky; top:0; z-index:1200; gap:10px; background:#0d1219}
+  main{position:static; inset:auto; display:block; height:auto; min-height:0}
+  #map{height:56vh; flex:none}
+  .panel{width:100%; flex:none; height:auto; min-height:0; overflow:visible;
+         border-left:0; border-top:1px solid var(--line)}
+  .list{overflow:visible; height:auto; max-height:none; padding-bottom:0}
+  /* #map is no longer a positioned ancestor, so pin the About/Transparency
+     panes to the viewport between the two bars. */
+  /* The pane fills the whole area above the mode bar and pushes its OWN content
+     down by the real header height (--headh, set in app.js). Because the pane
+     starts at 0 and the solid header sits above it (z-index), a slightly-wrong
+     --headh hides content behind the opaque bar instead of clipping it in view -
+     robust in both directions.
+     `main .pane` (not `.pane`) ON PURPOSE: the base `.pane{position:absolute}`
+     rule is defined LATER in this file, and media queries add no specificity, so
+     a bare `.pane` here would lose on source order and the pane would stay
+     absolute - which scroll-anchors it to the document and lets the map's list
+     show through once the page is scrolled. The extra element bumps specificity
+     so the fixed positioning wins regardless of order. */
+  main .pane{position:fixed; inset:0 0 56px 0; padding-top:var(--headh, 130px)}
+  .stats{display:none}
+  .legend{display:none}
+  /* Declutter the HEADER on a phone (the search form needs the room) - but ONLY
+     the header. `nav a` also matched the bottom bar's "Add a camera" link, so on
+     a phone both copies vanished and there was no way to reach the contributor
+     page. Scoped to the header; the bottom bar keeps its links. */
+  header nav a{display:none}
+}
+
+/* ---------- public-tier notice ----------
+   Deliberately plain and not alarming. It is not an error; it is the system
+   declining to say something it cannot back up. */
+.policybar{
+  padding:9px 16px; background:#141b26; border-bottom:1px solid var(--line2);
+  font-size:12.5px; line-height:1.5; color:var(--dim);
+}
+.policybar b{color:var(--ink)}
+.policybar a{color:var(--police); text-decoration:none; white-space:nowrap}
+.policybar a:hover{text-decoration:underline}
+
+/* Shown when a public sighting exists but the selected window is hiding it.
+   The header counts 24h and the panel counts the window, and a user should
+   never have to work out why the two disagree. */
+.windowhint{
+  padding:8px 12px; background:#161d2b; border-bottom:1px solid var(--line2);
+  font-size:11.5px; color:var(--dim); display:flex; align-items:center; gap:6px;
+}
+.windowhint button{color:var(--police); text-decoration:underline; font-size:11.5px}
+
+/* ---- government plate search ------------------------------------------
+   Deliberately labelled "government plate". A search box on a camera map is
+   the single most alarming control this project could ship, and a person
+   landing here has every right to assume the worst of it. Saying what it can
+   look up, in the placeholder, costs nothing - and the empty state says what
+   it cannot. See db.search_plate: private and unconfirmed rows are never
+   scanned, so the box genuinely cannot answer a question about a private car.  */
+.plateform{display:flex;gap:6px;align-items:center;margin-left:auto}
+.plateform input{background:#0a0e15;color:var(--ink);border:1px solid var(--line2);
+  border-radius:7px;padding:7px 10px;font:12.5px var(--mono);width:200px;
+  text-transform:uppercase}
+.plateform input::placeholder{text-transform:none;color:var(--dim2)}
+.plateform input:focus{outline:none;border-color:var(--police)}
+.plateform button{background:#141b26;color:var(--ink);border:1px solid var(--line2);
+  border-radius:7px;padding:7px 12px;cursor:pointer;
+  font:600 11px var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.plateform button:hover{border-color:var(--police);color:var(--police)}
+
+.plateresults{position:absolute;top:56px;right:14px;z-index:900;width:min(420px,92vw);
+  max-height:70vh;overflow:auto;background:#0d1219f2;border:1px solid var(--line2);
+  border-radius:10px;backdrop-filter:blur(8px);box-shadow:0 8px 30px #000a}
+.plateresults h4{margin:0;padding:11px 13px;font:600 11px var(--mono);
+  letter-spacing:.12em;text-transform:uppercase;color:var(--dim2);
+  border-bottom:1px solid var(--line)}
+.plateresults .hit{display:flex;gap:10px;padding:10px 13px;cursor:pointer;
+  border-bottom:1px solid var(--line)}
+.plateresults .hit:hover{background:#141b26}
+.plateresults .hit img{width:74px;height:48px;object-fit:cover;border-radius:5px;background:#000}
+.plateresults .hit b{font:13px var(--mono);color:var(--police)}
+.plateresults .hit .sub{font-size:11.5px;color:var(--dim);margin-top:2px}
+.plateresults .none{padding:13px;font-size:12.5px;color:var(--dim);line-height:1.6}
+.plateresults .none b{color:var(--ink)}
+
+/* ---- the site as one program -----------------------------------------
+   The map, About and Transparency were three pages with a top nav while the
+   contributor side was a single program with a mode bar. Same project, two
+   different shapes, and the public half was the one that looked like a
+   website rather than a thing that runs.
+
+   Now they match: one bar, same position, same behaviour. About and
+   Transparency slide over the map instead of navigating away, so the map
+   never has to be reloaded and never loses where you had panned to.        */
+nav.modes{position:fixed;left:0;right:0;bottom:0;z-index:1200;display:flex;
+  background:#0d1219;border-top:1px solid var(--line)}
+nav.modes button,nav.modes .modelink{flex:1;background:none;border:0;
+  color:var(--dim2);cursor:pointer;text-decoration:none;text-align:center;
+  padding:10px 4px calc(10px + env(safe-area-inset-bottom));
+  font:600 10.5px var(--mono);letter-spacing:.09em;text-transform:uppercase;
+  border-top:2px solid transparent;-webkit-tap-highlight-color:transparent}
+nav.modes button.on{color:var(--ink);border-top-color:var(--police);background:#111621}
+nav.modes .modelink{color:var(--cam)}
+nav.modes .ic{display:block;font-size:15px;margin-bottom:2px;letter-spacing:0}
+
+/* A pane covers the map rather than replacing it. Leaflet holds its own view
+   state; unmounting the map to show a text page would throw that away and the
+   person would come back to a map re-centred on the default. */
+/* z-index 1100 puts the About/Transparency panes ABOVE Leaflet's own controls
+   (the "Leaflet | OpenStreetMap | CARTO" attribution sits at ~1000 and was
+   showing through the opaque pane), but still below the bottom nav (1200) so
+   its buttons stay tappable while a pane is open. */
+.pane{position:absolute;inset:0;z-index:1100;overflow-y:auto;
+  background:var(--bg);padding-bottom:70px}
+.paneinner{max-width:720px;margin:0 auto;padding:24px 18px}
+.paneinner .back{display:none}          /* no "back to the map" - use the bar */
+
+nav .addcam{color:var(--cam);font-weight:600}

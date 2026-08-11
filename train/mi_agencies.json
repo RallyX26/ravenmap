@@ -1,0 +1,2274 @@
+[
+ {
+  "name": "Michigan Department of Corrections",
+  "category": "State agencies"
+ },
+ {
+  "name": "Michigan Department of Natural Resources",
+  "category": "State agencies"
+ },
+ {
+  "name": "Michigan Conservation Officers",
+  "category": "State agencies"
+ },
+ {
+  "name": "Michigan State Police",
+  "category": "State agencies"
+ },
+ {
+  "name": "Alcona County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Alger County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Allegan County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Alpena County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Antrim County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Arenac County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Baraga County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Barry County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Bay County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Benzie County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Berrien County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Branch County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Calhoun County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Cass County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Charlevoix County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Cheboygan County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Chippewa County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Clare County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Clinton County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Crawford County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Delta County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Dickinson County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Eaton County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Emmet County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Genesee County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Gladwin County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Gogebic County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Grand Traverse County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Gratiot County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Hillsdale County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Houghton County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Huron County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Ingham County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Ionia County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Iosco County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Iron County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Isabella County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Jackson County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Kalamazoo County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Kalkaska County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Kent County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Keweenaw County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Lake County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Lapeer County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Leelanau County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Lenawee County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Livingston County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Luce County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Mackinac County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Macomb County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Manistee County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Marquette County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Mason County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Mecosta County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Menominee County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Midland County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Missaukee County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Monroe County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Montcalm County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Montmorency County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Muskegon County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Newaygo County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Oakland County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Oceana County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Ogemaw County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Ontonagon County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Osceola County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Oscoda County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Otsego County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Ottawa County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Presque Isle County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Roscommon County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Saginaw County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Saint Clair County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Saint Joseph County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Sanilac County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Schoolcraft County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Shiawassee County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Tuscola County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Van Buren County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Washtenaw County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Wayne County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Wexford County Sheriff's Office",
+  "category": "County agencies"
+ },
+ {
+  "name": "Adrian Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Akron Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Albion Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Allegan Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Allen Park Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Alma Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Almont Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Alpena Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Ann Arbor Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Armada Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Au Gres Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Auburn Hills Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Augusta Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Bad Axe Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Bancroft Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Bangor Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Baraga Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Barryton Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Battle Creek Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Bay City Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Beaverton Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Belding Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Bellaire Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Belleville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Bellevue Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Benton Harbor Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Berkley Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Beverly Hills Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Big Rapids Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Birch Run Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Birmingham Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Blissfield Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Bloomfield Hills Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Boyne City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Breckenridge Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Bridgeman Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Bridgeport Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Brighton Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Bronson Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Brown City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Buchanan Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Burton Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Cadillac Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Carleton Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Caro Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Carson City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Caseville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Caspian Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Cass City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Cassopolis Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Center Line Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Central Lake Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Charlevoix Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Charlotte Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Cheboygan Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Chelsea Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Chesaning Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Clare Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Clawson Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Clinton Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Clio Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Coldwater Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Coleman Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Colon Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Constantine Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Corunna Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Croswell Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Crystal Falls Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Davison Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Dearborn Heights Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Dearborn Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Decatur Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Deckerville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Detroit Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "DeWitt Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Douglas Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Dowagiac Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Dundee Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Durand Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "East Grand Rapids Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "East Jordan Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "East Lansing Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "East Tawas Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Eastpointe Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Eaton Rapids Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Eau Claire Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Ecorse Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Elk Rapids Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Elkton Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Ellsworth Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Elsie Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Escanaba Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Essexville Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Evart Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Farmington Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Farmington Hills Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Fennville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Fenton Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Ferndale Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Flat Rock Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Flint Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Flushing Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Fowlerville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Frankenmuth Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Frankfort Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Franklin Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Fraser Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Freeport Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Fremont Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Gagetown Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Galien Police Department (Michigan) Galien Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Garden City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Gaylord Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Gibraltar Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Gladstone Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Gladwin Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Grand Beach-Michiana Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Grand Blanc Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Grand Haven Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Grand Ledge Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Grand Rapids Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Grandville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Grant Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Grayling Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Greenville Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Grosse Pointe Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Grosse Pointe Farms Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Grosse Pointe Park Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Grosse Pointe Shores Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Grosse Pointe Woods Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Hamtramck Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Hancock Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Harbor Beach Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Harbor Springs Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Harper Woods Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Hart Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Hartford Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Hastings Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Hazel Park Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Hesperia Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Highland Park Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Hillsdale Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Holland Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Holly Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Houghton Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Howard City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Howell Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Hudson Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Huntington Woods Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Imlay City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Inkster Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Ionia Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Iron Mountain Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Iron River Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Ironwood Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Ishpeming Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Jackson Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Jonesville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Kalamazoo Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Kalkaska Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Keego Harbor Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Kentwood Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Kinde Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Kingsford Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Kingston Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "L'Anse Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Laingsburg Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Lake Angelus Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Lake Linden Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Lake Odessa Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Lake Orion Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Lakeview Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Lansing Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Lapeer Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Lathrup Village Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Laurium Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Lawrence Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Lawton Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Lennon Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Leslie Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Lexington Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Lincoln Park Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Linden Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Litchfield Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Livonia Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Lowell Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Ludington Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Luna Pier Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Mackinac Island Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Mackinaw City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Madison Heights Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Mancelona Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Manistee Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Manistique Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Manton Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Marine City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Marlette Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Marquette Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Marshall Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Marysville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Mason Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Mattawan Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Mayville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Melvindale Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Memphis Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Mendon Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Menominee Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Midland Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Milan Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Milford Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Millington Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Minden City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Monroe Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Montague Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Morenci Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Morley Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Morrice Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Mount Morris Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Mount Pleasant Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Munising Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Muskegon Heights Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Muskegon Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Nashville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Negaunee Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "New Baltimore Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "New Buffalo Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "New Era Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "New Lothrop Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Newaygo Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Niles Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "North Muskegon Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Northville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Norton Shores Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Norway Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Novi Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Oak Park Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Oakley Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Olivet Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Orchard Lake Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Otisville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Otsego Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Ovid Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Owendale Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Owosso Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Oxford Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Paw Paw Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Peck Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Pentwater Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Perry Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Petoskey Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Pigeon Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Pinckney Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Pinconning Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Plainwell Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Pleasant Ridge Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Plymouth Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Port Austin Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Port Huron Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Portage Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Portland Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Potterville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Quincy Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Reading Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Reed City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Reese Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Richland Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Richmond Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "River Rouge Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Riverview Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Rochester Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Rockford Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Rockwood Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Rogers City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Romeo Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Romulus Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Roosevelt Park Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Rose City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Roseville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Rothbury Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Royal Oak Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Saginaw Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Saline Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Sandusky Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Sault Ste Marie Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Schoolcraft Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Shelby Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Shepherd Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "South Haven Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "South Lyon Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "South Rockwood Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Southfield Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Southgate Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Sparta Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "St. Charles Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "St. Clair City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "St. Clair Shores Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "St. Ignace Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "St. Johns Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "St. Joseph Department of Public Safety",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "St. Louis Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Stanton Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Sterling Heights Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Stockbridge Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Sturgis Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Sylvan Lake Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Tawas City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Taylor Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Tecumseh Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Three Oaks Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Three Rivers Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Traverse City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Trenton Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Troy Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Ubly Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Union City Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Unionville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Utica Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Vassar Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Vernon Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Vicksburg Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Walker Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Walkerville Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Walled Lake Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Warren Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Watervliet Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Wayland Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Wayne Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "West Branch Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Westland Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "White Cloud Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "White Pigeon Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Whitehall Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Williamston Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Wixom Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Wolverine Lake Village Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Woodhaven Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Wyandotte Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Wyoming Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Yale Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Ypsilanti Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Zeeland Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Zilwaukee Police Department",
+  "category": "Municipal agencies"
+ },
+ {
+  "name": "Adrian Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Argentine Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Baroda-Lake Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Barry Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Bath Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Benton Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Blackman-Leoni Township Department of Public Safety",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Bloomfield Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Bridgeport Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Brownstown Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Buena Vista Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Cambridge Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Canton Township Department of Public Safety",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Carrollton Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Chesterfield Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Chikaming Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Chocolay Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Clay Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Clayton Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Clinton Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Coloma Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Columbia Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Covert Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Davison Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Denton Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "DeWitt Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Dryden Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Emmett Township Department of Public Safety",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Erie Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Fairhaven Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Flint Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Flushing Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Forsyth Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Fruitport Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Garfield Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Genesee Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Gerrish Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Grand Blanc Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Green Oak Charter Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Grosse Ile Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Hamburg Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Hampton Township Department of Public Safety",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Home Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Huron Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Indianfields Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Ishpeming Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Kalamazoo Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Kinross Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Lansing Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Lapeer Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Lincoln Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Madison Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Marenisco Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Meridian Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Metamora Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Montrose Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Mount Morris Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Muskegon Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Napoleon Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Northfield Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Northville Township Department of Public Safety",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Ontwa Township-Edwardsburg Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Oscoda Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Pittsfield Township Department of Public Safety",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Plymouth Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Prairieville Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Raisin Township Department of Public Safety",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Redford Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Richfield Township Department of Public Safety (Roscommon County)",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Richfield Township Police Department (Genesee County)",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Saginaw Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Shelby Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Silver Creek Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Somerset Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Spring Arbor Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Springport Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "St. Joseph Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Sumpter Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Thomas Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Tittabawassee Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Tuscarora Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Unadilla Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Van Buren Township Department of Public Safety",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Waterford Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Watersmeet Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "West Bloomfield Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "White Lake Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Woodland Township Police Department",
+  "category": "Township agencies"
+ },
+ {
+  "name": "Central Michigan University Police Department",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Delta Community College Department of Public Safety",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Eastern Michigan University Police Department",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Ferris State University Department of Public Safety",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Grand Rapids Community College Police",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Grand Valley State University Department of Public Safety",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Kalamazoo Valley Community College Department of Public Safety",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Kellogg Community College Department of Public Safety",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Kirtland Community College Department of Public Safety",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Lansing Community College Police Department",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Macomb Community College Police Department",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Michigan State University Police Department",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Michigan Technological University Department of Public Safety",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Mott Community College Department of Public Safety",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Northern Michigan University Police Department",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Oakland Community College Department of Public Safety",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Oakland University Police Department",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Saginaw Valley State University Police",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Schoolcraft College Police Department",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "University of Michigan-Dearborn Department of Public Safety",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "University of Michigan Department of Public Safety",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "University of Michigan-Flint Department of Public Safety",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Wayne County Community College Police Authority",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Wayne State University Department of Public Safety",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Western Michigan University Police Department",
+  "category": "College and university agencies"
+ },
+ {
+  "name": "Detroit Public Schools Community District Police Department",
+  "category": "Park and school police departments"
+ },
+ {
+  "name": "Huron-Clinton Metropolitan Authority",
+  "category": "Park and school police departments"
+ },
+ {
+  "name": "Metro Police Authority of Genesee County",
+  "category": "Park and school police departments"
+ },
+ {
+  "name": "Detroit Transit Police Department",
+  "category": "Transit agencies"
+ },
+ {
+  "name": "Bishop International Airport Authority",
+  "category": "Airport police agencies"
+ },
+ {
+  "name": "Capital Region Airport Authority Police Department",
+  "category": "Airport police agencies"
+ },
+ {
+  "name": "Cherry City Airport Police Department",
+  "category": "Airport police agencies"
+ },
+ {
+  "name": "Gerald R. Ford International Airport Police",
+  "category": "Airport police agencies"
+ },
+ {
+  "name": "Wayne County Airport Authority Department of Public Safety",
+  "category": "Airport police agencies"
+ },
+ {
+  "name": "Adrian-Blissfield Railroad Police",
+  "category": "Railroad police"
+ },
+ {
+  "name": "Amtrak Police",
+  "category": "Railroad police"
+ },
+ {
+  "name": "Canadian National Railroad Police",
+  "category": "Railroad police"
+ },
+ {
+  "name": "Canadian Pacific Kansas City Railroad Police Department",
+  "category": "Railroad police"
+ },
+ {
+  "name": "CSX Transportation Railroad Police Department",
+  "category": "Railroad police"
+ },
+ {
+  "name": "Norfolk Southern Railroad Police",
+  "category": "Railroad police"
+ },
+ {
+  "name": "Bay Mills Tribal Police Department",
+  "category": "Tribal agencies"
+ },
+ {
+  "name": "Grand Traverse Band Tribal Police Department",
+  "category": "Tribal agencies"
+ },
+ {
+  "name": "Gun Lake Tribe Department of Public Safety",
+  "category": "Tribal agencies"
+ },
+ {
+  "name": "Hannahville Tribal Police",
+  "category": "Tribal agencies"
+ },
+ {
+  "name": "Huron Potawatomi Police Department",
+  "category": "Tribal agencies"
+ },
+ {
+  "name": "Keweenaw Bay Tribal Police Department",
+  "category": "Tribal agencies"
+ },
+ {
+  "name": "Lac Vieux Desert Tribal Police Department",
+  "category": "Tribal agencies"
+ },
+ {
+  "name": "Little River Band of Ottawa Indians Department of Public Safety",
+  "category": "Tribal agencies"
+ },
+ {
+  "name": "Pokagon Tribal Police",
+  "category": "Tribal agencies"
+ },
+ {
+  "name": "Saginaw Chippewa Tribal Police Department",
+  "category": "Tribal agencies"
+ },
+ {
+  "name": "Sault Ste. Marie Tribe Police Department",
+  "category": "Tribal agencies"
+ }
+]

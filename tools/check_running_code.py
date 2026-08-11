@@ -1,0 +1,136 @@
+"""Is what is RUNNING the code that is on disk?
+
+2026-08-10. A classifier fix was shipped, the camera node was restarted, and
+the node kept running the old code anyway. The launcher has a single-instance
+guard: a second detector for the same node refuses to start and says so, then
+pauses. If you do not read that window you have a new terminal open, an old
+process still running, and every reason to believe the fix is live.
+
+Nothing was broken. The restart simply did not happen, and there was no way to
+tell by looking at the map - a stale detector behaves exactly like a fresh one
+until it hits the code you changed.
+
+So this compares process start times against source modification times, which
+is the one comparison that cannot be fooled by a window that looks right. It is
+the same discipline as the rest of this codebase: measure the thing, do not
+infer it from something adjacent.
+
+    python tools\\check_running_code.py
+
+Exit code is 1 if anything is stale, so it can gate a deploy step.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+# Which running process cares about which sources. A process is STALE if any
+# source it depends on was modified after the process started.
+WATCH = {
+    "hub.py":      ["hub.py", "classify.py", "db.py", "nodes.py", "privacy.py",
+                    "mirror.py", "core.py", "road.py", "snapshot.py"],
+    "run_live.py": ["detect/run_live.py", "detect/pipeline.py",
+                    "detect/vehicle_id.py", "detect/head.py", "detect/bank.py",
+                    "classify.py", "core.py"],
+    "camctl.py":   ["camctl/camctl.py", "labelbank.py", "core.py"],
+}
+
+
+def _procs() -> list[dict]:
+    """Running python processes, with start time, via PowerShell/CIM."""
+    # ⚠️ Uses a literal separator, NOT PowerShell's backtick-t escape. The
+    # backtick survives Python and bash and then does not mean what it looks
+    # like it means by the time PowerShell parses it, and the whole pipeline
+    # silently emits nothing - which this script would have reported as
+    # "no python processes found", i.e. a false all-clear from a tool whose
+    # entire job is not giving false all-clears.
+    SEP = "|~|"
+    ps = (
+        "Get-CimInstance Win32_Process -Filter \"Name like '%python%'\" | "
+        "ForEach-Object { "
+        "  $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue; "
+        "  if ($p) { "
+        "    ($_.ProcessId, $p.StartTime.ToString('o'), "
+        "     ($_.CommandLine -replace '\\s+',' ')) -join '" + SEP + "' "
+        "  } "
+        "}"
+    )
+    try:
+        raw = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            capture_output=True, text=True, timeout=60).stdout
+    except Exception as exc:                       # pragma: no cover
+        print(f"could not enumerate processes: {exc}")
+        return []
+    out = []
+    for line in raw.splitlines():
+        parts = line.split(SEP)
+        if len(parts) != 3:
+            continue
+        pid, started, cmd = parts
+        out.append({"pid": pid.strip(), "started": started.strip(),
+                    "cmd": cmd.strip()})
+    return out
+
+
+def main() -> int:
+    import datetime as dt
+
+    procs = _procs()
+    if not procs:
+        print("no python processes found - is anything running?")
+        return 1
+
+    stale = 0
+    seen = set()
+    for name, sources in WATCH.items():
+        # A launcher spawns a stub plus a child with the same command line;
+        # both are real, so report the OLDEST, which is the one that would be
+        # holding onto old code.
+        mine = [p for p in procs if name in p["cmd"]]
+        if not mine:
+            print(f"  {name:<14} NOT RUNNING")
+            continue
+        mine.sort(key=lambda p: p["started"])
+        p = mine[0]
+        seen.add(name)
+        started = dt.datetime.fromisoformat(p["started"])
+        if started.tzinfo:
+            started = started.astimezone().replace(tzinfo=None)
+
+        newer = []
+        for s in sources:
+            f = ROOT / s
+            if not f.exists():
+                continue
+            m = dt.datetime.fromtimestamp(f.stat().st_mtime)
+            if m > started:
+                newer.append((s, m))
+
+        if newer:
+            stale += 1
+            print(f"  {name:<14} STALE   pid {p['pid']}, started "
+                  f"{started:%Y-%m-%d %H:%M:%S}  ({len(mine)} proc)")
+            for s, m in sorted(newer, key=lambda x: -x[1].timestamp()):
+                print(f"       modified after it started: {s}  ({m:%H:%M:%S})")
+        else:
+            print(f"  {name:<14} current pid {p['pid']}, started "
+                  f"{started:%Y-%m-%d %H:%M:%S}  ({len(mine)} proc)")
+
+    if stale:
+        print(f"\n{stale} component(s) running code older than the files on "
+              f"disk. Restart them.")
+        print("⚠️ The camera node's launcher REFUSES to start a second "
+              "detector for the same node - close the old window first, or "
+              "the new one exits and the old one keeps running.")
+        return 1
+    print("\nall running components are up to date with the source on disk")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

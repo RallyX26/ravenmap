@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Camera Control — SparrowMap</title>
+<link rel="icon" href="data:,">
+<style>
+:root{
+  --bg:#0a0d12; --bg2:#111621; --line:#1e2634; --line2:#2a3547;
+  --ink:#e6ecf5; --dim:#8794a8; --dim2:#5c6879;
+  --blue:#1B74D1; --blue2:#3d8cff; --good:#3ddc97; --warn:#ffb547; --hot:#ff5b6e;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+     font:14px/1.45 ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:10px 14px;
+       background:linear-gradient(180deg,#121826,#0d1219);border-bottom:1px solid var(--line);
+       position:sticky;top:0;z-index:10}
+header b{letter-spacing:.18em;font-size:13px}
+header .tag{font-size:10.5px;color:var(--dim2);letter-spacing:.06em}
+.stat{margin-left:auto;font:11px var(--mono);color:var(--dim)}
+.stat i{font-style:normal;color:var(--good)}
+
+.wrap{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;padding:14px;align-items:start}
+@media(max-width:900px){.wrap{grid-template-columns:1fr}}
+
+.view{background:#000;border:1px solid var(--line2);border-radius:10px;overflow:hidden;position:relative}
+.view img{width:100%;display:block}
+.crosshair{position:absolute;inset:0;pointer-events:none;
+  background:
+    linear-gradient(to right,transparent calc(50% - 1px),rgba(61,220,151,.30) 50%,transparent calc(50% + 1px)),
+    linear-gradient(to bottom,transparent calc(50% - 1px),rgba(61,220,151,.30) 50%,transparent calc(50% + 1px));}
+.crosshair.off{display:none}
+#boxes{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
+#boxes.off{display:none}
+.detstat{position:absolute;left:8px;bottom:8px;z-index:3;pointer-events:none;
+  background:#0a0d12cc;border:1px solid var(--line2);border-radius:6px;
+  padding:4px 8px;font:11px var(--mono);color:var(--dim2);backdrop-filter:blur(4px)}
+.detstat.live{color:#3ddc97;border-color:#3ddc9755}
+.detstat.gov{color:#ff3b47;border-color:#ff3b4788;background:#1a0d10dd}
+
+/* Fires the moment a government-looking pass ends, while the vehicle is still
+   in sight. Deliberately IN-PAGE rather than a browser dialog: a native
+   confirm() blocks the event loop, which would freeze the MJPEG stream and the
+   box overlay behind it - the operator would be asked about a car they can no
+   longer see. */
+.confirm{position:absolute;inset:0;z-index:6;display:flex;align-items:center;
+  justify-content:center;background:#05070ad9;backdrop-filter:blur(3px)}
+.cbox{background:#111621;border:2px solid #ff3b47;border-radius:12px;
+  padding:14px;max-width:min(92%,620px);box-shadow:0 0 40px #ff3b4744}
+.chead{font:700 13px var(--mono);letter-spacing:.14em;color:#ff3b47;margin-bottom:10px}
+.cbox img{width:100%;border-radius:8px;display:block;background:#000}
+.cmeta{font:11px var(--mono);color:var(--dim2);margin-top:8px}
+.cbtns{display:flex;gap:8px;margin-top:12px}
+.cbtns button{flex:1;padding:14px 8px;font:700 13px ui-sans-serif,system-ui;
+  border-radius:9px;display:flex;flex-direction:column;align-items:center;gap:3px}
+.cbtns kbd{font:600 9.5px var(--mono);opacity:.65}
+.cyes{background:#2a1013;border-color:#7a2630;color:#ff8a92}
+.cyes:hover{border-color:#ff3b47;color:#fff}
+.cno{background:#0d121c}
+.cskip{flex:0 0 90px;background:#0a0e15;color:var(--dim)}
+.cnote{font-size:11px;color:var(--dim2);margin-top:9px;line-height:1.5}
+.cnote b{color:var(--dim)}
+
+.panel{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:12px}
+.panel + .panel{margin-top:12px}
+h2{font:600 10.5px/1 var(--mono);letter-spacing:.15em;text-transform:uppercase;
+   color:var(--dim2);margin:0 0 10px}
+
+.ctl{margin-bottom:11px}
+.ctl label{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);margin-bottom:4px}
+.ctl label b{color:var(--ink);font:600 11.5px var(--mono)}
+input[type=range]{width:100%;accent-color:var(--blue2)}
+.ctl.bool{display:flex;align-items:center;gap:8px}
+.ctl.bool label{margin:0;flex:1}
+input[type=checkbox]{accent-color:var(--blue2);width:17px;height:17px}
+
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:4px 0 10px}
+.pad button{padding:12px 0;font:600 14px var(--mono)}
+button{background:#0d121c;color:var(--ink);border:1px solid var(--line2);
+       border-radius:7px;padding:8px 10px;cursor:pointer;font:600 11px var(--mono);
+       letter-spacing:.05em}
+button:hover{border-color:var(--blue2);color:#fff}
+button.pri{background:var(--blue);border-color:transparent;color:#fff}
+button.warn{border-color:#4a3a1a;color:var(--warn)}
+.row{display:flex;gap:6px}
+.row>*{flex:1}
+select,input[type=text]{width:100%;background:#0a0e15;color:var(--ink);
+  border:1px solid var(--line2);border-radius:7px;padding:8px;font:12px var(--mono)}
+.note{font-size:11.5px;color:var(--dim);background:#0a1018;border-left:2px solid var(--line2);
+      padding:8px 10px;border-radius:0 6px 6px 0;margin-top:9px;line-height:1.5}
+.note b{color:var(--ink)}
+.note.warn{border-color:var(--warn)}
+#msg{margin-top:9px;font:11.5px var(--mono);min-height:16px;color:var(--dim)}
+#msg.bad{color:var(--hot)} #msg.ok{color:var(--good)}
+.plist{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.plist button{flex:0 0 auto}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <b>CAMERA CONTROL</b>
+    <div class="tag">SparrowMap node aiming &amp; tuning</div>
+  </div>
+  <a href="/place" style="margin-left:auto;color:var(--blue2);text-decoration:none;
+     font:600 11.5px var(--mono);letter-spacing:.06em">PLACE ON MAP &rarr;</a>
+  <div class="stat" id="stat" style="margin-left:16px">—</div>
+</header>
+
+<div class="wrap">
+  <div>
+    <div class="view">
+      <img id="live" src="/stream.mjpg" alt="live">
+      <canvas id="boxes"></canvas>
+      <div class="crosshair" id="xh"></div>
+      <div id="detstat" class="detstat">detector not running</div>
+      <div id="confirm" class="confirm" style="display:none">
+        <div class="cbox">
+          <div class="chead">GOVERNMENT VEHICLE?</div>
+          <img id="cimg" alt="">
+          <div class="cmeta" id="cmeta"></div>
+          <div class="cbtns">
+            <button class="cyes" id="cyes">Yes &mdash; government<kbd>Y</kbd></button>
+            <button class="cno"  id="cno">No &mdash; ordinary<kbd>N</kbd></button>
+            <button class="cskip" id="cskip">Skip<kbd>Esc</kbd></button>
+          </div>
+          <div class="cnote">Your answer labels the crop <b>and</b> moves the
+            sighting on the map. It is the strongest signal the classifier gets.</div>
+        </div>
+      </div>
+      <div id="stalled" style="display:none;position:absolute;inset:0;
+           background:#0a0d12ee;color:var(--hot);padding:22px;
+           font:13px/1.6 var(--mono);z-index:2"></div>
+      <div id="blank" style="display:none;position:absolute;inset:0;
+           background:#0a0d12ee;color:var(--warn);padding:22px;
+           font:13px/1.6 var(--mono);display:none">
+        <b style="font-size:15px">Every frame is pure black.</b><br><br>
+        On Windows a second program holding the camera does not cause an
+        error &mdash; it hands out empty frames while everything reports
+        healthy. Close the Windows <b>Camera</b> app, Teams, Zoom, OBS or a
+        browser tab with camera permission, then reload.
+      </div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <h2>Capture</h2>
+      <div class="row">
+        <select id="mode"></select>
+        <button id="xhBtn">Crosshair</button>
+        <button id="boxBtn">Boxes</button>
+      </div>
+      <div class="note" id="roiInfo" style="border-color:var(--blue2)"></div>
+      <div class="note" id="modeNote"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>Aim</h2>
+      <div class="pad">
+        <span></span><button data-pan="0,-1">▲</button><span></span>
+        <button data-pan="-1,0">◀</button>
+        <button data-pan="center">RESET</button>
+        <button data-pan="1,0">▶</button>
+        <span></span><button data-pan="0,1">▼</button><span></span>
+      </div>
+      <div class="ctl">
+        <label>Zoom <b id="v_z">1.0×</b></label>
+        <input type="range" id="c_z" min="1" max="8" step="0.1" value="1">
+      </div>
+      <div class="note">Click anywhere on the picture to centre on that point.</div>
+      <div id="gAim"></div>
+      <div class="note warn"><b>This is a software crop, not the camera's zoom.</b>
+        The C920's own zoom is digital too, so it crops the same sensor and then
+        upscales &mdash; which adds pixels and no detail. Cropping here keeps the
+        real pixels and works on every camera, including fixed ones with no PTZ
+        at all.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Light</h2>
+      <div id="gLight"></div>
+      <div class="note">Setting exposure or gain switches the camera to
+        <b>manual exposure</b>. That is what you want for a fixed node: auto
+        exposure chases headlights at night and blows out the plate, which is
+        the one thing in frame that matters.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Image</h2>
+      <div id="gImage"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Presets</h2>
+      <div class="row">
+        <input type="text" id="pname" placeholder="e.g. stop line, daylight">
+        <button class="pri" id="psave">Save</button>
+      </div>
+      <div class="plist" id="plist"></div>
+      <div class="note">A node needs a locked aim, locked focus and locked
+        exposure. Save one once it reads plates, and reload it after any power
+        cut.</div>
+    </div>
+
+    <div id="msg"></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let SPEC = {}, VALS = {};
+
+const say = (t, cls='') => { const m=$('#msg'); m.textContent=t; m.className=cls; };
+
+async function api(path, body){
+  const r = await fetch(path, body ? {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
+  return r.json();
+}
+
+function slider(name, sp, val){
+  if (sp.min === 0 && sp.max === 1){
+    return `<div class="ctl bool">
+      <input type="checkbox" id="c_${name}" ${val ? 'checked':''}>
+      <label for="c_${name}">${sp.label}</label></div>`;
+  }
+  return `<div class="ctl">
+    <label>${sp.label} <b id="v_${name}">${val ?? '—'}</b></label>
+    <input type="range" id="c_${name}" min="${sp.min}" max="${sp.max}"
+           step="${sp.step}" value="${val ?? sp.min}">
+  </div>`;
+}
+
+function wire(name, sp){
+  const el = $('#c_'+name);
+  if (!el) return;
+  const send = async () => {
+    const v = el.type === 'checkbox' ? (el.checked?1:0) : Number(el.value);
+    const r = await api('/api/set', {name, value:v});
+    if ($('#v_'+name)) $('#v_'+name).textContent = r.got;
+    VALS[name] = r.got;
+    if (r.applied === false)
+      say(`${sp.label}: asked ${r.asked}, camera gave ${r.got}`, 'bad');
+    else say(`${sp.label} = ${r.got}`, 'ok');
+  };
+  el.addEventListener('change', send);
+  if (el.type === 'range')
+    el.addEventListener('input', () => $('#v_'+name).textContent = el.value);
+}
+
+async function load(){
+  const s = await api('/api/state');
+  SPEC = s.spec; VALS = s.controls;
+  $('#stat').innerHTML =
+    `<i>${s.width}×${s.height}</i> · ${s.fps} fps · ${s.backend || '-'}`;
+  $('#blank').style.display = s.blank ? 'block' : 'none';
+  const st = $('#stalled');
+  if (st){
+    st.style.display = s.stalled ? 'block' : 'none';
+    st.innerHTML = `<b style="font-size:15px">No frames for ${s.silent_for}s.</b><br><br>
+      The camera stopped delivering. It is being reopened automatically
+      (${s.reopens} attempt${s.reopens === 1 ? '' : 's'} so far).
+      ${s.error ? '<br><br>Last error: ' + s.error : ''}`;
+  }
+
+  for (const [g, id] of [['aim','#gAim'],['light','#gLight'],['image','#gImage']]){
+    $(id).innerHTML = Object.entries(SPEC)
+      .filter(([n,sp]) => sp.group === g && VALS[n] !== null)
+      .map(([n,sp]) => slider(n, sp, VALS[n])).join('');
+  }
+  Object.entries(SPEC).forEach(([n,sp]) => wire(n,sp));
+
+  $('#mode').innerHTML = s.modes.map(m =>
+    `<option ${m === s.width+'x'+s.height ? 'selected':''}>${m}</option>`).join('');
+  noteMode(s.width+'x'+s.height);
+  if (s.roi) showRoi(s.roi);
+  renderPresets(s.presets);
+}
+
+function noteMode(m){
+  $('#modeNote').innerHTML = (m === '2560x1472')
+    ? '⚠️ <b>2560×1472 is not a native C920 mode.</b> DirectShow inserts a scaler, so it may be upscaled 1920×1080 with no extra detail. Verify in daylight before relying on it.'
+    : (m === '1920x1080'
+       ? 'Native mode. Trustworthy.'
+       : 'Lower than native. Only use it if you need the frame rate.');
+}
+
+$('#mode').addEventListener('change', async e => {
+  const r = await api('/api/mode', {mode: e.target.value});
+  noteMode(r.width+'x'+r.height);
+  say(`mode ${r.width}×${r.height}`, 'ok');
+  setTimeout(load, 400);
+});
+
+$('#xhBtn').addEventListener('click', () => $('#xh').classList.toggle('off'));
+
+/* ---------------------------------------------------------- live boxes ---
+ * What the detector is seeing, drawn over the stream as it happens.
+ *
+ * OPERATOR ONLY. This app is the camera owner's own control panel, bound to
+ * this machine; the public map has no equivalent and must not get one. A live
+ * box feed is a live view of a street, which is precisely what the two-tier
+ * design exists to not publish.
+ *
+ * Boxes arrive NORMALISED (0..1) rather than in pixels, so they stay correct
+ * when the video is scaled to the panel, when the window is resized, and when
+ * the camera's zoom or capture mode changes underneath them.
+ */
+const BOXCOLOR = { car:'#3ddc97', truck:'#ffb547', bus:'#ffb547', motorcycle:'#b98bff' };
+
+/* A publicly owned vehicle gets RED and gets named, because that is the only
+   thing this camera exists to report. Everything else is traffic, and traffic
+   is drawn in a colour that says "seen, not recorded".
+
+   The red fires on the SAME bar the public map publishes at - not a looser
+   live threshold. A box that lit up on evidence too weak to publish would be
+   a second classifier nobody calibrated, and the operator would reasonably
+   read it as what the map is about to say. */
+const GOV_COLOR = '#ff3b47';
+const GOV_LABEL = 'GOVERNMENT VEHICLE';
+
+/* "3 plate reads" was the wrong thing to say, and he was right to flag it.
+ *
+ * It described an ACTION - as though three plates had been taken and kept -
+ * when for a private vehicle the plate is hashed at the camera and the
+ * readable text is never stored anywhere. A viewfinder that implies capture,
+ * on a project whose entire argument is that it does not capture, is worse
+ * than unhelpful.
+ *
+ * The count was there for AIMING: more reads means the camera is positioned
+ * well enough to resolve a plate, which is the whole point of the mounting
+ * exercise. So the information stays and the claim changes - "plate legible"
+ * says what the camera CAN see, not what it took.
+ */
+
+/* ---- why the box used to chase the car -------------------------------
+ * Measured: a detection is 40-280ms old by the time it is fetched (the
+ * detector runs ~4.5 fps on CPU), and the page was only redrawing when it
+ * polled, every 150ms. So a box could be ~430ms behind the video and moved in
+ * visible steps. At 25 mph that is two to five metres of daylight between the
+ * box and the car.
+ *
+ * Two separate problems, and they need different fixes:
+ *
+ *   LAG      the box describes where the vehicle WAS. Fixed by predicting
+ *            forward: each track's velocity is estimated from consecutive
+ *            detections and the box is advanced by velocity x age.
+ *   STEPPING the box only moved when new data arrived. Fixed by rendering on
+ *            requestAnimationFrame and re-predicting every frame, so it glides
+ *            between detections instead of jumping.
+ *
+ * The prediction is honest about being a prediction: it is capped, so a
+ * vehicle that stops suddenly makes the box overshoot by a fraction of a
+ * second rather than sail off down the road, and the estimate is smoothed so
+ * one noisy detection cannot fling it.
+ *
+ * The real fix for the underlying latency is running the detector on the GPU -
+ * onnxruntime currently fails to load CUDA and falls back to CPU. That is an
+ * environment problem, not a drawing one, and worth doing separately.
+ */
+/* Headroom for an occasional slow frame. Was 0.45s while the reported age was
+   understated - the overlay used to stamp boxes at PUBLISH time, which hid the
+   capture-queue latency entirely, so the browser was told "40ms" about a frame
+   that was closer to a second old and under-corrected accordingly. The age is
+   measured from frame capture now, so this cap is the only limit left.
+
+   ⚠️ If the box ever OVERSHOOTS - sits ahead of the car rather than behind -
+   lower this. The browser's own MJPEG display has some buffering of its own,
+   so predicting all the way to "now" can slightly overtake what is on screen.
+   Behind is a lag; ahead is a lie, and the second is worse. */
+const PREDICT_MAX_S = 0.8;
+const VEL_SMOOTH = 0.55;      // EMA on velocity: 0 = frozen, 1 = no smoothing
+
+const tracks = new Map();     // id -> {x,y,w,h,vx,vy,t,cls,conf,plates,seen}
+let lastPayload = null, lastRx = 0;
+
+function ingestBoxes(d){
+  const now = performance.now();
+  lastPayload = d;
+  lastRx = now;
+  const live = new Set();
+  for (const b of (d.boxes || [])){
+    live.add(b.id);
+    const p = tracks.get(b.id);
+    if (p){
+      const dt = Math.max(0.03, (now - p.t) / 1000);
+      // Velocity of the box CENTRE, in normalised units per second.
+      const vx = ((b.x + b.w / 2) - (p.x + p.w / 2)) / dt;
+      const vy = ((b.y + b.h / 2) - (p.y + p.h / 2)) / dt;
+      b.vx = p.vx + (vx - p.vx) * VEL_SMOOTH;
+      b.vy = p.vy + (vy - p.vy) * VEL_SMOOTH;
+    } else {
+      b.vx = 0; b.vy = 0;      // a brand new track has no history to go on
+    }
+    b.t = now;
+    tracks.set(b.id, b);
+  }
+  for (const id of [...tracks.keys()]) if (!live.has(id)) tracks.delete(id);
+}
+
+function drawBoxes(){
+  const d = lastPayload;
+  const img = $('#live'), cv = $('#boxes');
+  const w = img.clientWidth, h = img.clientHeight;
+  if (!w || !h) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w*dpr) || cv.height !== Math.round(h*dpr)){
+    cv.width = Math.round(w*dpr); cv.height = Math.round(h*dpr);
+  }
+  const g = cv.getContext('2d');
+  g.setTransform(dpr,0,0,dpr,0,0);
+  g.clearRect(0,0,w,h);
+
+  const stat = $('#detstat');
+  // Age of the newest detection RIGHT NOW: how old it already was when the
+  // server answered, plus however long ago that answer arrived. Built this way
+  // rather than from timestamps so a clock difference between the browser and
+  // the box cannot skew it.
+  const age = d && d.age != null
+    ? d.age + (performance.now() - lastRx) / 1000
+    : null;
+  if (age == null || age > 3){
+    stat.textContent = age == null ? 'detector not running'
+                                   : `detector stalled (${age.toFixed(0)}s)`;
+    stat.classList.remove('live');
+    tracks.clear();
+    return;                       // never draw boxes that no longer describe
+  }                               // what is on screen
+  const n = tracks.size;
+  const govN = [...tracks.values()].filter(b => b.gov).length;
+  stat.textContent = `detecting · ${n} vehicle${n===1?'':'s'} · ${(age*1000).toFixed(0)}ms`
+    + (govN ? `  ·  ${govN} GOVERNMENT` : '');
+  stat.classList.toggle('gov', govN > 0);
+  stat.classList.add('live');
+
+  g.font = '600 11px ui-monospace,Consolas,monospace';
+  g.lineJoin = 'round';
+  for (const b of tracks.values()){
+    // Advance the box to where the vehicle should be now. Capped, because this
+    // is a prediction and a car that brakes hard should cost us a fraction of
+    // a second of overshoot rather than a box halfway down the street.
+    const ahead = Math.min(age, PREDICT_MAX_S);
+    const x = (b.x + b.vx * ahead) * w, y = (b.y + b.vy * ahead) * h;
+    const bw = b.w*w, bh = b.h*h;
+    const gov = !!b.gov;
+    const col = gov ? GOV_COLOR : (BOXCOLOR[b.cls] || '#3ddc97');
+    g.strokeStyle = col; g.lineWidth = gov ? 3 : 2;
+    g.strokeRect(x, y, bw, bh);
+    if (gov){
+      // A soft outer glow so it reads at a glance on a busy street, without
+      // obscuring the vehicle the operator is trying to look at.
+      g.save();
+      g.shadowColor = GOV_COLOR; g.shadowBlur = 18;
+      g.strokeRect(x, y, bw, bh);
+      g.restore();
+    }
+
+    // Corner ticks: the box edges get lost against a busy street, and the
+    // ticks read as "locked on" rather than as a rectangle drawn on a photo.
+    const t = Math.min(14, bw/4, bh/4);
+    g.lineWidth = 3.5;
+    g.beginPath();
+    for (const [cx,cy,dx,dy] of [[x,y,1,1],[x+bw,y,-1,1],[x,y+bh,1,-1],[x+bw,y+bh,-1,-1]]){
+      g.moveTo(cx+dx*t, cy); g.lineTo(cx, cy); g.lineTo(cx, cy+dy*t);
+    }
+    g.stroke();
+
+    const label = gov
+      ? `${GOV_LABEL} ${Math.round((b.gov_conf || 0)*100)}%`
+      : `${b.cls} ${Math.round(b.conf*100)}%`
+        + (b.plates ? '  plate legible' : '');
+    const tw = g.measureText(label).width + 10;
+    g.font = gov ? '700 12px ui-monospace,Consolas,monospace'
+                 : '600 11px ui-monospace,Consolas,monospace';
+    const tw2 = g.measureText(label).width + 10;
+    g.fillStyle = col;
+    g.fillRect(x, Math.max(0, y-(gov?18:16)), tw2, gov?17:15);
+    g.fillStyle = gov ? '#fff' : '#06090e';
+    g.fillText(label, x+5, Math.max(12, y-6));
+    g.font = '600 11px ui-monospace,Consolas,monospace';
+  }
+}
+
+/* Polling and drawing are deliberately decoupled. Data arrives when it arrives
+   (~150ms); the box is re-predicted and redrawn every animation frame, which
+   is what turns a stepping box into one that glides with the vehicle. */
+async function pollBoxes(){
+  try { ingestBoxes(await api('/api/detections')); }
+  catch(e){ /* camctl restarting; the next tick recovers */ }
+}
+setInterval(pollBoxes, 150);
+pollBoxes();
+
+(function render(){
+  try { drawBoxes(); } catch(e){}
+  requestAnimationFrame(render);
+})();
+$('#boxBtn')?.addEventListener('click', () => {
+  const off = $('#boxes').classList.toggle('off');
+  $('#detstat').style.display = off ? 'none' : '';
+});
+
+let ROI = {cx:0.5, cy:0.5, z:1};
+
+function showRoi(r){
+  ROI = r;
+  $('#c_z').value = r.z;
+  $('#v_z').textContent = r.z.toFixed(1) + '×';
+  $('#roiInfo').textContent =
+    `view ${r.view_w}×${r.view_h}px · centre ${(r.cx*100).toFixed(0)}%,${(r.cy*100).toFixed(0)}%`;
+}
+
+$('#c_z').addEventListener('input', () => $('#v_z').textContent = (+$('#c_z').value).toFixed(1)+'×');
+$('#c_z').addEventListener('change', async () =>
+  showRoi(await api('/api/roi', {z: Number($('#c_z').value)})));
+
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-pan]');
+  if (!b) return;
+  if (b.dataset.pan === 'center')
+    return showRoi(await api('/api/roi', {cx:0.5, cy:0.5}));
+  const [dx, dy] = b.dataset.pan.split(',').map(Number);
+  const step = 0.12 / ROI.z;              // pan less as you zoom in
+  showRoi(await api('/api/roi', {cx: ROI.cx + dx*step, cy: ROI.cy + dy*step}));
+});
+
+// Click the picture to centre on that point. The stream shows the CROPPED
+// view, so the click has to be mapped back into full-frame coordinates.
+$('#live').addEventListener('click', async ev => {
+  const r = ev.target.getBoundingClientRect();
+  const fx = (ev.clientX - r.left) / r.width;
+  const fy = (ev.clientY - r.top) / r.height;
+  const half = 0.5 / ROI.z;
+  showRoi(await api('/api/roi', {
+    cx: ROI.cx + (fx - 0.5) * 2 * half,
+    cy: ROI.cy + (fy - 0.5) * 2 * half,
+  }));
+});
+
+function renderPresets(names){
+  $('#plist').innerHTML = (names||[]).map(n =>
+    `<button data-load="${n}">${n}</button>
+     <button data-del="${n}" class="warn" title="delete">✕</button>`).join('');
+}
+
+$('#psave').addEventListener('click', async () => {
+  const n = $('#pname').value.trim();
+  if (!n) return say('name it first', 'bad');
+  const r = await api('/api/preset/save', {name:n});
+  renderPresets(r.presets); $('#pname').value = '';
+  say(`saved "${n}"`, 'ok');
+});
+
+document.addEventListener('click', async e => {
+  const l = e.target.closest('[data-load]'), d = e.target.closest('[data-del]');
+  if (l){ await api('/api/preset/load', {name:l.dataset.load});
+          say(`loaded "${l.dataset.load}"`, 'ok'); return load(); }
+  if (d){ const r = await api('/api/preset/delete', {name:d.dataset.del});
+          renderPresets(r.presets); say(`deleted "${d.dataset.del}"`); }
+});
+
+/* 🚨 AN MJPEG <img> DOES NOT RECOVER BY ITSELF.
+ *
+ * Unplugging the camera kills the stream mid-response. camctl notices, reopens
+ * the device and carries on at full frame rate - but the browser is still
+ * holding a dead connection and never retries one. The page freezes on its
+ * last frame and reads as "the camera will not come back on", while the server
+ * beside it reports 23 fps and no error.
+ *
+ * `reopens` is the exact signal: when camctl has reopened the device since we
+ * last looked, our stream is stale by definition, so reconnect it. The
+ * cache-buster matters - without a changed URL the browser reuses the dead
+ * connection and nothing happens.
+ */
+/* ---- confirm a government vehicle, as it passes --------------------- */
+let confirmQueue = [], showing = null;
+
+async function pollConfirm(){
+  if (showing) return;                       // never interrupt an open prompt
+  let d;
+  try { d = await api('/api/confirm'); } catch(e){ return; }
+  confirmQueue = d.pending || [];
+  if (confirmQueue.length) showConfirm(confirmQueue[0]);
+}
+
+function showConfirm(c){
+  showing = c;
+  $('#cimg').src = `/api/bank/img/${c.day}/${c.stem}`;
+  $('#cmeta').textContent =
+    `${Math.round((c.conf || 0) * 100)}% · ${c.published ? 'already on the map' : 'held private'} · ${c.stem}`;
+  $('#confirm').style.display = 'flex';
+}
+
+async function answerConfirm(label){
+  const c = showing;
+  if (!c) return;
+  $('#confirm').style.display = 'none';
+  showing = null;
+  if (label){
+    // Same endpoint the labelling page uses, so one judgement writes the
+    // training label AND moves the sighting. sampling='likely' keeps it out of
+    // the measurable set - it is prompted, not randomly sampled.
+    // ⚠️ camctl's api(path, BODY) takes the body object, while the labelling
+    // page's api(path, OPTIONS) takes fetch options. Same name, two
+    // signatures, two files - I passed the label page's idiom here and the
+    // whole options object got posted as the body, so every answer silently
+    // did nothing while the popup sat there.
+    await api('/api/bank/label', {day:c.day, stem:c.stem, label, mode:'likely'});
+  }
+  await api('/api/confirm', {stem:c.stem, clear:true});
+  pollConfirm();
+}
+
+$('#cyes').onclick  = () => answerConfirm('police');
+$('#cno').onclick   = () => answerConfirm('civilian');
+$('#cskip').onclick = () => answerConfirm(null);
+addEventListener('keydown', e => {
+  if (!showing) return;
+  const k = e.key.toLowerCase();
+  if (k === 'y') answerConfirm('police');
+  else if (k === 'n') answerConfirm('civilian');
+  else if (k === 'escape') answerConfirm(null);
+});
+setInterval(pollConfirm, 2000);
+
+let lastReopens = null;
+function reconnectStream(why){
+  const img = $('#live');
+  img.src = '/stream.mjpg?r=' + Date.now();
+  const st = $('#detstat');
+  if (st) st.textContent = 'stream reconnected (' + why + ')';
+}
+$('#live').addEventListener('error', () => reconnectStream('load error'));
+
+load();
+setInterval(async () => {
+  const s = await api('/api/state');
+  if (lastReopens !== null && s.reopens > lastReopens) reconnectStream('camera reopened');
+  lastReopens = s.reopens;
+  $('#stat').innerHTML =
+    `<i>${s.width}×${s.height}</i> · ${s.fps} fps · ${s.backend || '-'}`;
+  $('#blank').style.display = s.blank ? 'block' : 'none';
+  const st = $('#stalled');
+  if (st){
+    st.style.display = s.stalled ? 'block' : 'none';
+    st.innerHTML = `<b style="font-size:15px">No frames for ${s.silent_for}s.</b><br><br>
+      The camera stopped delivering. It is being reopened automatically
+      (${s.reopens} attempt${s.reopens === 1 ? '' : 's'} so far).
+      ${s.error ? '<br><br>Last error: ' + s.error : ''}`;
+  }
+}, 5000);
+
+window.sparrowRefresh = async () => {
+  // The camera page's most common reason to refresh is a stream that died, so
+  // reconnect it explicitly rather than just re-reading the controls.
+  reconnectStream('manual refresh');
+  await Promise.all([load(), pollBoxes(), pollConfirm()]);
+};
+</script>
+<script src="/static/refresh.js"></script>
+</body>
+</html>

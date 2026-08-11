@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Review published sightings — SparrowMap</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<style>
+/* The operator's answer to "the map says this vehicle was police - was it?"
+   Every correction here does two things: it takes the claim off the map, and
+   it writes a label into the training set. The second is why this page is
+   worth more than a delete button. */
+:root{
+  --bg:#0a0d12; --bg2:#111621; --line:#1e2634; --line2:#2a3547;
+  --ink:#e6ecf5; --dim:#8794a8; --dim2:#5c6879;
+  --police:#4da3ff; --good:#3ddc97; --warn:#ffb547; --hot:#ff5b6e;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);min-height:100vh;
+  font:14px/1.45 ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif}
+header{height:52px;display:flex;align-items:center;gap:16px;padding:0 16px;
+  background:linear-gradient(180deg,#121826,#0d1219);
+  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+header b{letter-spacing:.18em;font-size:13px}
+header .sub{display:block;font-size:10.5px;color:var(--dim2)}
+header a{color:var(--dim);text-decoration:none;font-size:12.5px}
+.spacer{margin-left:auto}
+.counts{display:flex;gap:15px;font:11.5px var(--mono);color:var(--dim)}
+.counts b{color:var(--ink)} .counts .pend{color:var(--warn)}
+.counts .conf{color:var(--good)} .counts .ret{color:var(--hot)}
+
+.note{max-width:1180px;margin:14px auto 0;padding:10px 14px;font-size:12.5px;
+  line-height:1.55;color:var(--dim);background:#0c111a;
+  border:1px solid var(--line);border-left:2px solid var(--police);border-radius:0 8px 8px 0}
+.note b{color:var(--ink)}
+
+.grid{max-width:1180px;margin:14px auto 40px;display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px;padding:0 14px}
+.card{background:var(--bg2);border:1px solid var(--line);border-radius:10px;
+  overflow:hidden;display:flex;flex-direction:column}
+.card.done{opacity:.5}
+.card.flagged{border-color:var(--warn)}
+.flags{margin:6px 0;padding:6px 8px;border-radius:6px;background:#2a1a0a;
+  color:var(--warn);font-size:11px;line-height:1.5}
+.card img{width:100%;display:block;background:#000;aspect-ratio:16/9;object-fit:cover;cursor:zoom-in}
+.card .noimg{aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;
+  background:#0a0e15;color:var(--dim2);font-size:11.5px;text-align:center;padding:12px}
+.meta{padding:9px 11px;font-size:11.5px;color:var(--dim);flex:1}
+.meta .cls{font:600 12.5px var(--mono);letter-spacing:.06em;color:var(--police);
+  text-transform:uppercase}
+.meta .why{margin-top:5px;color:var(--dim2);line-height:1.45}
+.meta .when{margin-top:5px;font:10.5px var(--mono);color:var(--dim2)}
+.acts{display:flex;gap:7px;padding:9px 11px 11px}
+.acts button{flex:1;padding:9px 6px;border-radius:7px;cursor:pointer;
+  font:600 11px var(--mono);letter-spacing:.05em;text-transform:uppercase;
+  border:1px solid var(--line2);background:#0d121c;color:var(--ink)}
+.ok:hover{border-color:var(--good);color:var(--good)}
+.no:hover{border-color:var(--hot);color:var(--hot)}
+.verdict{padding:9px 11px 11px;font:600 11px var(--mono);letter-spacing:.05em}
+.verdict.confirmed{color:var(--good)} .verdict.retracted{color:var(--hot)}
+.empty{max-width:640px;margin:60px auto;text-align:center;color:var(--dim);line-height:1.7}
+.empty b{color:var(--ink);font-size:16px}
+#lightbox{position:fixed;inset:0;background:#05070ae8;z-index:100;display:none;
+  align-items:center;justify-content:center;cursor:zoom-out;padding:24px}
+#lightbox img{max-width:100%;max-height:100%;border-radius:10px}
+  .card.decided{opacity:.4}
+  .card.decided .acts{filter:grayscale(1)}
+  .sweep{width:100%;padding:13px;border-radius:9px;cursor:pointer;
+    background:#141b26;color:var(--ink);border:1px solid var(--line2);
+    font:700 12px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+  .sweep:hover:not(:disabled){border-color:var(--warn);color:var(--warn)}
+  .sweep:disabled{opacity:.35;cursor:default}
+  .sweephint{font-size:12px;color:var(--dim2);line-height:1.6;margin-top:9px}
+</style>
+</head>
+<body>
+
+<header>
+  <div><b>REVIEW SIGHTINGS</b><span class="sub">what the map has published &mdash; operator only</span></div>
+  <div class="spacer"></div>
+  <div class="counts" id="counts"></div>
+  <a href="/">&larr; map</a>
+</header>
+
+<div class="note" id="intro">
+  <b>This is the map's public claim, not a detection log.</b> Each of these says
+  a government vehicle passed a camera. Confirming or retracting
+  one does two things: it corrects the map, and it writes the answer straight
+  into the training set as a labelled example from the camera's own view &mdash;
+  which is worth more than any photograph, because it is the exact thing the
+  classifier will have to get right next time.
+</div>
+
+<div class="grid" id="grid"></div>
+<div class="empty" id="empty" style="display:none"></div>
+
+<div class="note" id="missnote" style="display:none;border-left-color:var(--warn)">
+  <b>Possibly missed.</b> These stayed private, but the classifier did think they
+  were police. A miss is an error too &mdash; and for a long time only the other
+  direction could be corrected, which is how the first real patrol unit this
+  camera ever saw sat in the private tier. Promoting one puts it on the map and
+  labels it. <b>The plate does not come back:</b> a private sighting has it
+  destroyed in the pixels at capture, so it goes up as a sighting with no
+  identifier, which is all a public sighting ever needed.
+</div>
+<div class="grid" id="missed"></div>
+<div id="sweepbox" style="display:none;max-width:1180px;margin:0 auto 40px;padding:0 14px">
+  <button id="sweep" class="sweep" disabled></button>
+  <div class="sweephint">Scroll the cards above and put any government vehicle on
+    the map first. This clears whatever is left &mdash; each one written back as
+    an ordinary-vehicle label, which is a negative the classifier can learn from,
+    not a delete.</div>
+</div>
+<div id="lightbox"><img alt=""></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function ago(ts){
+  const d = Date.now()/1000 - ts;
+  if (d < 60) return Math.round(d) + 's ago';
+  if (d < 3600) return Math.round(d/60) + 'm ago';
+  if (d < 86400) return Math.round(d/3600) + 'h ago';
+  return Math.round(d/86400) + 'd ago';
+}
+
+/* Human-readable text for a public flag reason. Mirrors db.REPORT_REASONS. */
+const REPORT_REASONS = {
+  not_government: 'not a government vehicle',
+  wrong_description: 'wrong description',
+  other: 'other',
+};
+
+/* Counters only. Split out so a decision can move the numbers without
+   re-rendering the grid underneath the person reading it. */
+function header(d){
+  const miss = d.missed_pending || 0;
+  $('#counts').innerHTML =
+    `<span class="pend"><b>${d.pending}</b> published to review</span>
+     <span class="${miss ? 'pend' : ''}"><b>${miss}</b> possibly missed</span>
+     <span class="conf">${d.confirmed} confirmed</span>
+     <span class="ret">${d.retracted} retracted</span>`;
+}
+
+async function load(){
+  const d = await (await fetch('/api/review/queue')).json();
+  if (d.error) {
+    $('#grid').innerHTML = '';
+    $('#empty').style.display = '';
+    $('#empty').innerHTML = `<b>Operator only.</b><br><br>
+      This page retracts published claims, so it answers on the machine
+      running the hub and nowhere else.`;
+    return;
+  }
+  // Two kinds of outstanding work, named separately because they are
+  // different actions: confirming/retracting something the map has PUBLISHED,
+  // and promoting something it wrongly held back.
+  header(d);
+
+  const q = d.queue || [];
+  // Only "nothing here" when BOTH lists are empty.
+  const nothing = !q.length && !(d.missed || []).length;
+  $('#empty').style.display = nothing ? '' : 'none';
+  if (nothing){
+    $('#empty').innerHTML = `<b>Nothing published yet.</b><br><br>
+      The public tier is on, but no vehicle has cleared the bar since it was
+      enabled. That is the normal state of a quiet street &mdash; a patrol car
+      has to actually drive past.<br><br>
+      Private traffic is still being counted and banked for training.`;
+  }
+  $('#grid').innerHTML = q.map(s => `
+    <div class="card ${s.reviewed ? 'done' : ''} ${(s.reports && s.reports.length) ? 'flagged' : ''}" data-id="${s.id}">
+      ${s.snap
+        ? `<img src="/snap/${encodeURIComponent(s.snap)}" alt="" loading="lazy">`
+        : `<div class="noimg">no image kept for this sighting</div>`}
+      <div class="meta">
+        <div class="cls">${esc(s.vclass)}${s.vclass_conf != null
+          ? ' &middot; ' + Math.round(s.vclass_conf*100) + '%' : ''}</div>
+        <div class="why">${esc(s.vclass_why || '')}</div>
+        ${(s.reports && s.reports.length) ? `<div class="flags">&#9873; ${s.reports.length}
+          public flag${s.reports.length > 1 ? 's' : ''}: ${s.reports.map(r =>
+            esc(REPORT_REASONS[r.reason] || r.reason)
+            + (r.note ? ' &mdash; &ldquo;' + esc(r.note) + '&rdquo;' : '')).join('; ')}</div>` : ''}
+        <div class="when">#${s.id} &middot; ${esc(s.node_id)} &middot; ${ago(s.ts)}</div>
+      </div>
+      ${s.reviewed
+        ? `<div class="verdict ${s.reviewed}">${s.reviewed === 'confirmed'
+             ? '✓ confirmed' : '✗ retracted'}</div>`
+        : `<div class="acts">
+             <button class="ok" data-v="confirmed">Yes, police</button>
+             <button class="no" data-v="retracted">Not police</button>
+           </div>`}
+    </div>`).join('');
+
+  const m = d.missed || [];
+  $('#missnote').style.display = m.length ? '' : 'none';
+  $('#missed').innerHTML = m.map(s => `
+    <div class="card" data-id="${s.id}">
+      ${s.snap
+        ? `<img src="/snap/${encodeURIComponent(s.snap)}" alt="" loading="lazy">`
+        : `<div class="noimg">no image kept for this sighting</div>`}
+      <div class="meta">
+        <div class="cls" style="color:var(--warn)">held private</div>
+        <div class="why">the classifier called this <b>police</b> at
+          ${Math.round((s.clip_conf || 0)*100)}%
+          (margin ${Math.round((s.clip_margin || 0)*100)}%)</div>
+        <div class="when">#${s.id} &middot; ${esc(s.node_id)} &middot; ${ago(s.ts)}</div>
+      </div>
+      <div class="acts">
+        <button class="ok" data-v="promoted">Put it on the map</button>
+        <button class="no" data-v="retracted">No, ordinary</button>
+      </div>
+    </div>`).join('');
+
+  // Sweep the rest, once the government vehicles have been lifted out.
+  // Only appears when there is something left to sweep.
+  $('#sweepbox').style.display = m.length ? '' : 'none';
+  updateSweep();
+}
+
+/* The sweep button counts the cards STILL ON SCREEN and undecided, and sends
+   exactly those ids. Re-deriving the list on the server would also clear
+   anything that arrived while he was scrolling - sightings nobody has looked
+   at, marked reviewed by someone who never saw them. */
+function undecided(){
+  return [...document.querySelectorAll('#missed .card:not(.decided)')]
+    .map(c => Number(c.dataset.id));
+}
+
+function updateSweep(){
+  const n = undecided().length;
+  const b = $('#sweep');
+  b.disabled = !n;
+  b.textContent = n ? `Not police — clear the remaining ${n}` : 'Nothing left to clear';
+}
+
+async function onClick(e){
+  const img = e.target.closest('img');
+  if (img){
+    $('#lightbox').style.display = 'flex';
+    $('#lightbox img').src = img.src;
+    return;
+  }
+  const b = e.target.closest('button[data-v]');
+  if (!b) return;
+  const card = b.closest('.card');
+  const id = Number(card.dataset.id);
+  b.disabled = true;
+  const r = await (await fetch('/api/review', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({id, verdict: b.dataset.v})
+  })).json();
+  if (r.error){ b.disabled = false; return alert(r.error); }
+
+  // ⚠️ DO NOT RELOAD THE WHOLE PAGE HERE.
+  // It used to, and every decision threw away the scroll position - which on a
+  // queue you work through top to bottom means starting over after each card.
+  // Mark the card decided in place and leave the list exactly where it was.
+  card.classList.add('decided');
+  card.querySelectorAll('button').forEach(x => x.disabled = true);
+  const tag = card.querySelector('.cls');
+  if (tag){
+    const up = b.dataset.v === 'promoted';
+    tag.textContent = up ? 'put on the map' : 'marked ordinary';
+    tag.style.color = up ? 'var(--police)' : 'var(--dim2)';
+  }
+  updateSweep();
+  refreshCounts();
+}
+
+/* Numbers in the header still have to move, without re-rendering the grid. */
+async function refreshCounts(){
+  try {
+    const d = await (await fetch('/api/review/queue')).json();
+    header(d);
+  } catch (e) { /* a stale counter is better than losing his place */ }
+}
+
+$('#sweep').onclick = async () => {
+  const ids = undecided();
+  if (!ids.length) return;
+  if (!confirm(`Mark ${ids.length} sighting${ids.length===1?'':'s'} as ordinary `
+             + `vehicles?\n\nEach one is written back as a training label, so `
+             + `only do this once you have looked at them.`)) return;
+  const b = $('#sweep');
+  b.disabled = true; b.textContent = 'Clearing…';
+  const r = await (await fetch('/api/review/bulk', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ids, verdict:'retracted'})
+  })).json();
+  if (r.error){ b.disabled = false; updateSweep(); return alert(r.error); }
+  load();          // a full sweep IS the end of the pass, so re-render is right
+}
+$('#grid').addEventListener('click', onClick);
+$('#missed').addEventListener('click', onClick);
+
+$('#lightbox').onclick = () => { $('#lightbox').style.display = 'none'; };
+addEventListener('keydown', e => {
+  if (e.key === 'Escape') $('#lightbox').style.display = 'none';
+});
+
+load();
+setInterval(load, 20000);
+
+window.sparrowRefresh = async () => { await load(); };
+</script>
+<script src="/static/refresh.js"></script>
+</body>
+</html>

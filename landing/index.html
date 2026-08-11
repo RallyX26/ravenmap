@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SparrowMap</title>
+<meta name="description" content="A camera network that watches government vehicles. Volunteers run the cameras, the map is public, and private number plates are destroyed on the camera before anything is sent.">
+<link rel="icon" href="favicon.ico">
+<meta property="og:title" content="SparrowMap">
+<meta property="og:description" content="Cameras that watch government vehicles, run by volunteers, owned by nobody.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://sparrowmap.com/">
+<meta property="og:image" content="https://sparrowmap.com/cover.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="SparrowMap">
+<meta name="twitter:description" content="Cameras that watch government vehicles, run by volunteers, owned by nobody.">
+<meta name="twitter:image" content="https://sparrowmap.com/cover.png">
+<meta name="theme-color" content="#0B0E13">
+<style>
+/* --------------------------------------------------------------------------
+   SparrowMap landing.
+
+   Palette is the project's own brand kit (brand/sparrowmap_palette.png), not
+   a new one. Signal red and green appear ONLY on live-system readouts, never
+   as decoration, because in the running detector they mean something exact:
+   red is a government call, green is an ordinary vehicle.
+   -------------------------------------------------------------------------- */
+:root{
+  --black:#0B0E13;
+  --line:#212B3A;
+  --steel:#7E8CA2;
+  --blue:#1B74D1;
+  --blue-hi:#6DA6E8;
+  --ink:#F5F8FC;
+  --gov:#E4483B;      /* the red box in the detector */
+  --ordinary:#3FBF7F; /* the green box */
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Segoe UI Mono","Roboto Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--black);color:var(--ink);
+  font-family:var(--sans);font-size:17px;line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:920px;margin:0 auto;padding:0 24px}
+
+/* Structural device: the detector's corner brackets. Used exactly twice on
+   this page, on the two things that are literally what the camera sees. */
+.framed{position:relative;padding:clamp(28px,6vw,64px) clamp(20px,4vw,44px)}
+.framed::before,.framed::after{
+  content:"";position:absolute;width:22px;height:22px;pointer-events:none;
+  border:2px solid var(--blue);
+}
+.framed::before{top:0;left:0;border-right:0;border-bottom:0}
+.framed::after{bottom:0;right:0;border-left:0;border-top:0}
+
+/* ---------- masthead ---------- */
+.top{display:flex;align-items:center;gap:12px;padding:22px 0;border-bottom:1px solid var(--line)}
+.top img{width:30px;height:30px;display:block}
+.wordmark{font-family:var(--mono);font-size:15px;letter-spacing:.16em;font-weight:600}
+.state{
+  margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+  color:var(--steel);display:flex;align-items:center;gap:8px;text-transform:uppercase;
+}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--blue-hi);flex:none}
+
+/* ---------- hero ---------- */
+.hero{padding:clamp(48px,10vw,104px) 0 clamp(32px,6vw,56px)}
+.eyebrow{
+  font-family:var(--mono);font-size:12px;letter-spacing:.28em;color:var(--blue-hi);
+  text-transform:uppercase;margin:0 0 22px;
+}
+h1{
+  font-family:var(--mono);font-weight:600;
+  font-size:clamp(30px,6.2vw,60px);line-height:1.08;letter-spacing:-.02em;
+  margin:0;text-wrap:balance;
+}
+h1 .dim{color:var(--steel)}
+.lede{
+  font-size:clamp(17px,2.2vw,20px);color:var(--steel);
+  max-width:60ch;margin:26px 0 0;
+}
+.lede strong{color:var(--ink);font-weight:600}
+
+/* ---------- the ledger: the signature ---------- */
+.ledger{margin:clamp(56px,9vw,96px) 0;border-top:1px solid var(--line);padding-top:44px}
+.sec-label{
+  font-family:var(--mono);font-size:11px;letter-spacing:.24em;color:var(--steel);
+  text-transform:uppercase;margin:0 0 32px;
+}
+.row{
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.9fr);
+  gap:clamp(16px,4vw,40px);align-items:baseline;
+  padding:26px 0;border-bottom:1px solid var(--line);
+}
+.row:last-child{border-bottom:0}
+.fig{
+  font-family:var(--mono);font-weight:600;letter-spacing:-.03em;line-height:.92;
+  font-size:clamp(40px,9vw,76px);
+}
+.fig.zero{color:var(--blue-hi);font-size:clamp(56px,13vw,112px)}
+.row p{margin:0;color:var(--steel);max-width:46ch}
+.row p b{color:var(--ink);font-weight:600;display:block;margin-bottom:4px}
+
+/* ---------- kept / destroyed ---------- */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line)}
+.half{background:var(--black);padding:clamp(22px,4vw,34px)}
+.tag{
+  font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+  display:inline-block;padding:4px 9px;border:1px solid currentColor;margin-bottom:18px;
+}
+.half.keep .tag{color:var(--gov)}
+.half.drop .tag{color:var(--ordinary)}
+.half h3{margin:0 0 10px;font-size:19px;font-family:var(--mono);font-weight:600;letter-spacing:-.01em}
+.half p{margin:0;color:var(--steel);font-size:15.5px}
+
+/* ---------- run a camera ---------- */
+.join{margin:clamp(56px,9vw,96px) 0 0;border-top:1px solid var(--line);padding-top:44px}
+.join h2{font-family:var(--mono);font-size:clamp(22px,4vw,32px);font-weight:600;margin:0 0 16px;letter-spacing:-.02em}
+.join p{color:var(--steel);max-width:58ch;margin:0 0 14px}
+.specs{list-style:none;padding:0;margin:26px 0 0;display:grid;gap:10px}
+.specs li{
+  font-family:var(--mono);font-size:13.5px;color:var(--steel);
+  padding-left:22px;position:relative;
+}
+.specs li::before{content:"+";position:absolute;left:0;color:var(--blue)}
+.actions{margin-top:34px;display:flex;flex-wrap:wrap;gap:12px}
+.btn{
+  font-family:var(--mono);font-size:13px;letter-spacing:.1em;text-transform:uppercase;
+  text-decoration:none;padding:14px 22px;border:1px solid var(--blue);color:var(--ink);
+  background:var(--blue);transition:background .15s ease,border-color .15s ease;
+}
+.btn:hover{background:#1560b0;border-color:#1560b0}
+.btn.ghost{background:transparent;color:var(--blue-hi)}
+.btn.ghost:hover{background:rgba(27,116,209,.12)}
+a:focus-visible,.btn:focus-visible{outline:2px solid var(--blue-hi);outline-offset:3px}
+
+footer{
+  margin-top:clamp(56px,9vw,96px);border-top:1px solid var(--line);
+  padding:28px 0 56px;color:var(--steel);font-family:var(--mono);font-size:12px;
+  display:flex;flex-wrap:wrap;gap:8px 22px;
+}
+footer a{color:var(--steel)}
+
+@media (max-width:640px){
+  .row{grid-template-columns:1fr;gap:8px}
+  .split{grid-template-columns:1fr}
+  .state span.txt{display:none}
+}
+
+/* Page-load reveal. One orchestrated sequence, not scattered effects. */
+@media (prefers-reduced-motion:no-preference){
+  .rise{opacity:0;transform:translateY(14px);animation:rise .7s cubic-bezier(.2,.7,.3,1) forwards}
+  .rise:nth-of-type(1){animation-delay:.05s}
+  @keyframes rise{to{opacity:1;transform:none}}
+  .hero .eyebrow{animation-delay:.02s}
+  .hero h1{animation-delay:.12s}
+  .hero .lede{animation-delay:.24s}
+  .dot{animation:pulse 2.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="top">
+    <img src="mark.png" alt="">
+    <span class="wordmark">SPARROWMAP</span>
+    <span class="state"><span class="dot"></span><span class="txt">Running. Not open yet.</span></span>
+  </header>
+
+  <section class="hero framed">
+    <p class="eyebrow rise">Watching the watchers</p>
+    <h1 class="rise">Cameras that watch<br>government vehicles.<br><span class="dim">Owned by nobody.</span></h1>
+    <p class="lede rise">
+      Volunteers point a spare phone at a street. It reads the vehicles that go past,
+      keeps the government ones, and <strong>destroys everything else on the device</strong>,
+      before anything is sent anywhere.
+    </p>
+  </section>
+
+  <!--
+    ⚠️ THE NUMBERS BELOW ARE A FALLBACK, NOT THE SOURCE OF TRUTH.
+    They are the figures as written on 10 August 2026 and they WILL drift. The
+    page fetches /api/stats.json and replaces them; if that fetch fails for any
+    reason the page still renders these, with the date beside them saying what
+    they are. A page arguing "we do not publish unverified claims" must never
+    show a bare number that quietly went stale, and must never show a blank
+    where a number should be.
+  -->
+  <section class="ledger">
+    <p class="sec-label" id="ledger-asof">What it has actually done, as of 10 August 2026</p>
+
+    <div class="row">
+      <div class="fig" id="fig-seen">1,811</div>
+      <p><b>Vehicles have driven past</b><span id="cap-seen">Two cameras, one street, real traffic. That is 2,811 recorded sightings, because one car crossing the view is often caught more than once.</span></p>
+    </div>
+
+    <div class="row">
+      <div class="fig" id="fig-confirmed">25</div>
+      <p><b>Government vehicles confirmed by a person</b>A human looked at the photo and agreed. These are the only ones treated as a record.</p>
+    </div>
+
+    <div class="row">
+      <div class="fig zero" id="fig-plates">0</div>
+      <p><b>Private number plates stored</b><span id="cap-plates">Out of 2,757 vehicles that were not government.</span> The plate is destroyed on the camera itself, so there is nothing to store, nothing to leak and nothing to hand over.</p>
+    </div>
+  </section>
+
+  <!-- Page behaviour lives in /app.js so a strict CSP (script-src 'self') can
+       ship via landing/_headers. No inline script on this page. -->
+  <script src="/app.js" defer></script>
+
+  <section class="split framed">
+    <div class="half keep">
+      <span class="tag">Kept</span>
+      <h3>Government vehicles</h3>
+      <p>The photo and the plate are kept, and they become the public record. Public money, public roads, public vehicles.</p>
+    </div>
+    <div class="half drop">
+      <span class="tag">Destroyed</span>
+      <h3>Everybody else</h3>
+      <p>The plate is destroyed on the camera itself, before anything leaves it. What reaches the server is an anonymous dot with no photo and no plate.</p>
+    </div>
+  </section>
+
+  <section class="join">
+    <h2>Running a camera</h2>
+    <p>
+      There is nothing to install and no account to make. It runs in a browser tab on a
+      phone you have already stopped using, propped in a window.
+    </p>
+    <p>
+      The detection runs on the phone, not on a server. That matters more than it sounds:
+      if the video were uploaded for a server to look at, there would be a video feed to
+      intercept. There is not one.
+    </p>
+    <ul class="specs">
+      <li>Works on an old phone, a laptop webcam, or a USB camera</li>
+      <li>No account, no sign up, no app store</li>
+      <li>Your camera's exact location is never published, only the street it watches</li>
+      <li>You can shut it off and take your camera out of the network at any time</li>
+    </ul>
+    <div class="actions" id="actions"></div>
+  </section>
+
+  <footer>
+    <span>SparrowMap</span>
+    <span>Volunteer cameras. Public map.</span>
+    <span>Built in Michigan</span>
+  </footer>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Place this camera — SparrowMap</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/vendor/leaflet.css">
+<style>
+:root{
+  --bg:#0a0d12; --bg2:#111621; --line:#1e2634; --line2:#2a3547;
+  --ink:#e6ecf5; --dim:#8794a8; --dim2:#5c6879;
+  --blue:#1B74D1; --blue2:#3d8cff; --good:#3ddc97; --warn:#ffb547; --hot:#ff5b6e;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);overflow:hidden;
+     font:14px/1.45 ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif}
+header{height:52px;display:flex;align-items:center;gap:14px;padding:0 14px;
+  background:linear-gradient(180deg,#121826,#0d1219);border-bottom:1px solid var(--line);
+  position:relative;z-index:1000}
+header b{letter-spacing:.18em;font-size:13px}
+header .tag{display:block;font-size:10.5px;color:var(--dim2)}
+header a{margin-left:auto;color:var(--dim);text-decoration:none;font-size:12.5px}
+header a:hover{color:var(--ink)}
+main{position:absolute;inset:52px 0 0 0;display:flex}
+#map{flex:1;background:#0a0d12}
+.panel{width:360px;flex:none;background:var(--bg2);border-left:1px solid var(--line);
+  padding:14px;overflow-y:auto}
+@media(max-width:880px){main{flex-direction:column}#map{height:52vh;flex:none}
+  .panel{width:100%;border-left:0;border-top:1px solid var(--line)}}
+h2{font:600 10.5px/1 var(--mono);letter-spacing:.15em;text-transform:uppercase;
+   color:var(--dim2);margin:0 0 10px}
+.ctl{margin-bottom:12px}
+.ctl label{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);margin-bottom:4px}
+.ctl label b{color:var(--ink);font:600 11.5px var(--mono)}
+input[type=range]{width:100%;accent-color:var(--blue2)}
+input[type=text]{width:100%;background:#0a0e15;color:var(--ink);border:1px solid var(--line2);
+  border-radius:7px;padding:9px;font:13px var(--mono)}
+button{background:#0d121c;color:var(--ink);border:1px solid var(--line2);border-radius:7px;
+  padding:10px;cursor:pointer;font:600 11px var(--mono);letter-spacing:.06em;width:100%}
+button.pri{background:var(--blue);border-color:transparent;color:#fff}
+button:hover{border-color:var(--blue2)}
+.row{display:flex;gap:7px;margin-bottom:10px}
+.note{font-size:11.5px;color:var(--dim);background:#0a1018;border-left:2px solid var(--line2);
+  padding:9px 11px;border-radius:0 6px 6px 0;margin:10px 0;line-height:1.55}
+.note b{color:var(--ink)}
+.note.warn{border-color:var(--warn)}
+#msg{margin-top:10px;font:11.5px var(--mono);min-height:16px;color:var(--dim)}
+#msg.ok{color:var(--good)} #msg.bad{color:var(--hot)}
+.coords{font:11px var(--mono);color:var(--dim2);margin-top:6px}
+.leaflet-container{background:#0a0d12}
+.leaflet-control-attribution{background:#0d1219cc!important;color:#5c6879!important;font-size:10px!important}
+.leaflet-bar a{background:#111621!important;color:#e6ecf5!important;border-color:#1e2634!important}
+</style>
+</head>
+<body>
+
+<header>
+  <div><b>PLACE THIS CAMERA</b><span class="tag">position, heading and range</span></div>
+  <a href="/">&larr; camera control</a>
+</header>
+
+<main>
+  <div id="map"></div>
+  <div class="panel">
+    <h2>Where is it</h2>
+    <div class="row">
+      <button id="locate">Use my location</button>
+      <button id="search">Find address</button>
+    </div>
+    <input type="text" id="addr" placeholder="e.g. Main St &amp; 2nd Ave, your town">
+    <div class="coords" id="coords">not placed yet</div>
+
+    <div class="note"><b>Click the map</b> to drop the camera, then drag the
+      green marker to fine-tune. Drag the <b>tip of the cone</b> to aim it.</div>
+
+    <h2 style="margin-top:18px">Which way is it pointing</h2>
+    <div class="ctl">
+      <label>Heading <b id="v_h">0&deg;</b></label>
+      <input type="range" id="c_h" min="0" max="359" step="1" value="0">
+    </div>
+    <div class="ctl">
+      <label>Field of view <b id="v_f">60&deg;</b></label>
+      <input type="range" id="c_f" min="10" max="120" step="1" value="60">
+    </div>
+    <div class="ctl">
+      <label>Useful range <b id="v_r">40 m</b></label>
+      <input type="range" id="c_r" min="5" max="150" step="1" value="40">
+    </div>
+    <div class="note">Range is where it can still <b>read a plate</b>, not where
+      it can see a car. At a webcam's field of view that is roughly 10&ndash;15 m.
+      Overstating it puts sightings in the wrong place on the map.</div>
+
+    <h2 style="margin-top:18px">Name</h2>
+    <input type="text" id="name" placeholder="e.g. Main St window">
+    <div class="note warn">The name and an <b>approximate</b> position are public.
+      SparrowMap jitters the published position by up to 60&nbsp;m so the map shows
+      where you are recorded without publishing which house is watching.</div>
+
+    <button class="pri" id="save" style="margin-top:6px">Save &amp; register node</button>
+    <div id="msg"></div>
+  </div>
+</main>
+
+<script src="/vendor/leaflet.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const say = (t, c='') => { const m=$('#msg'); m.textContent=t; m.className=c; };
+
+/* Opens region-level on purpose. "Use my location" zooms to the operator; a
+   street-level default would ship one real neighbourhood in the source. */
+const map = L.map('map', {zoomControl:true}).setView([42.7,-84.5], 8);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+  {attribution:'&copy; OpenStreetMap &copy; CARTO', subdomains:'abcd', maxZoom:21}).addTo(map);
+
+let pos = null, heading = 0, fov = 60, reach = 40;
+let marker = null, cone = null, handle = null;
+
+// Metres -> degrees. Longitude shrinks with latitude, and ignoring that
+// skews the cone badly at Michigan's latitude (cos 42.5 = 0.74).
+const mToLat = m => m / 111320;
+const mToLon = (m, lat) => m / (111320 * Math.cos(lat * Math.PI / 180));
+
+function conePoints(){
+  if (!pos) return [];
+  const pts = [[pos.lat, pos.lng]];
+  for (let a = -fov/2; a <= fov/2; a += 2){
+    const t = (heading + a) * Math.PI / 180;
+    pts.push([pos.lat + mToLat(reach) * Math.cos(t),
+              pos.lng + mToLon(reach, pos.lat) * Math.sin(t)]);
+  }
+  return pts;
+}
+
+function tipLatLng(){
+  const t = heading * Math.PI / 180;
+  return L.latLng(pos.lat + mToLat(reach) * Math.cos(t),
+                  pos.lng + mToLon(reach, pos.lat) * Math.sin(t));
+}
+
+function redraw(){
+  if (!pos) return;
+  if (!marker){
+    marker = L.circleMarker(pos, {radius:8, color:'#3ddc97', weight:3,
+      fillColor:'#0a0d12', fillOpacity:1}).addTo(map);
+    marker.options.draggable = true;
+    // circleMarker has no drag; use a transparent draggable marker on top.
+    handle = L.marker(pos, {draggable:true, opacity:0}).addTo(map);
+    handle.on('drag', e => { pos = e.target.getLatLng(); redraw(); });
+    tip = L.marker(tipLatLng(), {draggable:true,
+      icon: L.divIcon({className:'', html:
+        '<div style="width:14px;height:14px;border-radius:50%;background:#3d8cff;' +
+        'border:2px solid #0a0d12;box-shadow:0 0 0 1px #3d8cff"></div>',
+        iconSize:[14,14], iconAnchor:[7,7]})}).addTo(map);
+    tip.on('drag', e => {
+      const p = e.target.getLatLng();
+      const dy = p.lat - pos.lat;
+      const dx = (p.lng - pos.lng) * Math.cos(pos.lat * Math.PI/180);
+      heading = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+      reach = Math.max(5, Math.min(150, Math.round(map.distance(pos, p))));
+      $('#c_h').value = Math.round(heading); $('#v_h').textContent = Math.round(heading)+'°';
+      $('#c_r').value = reach; $('#v_r').textContent = reach+' m';
+      redraw();
+    });
+  }
+  marker.setLatLng(pos); handle.setLatLng(pos); tip.setLatLng(tipLatLng());
+  if (cone) map.removeLayer(cone);
+  cone = L.polygon(conePoints(), {color:'#3ddc97', weight:1.5, opacity:.8,
+    fillColor:'#3ddc97', fillOpacity:.15}).addTo(map);
+  cone.bringToBack();
+  $('#coords').textContent =
+    `${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)}   heading ${Math.round(heading)}°   ${reach} m`;
+}
+let tip = null;
+
+map.on('click', e => { pos = e.latlng; redraw(); });
+
+for (const [id, setter, fmt] of [
+  ['c_h', v => heading = v, v => v+'°'],
+  ['c_f', v => fov = v,     v => v+'°'],
+  ['c_r', v => reach = v,   v => v+' m'],
+]){
+  $('#'+id).addEventListener('input', e => {
+    setter(Number(e.target.value));
+    $('#v_'+id.split('_')[1]).textContent = fmt(e.target.value);
+    redraw();
+  });
+}
+
+$('#locate').onclick = () => {
+  if (!navigator.geolocation) return say('no geolocation in this browser','bad');
+  say('locating...');
+  navigator.geolocation.getCurrentPosition(
+    p => { pos = L.latLng(p.coords.latitude, p.coords.longitude);
+           map.setView(pos, 18); redraw();
+           say(`located to ±${Math.round(p.coords.accuracy)} m`, 'ok'); },
+    e => say('location refused: ' + e.message + (window.isSecureContext ? '' :
+             ' (needs https)'), 'bad'),
+    {enableHighAccuracy:true, timeout:12000});
+};
+
+$('#search').onclick = async () => {
+  const q = $('#addr').value.trim();
+  if (!q) return say('type an address or intersection first','bad');
+  say('searching...');
+  try {
+    const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='
+                          + encodeURIComponent(q), {headers:{'Accept':'application/json'}});
+    const j = await r.json();
+    if (!j.length) return say('not found','bad');
+    pos = L.latLng(+j[0].lat, +j[0].lon);
+    map.setView(pos, 18); redraw();
+    say(j[0].display_name.slice(0,70), 'ok');
+  } catch(e){ say('search failed: ' + e.message, 'bad'); }
+};
+
+$('#save').onclick = async () => {
+  if (!pos) return say('place the camera on the map first','bad');
+  const body = {name: $('#name').value.trim() || 'Camera node',
+                lat: pos.lat, lon: pos.lng,
+                heading: Math.round(heading), fov: Math.round(fov),
+                reach_m: Math.round(reach)};
+  say('registering...');
+  const r = await (await fetch('/api/placement', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})).json();
+  if (r.enrolled) say(`registered as ${r.node_id} — it will appear on the map`, 'ok');
+  else say('hub said: ' + (r.error || 'unknown error'), 'bad');
+};
+
+(async () => {
+  const p = await (await fetch('/api/placement')).json();
+  if (p && p.lat){
+    pos = L.latLng(p.lat, p.lon);
+    heading = p.heading ?? 0; fov = p.fov ?? 60; reach = p.reach_m ?? 40;
+    $('#c_h').value = heading; $('#v_h').textContent = Math.round(heading)+'°';
+    $('#c_f').value = fov;     $('#v_f').textContent = fov+'°';
+    $('#c_r').value = reach;   $('#v_r').textContent = reach+' m';
+    $('#name').value = p.name || '';
+    map.setView(pos, 18); redraw();
+    say(p.node_id ? `already registered as ${p.node_id}` : 'placed, not yet registered');
+  }
+})();
+</script>
+<script src="/static/refresh.js"></script>
+</body>
+</html>

@@ -1,0 +1,84 @@
+{
+  "_README": [
+    "LAUNCH CONFIG for sparrowmap.com on a public box. Copy over config.json",
+    "there - do NOT use it on the LAN hub, it will lock you out of the review",
+    "page until you sign in with the token from data/operator.token.",
+    "",
+    "Every value below differs from the development config for a reason that is",
+    "written next to it. The defaults in core.py are tuned for a hub on a",
+    "private tailnet where the only person who can reach it is the owner; a",
+    "public box inverts almost every one of those assumptions."
+  ],
+
+  "site_name": "SparrowMap",
+  "http_port": 8150,
+  "https_port": 8151,
+
+  "_operator_requires_auth": [
+    "THE ONE THAT MATTERS MOST. Off, the operator check trusts the socket",
+    "address - and behind nginx or Caddy EVERY request arrives from 127.0.0.1,",
+    "so every visitor on the internet becomes an operator: able to retract",
+    "sightings, promote a private vehicle onto the public map, and confirm one,",
+    "which is what makes a plate searchable. Launching without this publishes",
+    "a stranger's ability to publish strangers."
+  ],
+  "operator_requires_auth": true,
+
+  "_behind_tls": [
+    "Adds Secure to the operator cookie. Only set it when TLS actually",
+    "terminates in front of the hub, or the cookie is set and never returned,",
+    "which reads as 'login is broken' rather than 'you need https'."
+  ],
+  "behind_tls": true,
+
+  "_public_mirror": [
+    "THE ARCHITECTURAL CONTROL, and the reason a breach of this box is not a",
+    "catastrophe. On a mirror: node TRUE positions are never stored, private",
+    "vehicles keep no image, no plate hash and no description - only an",
+    "anonymous dot for the live traffic view - no training crops are written,",
+    "and the operator routes do not exist at all. What an attacker copies is",
+    "the published government record, which is already published.",
+    "Reviewing, labelling and retraction happen on the home hub."
+  ],
+  "public_mirror": true,
+
+  "_auto_approve_nodes": [
+    "Off. Anyone who finds /api/enroll can register a camera; on the LAN that",
+    "is the owner, on the internet it is anyone. New nodes arrive 'paused' and",
+    "post nothing until approved by hand. A volunteer network still needs a",
+    "front door, but it should not be unlocked."
+  ],
+  "auto_approve_nodes": false,
+
+  "_publish_public_tier": [
+    "Start OFF on the public box. Turn it on once the head has run there for a",
+    "few days and the review queue is clean. An empty map is recoverable; a",
+    "wrong one is what this project exists to not be."
+  ],
+  "publish_public_tier": false,
+
+  "_map_center": [
+    "Where the public map opens. Deliberately a rounded, region-level point:",
+    "a shipped config must never carry the coordinates of a real camera, and a",
+    "street-level default centred on one is exactly how that leaks. Set it to",
+    "the area you cover, not to a camera."
+  ],
+  "map_center": [42.7, -84.5],
+  "map_zoom": 8,
+  "public_tiers": ["police", "gov"],
+
+  "_retention": [
+    "civilian_retention_days is the promise on the About page. public 0 means",
+    "government sightings are kept - they are the record the project exists to",
+    "produce. Run /api/purge on a timer; it is operator-only now."
+  ],
+  "civilian_retention_days": 14,
+  "public_retention_days": 0,
+
+  "pepper_rotation_days": 30,
+  "node_position_jitter_m": 60,
+  "blur_faces": true,
+  "min_plate_confidence": 0.55,
+  "public_audit_log": true,
+  "strip_snapshot_background": true
+}

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>SparrowMap — Watching the watchers</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/vendor/leaflet.css">
+<link rel="stylesheet" href="/static/style.css?v=14">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <img src="/static/mark.png" class="mark" alt="" width="28" height="28">
+    <div>
+      <b>SPARROWMAP</b>
+      <span class="tag">Watching the watchers</span>
+    </div>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <form class="plateform" id="plateform" autocomplete="off">
+    <input id="plateq" type="search" placeholder="search a government plate"
+           maxlength="12" autocapitalize="characters" spellcheck="false"
+           aria-label="Search a government plate">
+    <button type="submit" aria-label="Search">Find</button>
+  </form>
+
+  <nav>
+    <a href="/app" class="addcam">Add a camera</a>
+    <span class="live" id="live"><i></i>connecting</span>
+  </nav>
+</header>
+
+<div id="policybar" class="policybar" style="display:none"></div>
+<div id="plateresults" class="plateresults" style="display:none"></div>
+
+<main>
+  <div id="map"></div>
+
+  <!-- About and Transparency as MODES of the same program rather than separate
+       pages. Their markup is fetched from /about and /transparency at runtime,
+       so the copy has exactly one home and cannot drift between a page and a
+       panel saying slightly different things about what this project does with
+       people's data. -->
+  <section class="pane" id="pane-about" hidden><div class="paneinner"></div></section>
+  <section class="pane" id="pane-transparency" hidden><div class="paneinner"></div></section>
+
+  <aside class="panel" id="panel">
+    <div class="filters">
+      <button class="chip on" data-f="all">All</button>
+      <button class="chip" data-f="police"   data-c="police">Government</button>
+      <button class="chip" data-f="gov"      data-c="gov">Gov plate</button>
+      <button class="chip" data-f="none">None</button>
+    </div>
+
+    <div class="win">
+      <label title="Applies to public sightings. Private traffic is live only and always fades after 2 minutes.">Show</label>
+      <select id="window">
+        <option value="0" selected>everything</option>
+        <option value="3600">last hour</option>
+        <option value="21600">last 6 hours</option>
+        <option value="86400">last 24 hours</option>
+        <option value="604800">last 7 days</option>
+      </select>
+      <!-- The toggle shows/hides the WATCHED ROADS. Camera positions are not
+           published at all, so there is nothing here to reveal. -->
+      <label class="cams"><input type="checkbox" id="showcams" checked> watched roads</label>
+    </div>
+
+    <div class="trafficbar">
+      <span id="traffic">road quiet</span>
+    </div>
+
+    <div id="detail" class="detail hidden"></div>
+
+    <div id="windowhint" class="windowhint" style="display:none"></div>
+
+    <div class="listhead">
+      <span id="listtitle">Public sightings</span>
+      <button id="clearsel" class="ghost hidden">clear</button>
+    </div>
+    <ul id="list" class="list"></ul>
+  </aside>
+</main>
+
+<nav class="modes" id="modes">
+  <button data-m="map" class="on"><span class="ic">&#128506;</span>Map</button>
+  <button data-m="about"><span class="ic">&#9432;</span>About</button>
+  <button data-m="transparency"><span class="ic">&#128065;</span>Transparency</button>
+  <a href="/app" class="modelink"><span class="ic">&#128247;</span>Add a camera</a>
+</nav>
+
+<div class="legend">
+  <span><i class="dot police"></i>government vehicle</span>
+  <span><i class="dot civilian"></i>private traffic (fades, never stored readable)</span>
+  <span><i class="dot cam"></i>camera</span>
+  <span><i class="dash"></i>road watched</span>
+</div>
+
+<script src="/vendor/leaflet.js"></script>
+<script src="/static/transparency.js?v=14"></script>
+<script src="/static/app.js?v=14"></script>
+<script src="/static/refresh.js?v=14"></script>
+</body>
+</html>
