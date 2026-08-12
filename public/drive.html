@@ -358,6 +358,10 @@
     setInterval(loadVerified,POLL_MS); setInterval(loadLive,POLL_MS);
     navigator.geolocation.getCurrentPosition(onFix,onGeoErr,{enableHighAccuracy:true,timeout:15000,maximumAge:2000});
     navigator.geolocation.watchPosition(onFix,onGeoErr,{enableHighAccuracy:true,maximumAge:1000,timeout:20000});
+    // Dashcam on by default - a driving app that watches the road is the point.
+    // The camera-permission prompt rides on this same start gesture. A driver
+    // who wants radar-only taps the 📷 button off.
+    camStart();
   }
   $('#startBtn').onclick=start;
 
@@ -373,7 +377,7 @@
   var SIZE=320, CONF=0.45, SEND_EDGE=200, MIN_FRAMES=3, GONE_MS=900;
   var SEND_EVERY_MS=5000, VEHICLE={2:'car',3:'motorcycle',5:'bus',7:'truck'};
   var camOn=false, camStream=null, session=null, ortLoading=null;
-  var dtracks=[], dnextId=1, winBest=null, lastSend=0, dsent=0, driveNode=null;
+  var dtracks=[], dnextId=1, winBest=null, lastSend=0, dsent=0, driveNode=null, driveNodePending=false;
   var pre=document.createElement('canvas'); pre.width=pre.height=SIZE;
   var pctx=pre.getContext('2d',{willReadFrequently:true});
   var cropCv=document.createElement('canvas');
@@ -508,6 +512,11 @@
                    box:tr.bestBox,vw:v.videoWidth};
       }
       dtracks=dtracks.filter(function(t){return now-t.last<GONE_MS;});
+      // If the camera started before a GPS fix or a node was ready, grab the
+      // node lazily once we have a fix, so auto-started dashcams still submit.
+      if(!driveNode && !driveNodePending && me){
+        driveNodePending=true; getDriveNode(function(nn){driveNode=nn; driveNodePending=false;});
+      }
       if(now-lastSend>=SEND_EVERY_MS && winBest && me && driveNode){
         submitCrop(winBest); lastSend=now; winBest=null;
       }
