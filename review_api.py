@@ -166,6 +166,14 @@ def verdict(reviewer: dict, sid: int, call: str, ip: str = "") -> dict:
         # private. The verdict is logged so the call is attributable and the crop
         # can be harvested as a civilian training label at home.
         _delete_pen(sid)
+        # 🚨 AND RECORD THAT A HUMAN LOOKED. Without this the row stays
+        # `reviewed IS NULL`, which is exactly what backfill_pen searches for -
+        # so every rejected vehicle came back to be judged again on the next
+        # sweep, and a reviewer's work quietly undid itself.
+        try:
+            db.review_sighting(sid, "retracted")
+        except Exception:
+            pass
         db.audit("review:reject", str(sid), actor=who, ip=ip)
         return {"ok": True, "id": sid, "verdict": "not"}
     if call == "skip":

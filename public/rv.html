@@ -97,6 +97,14 @@
   }
   .undo:hover{color:var(--ink)}
   .undo:disabled{opacity:.35;cursor:default}
+  .progress{margin:10px auto 0; max-width:340px; text-align:center;
+    font-family:var(--mono); font-size:10.5px; color:var(--dim); line-height:1.6}
+  .progress .bar{height:5px; border-radius:99px; background:#1a2330; overflow:hidden;
+    margin:5px 0 4px}
+  .progress .bar i{display:block; height:100%; background:linear-gradient(90deg,#3d8cff,#3ddc97);
+    width:0; transition:width .5s}
+  .progress b{color:var(--ink)}
+  .progress .why{color:#5f7b8f}
   .session{text-align:center;color:var(--dim);font-size:11px;font-family:var(--mono);padding-bottom:8px}
 
   /* ---- empty / all-clear ---- */
@@ -202,6 +210,7 @@
       </div>
       <button class="undo" id="undo" disabled>↩ undo last</button>
       <div class="session" id="session">reviewed 0 this session</div>
+      <div class="progress" id="progress"></div>
     </div>
 
     <div id="empty" class="center hidden">
@@ -434,6 +443,7 @@
   function updateCounts(){
     $("#count").textContent = Math.max(0, items.length - cursor) + " left";
     $("#session").textContent = "reviewed " + reviewed + " this session";
+    drawProgress();
     $("#undo").disabled = undoStack.length === 0;
   }
   function render(){
@@ -503,6 +513,14 @@
     if(verdict !== "skip") reviewed++;
     render();
     sendVerdict(it, verdict);
+    // A wrong tap here is expensive: a confirm publishes a vehicle, and a reject
+    // teaches the model that a real patrol car is an ordinary one. The deck is
+    // fast on purpose, so every verdict says what it just did and how long you
+    // have to take it back.
+    if(verdict !== "skip"){
+      toast((verdict === "cop" ? "Marked COP" : "Marked not a cop")
+            + " · press Z to undo");
+    }
   }
   function undo(){
     if(!undoStack.length) return;
@@ -562,6 +580,10 @@
     if(wallet.length === 1) activeToken = null;
     buildSwitch();
     loadQueue(true);
+    loadProgress();
+    // The number only moves when labels are synced from the box, so a slow
+    // refresh is honest; it is not a live counter.
+    setInterval(loadProgress, 300000);
   }
   function boot(){
     wallet = loadWallet();
@@ -570,6 +592,42 @@
   }
   boot();
 })();
+
+  /* Why the reviewing matters, made visible. Every cop / not-a-cop answered is
+     one more example toward a detector small enough to run in a phone browser -
+     which is the only way a phone could ever be trusted to keep a government
+     plate, because the device has to know what it is looking at first.
+     Counted in PASSES (one vehicle, however many crops it made) and in distinct
+     cameras, because a model trained on one street learns that street. */
+  var progressData = null;
+  function drawProgress(){
+    var el = $("#progress");
+    if(!el || !progressData || progressData.unavailable){ if(el) el.textContent = ""; return; }
+    var d = progressData;
+    var pct = Math.max(0, Math.min(100, d.percent || 0));
+    var need = Math.max(0, (d.target_passes||0) - (d.government_passes||0));
+    var camsShort = Math.max(0, (d.target_cameras||0) - (d.cameras||0));
+    el.innerHTML =
+      "teaching a phone to spot patrol cars"
+      + '<div class="bar"><i style="width:' + pct + '%"></i></div>'
+      + "<b>" + (d.government_passes||0) + "</b> of " + (d.target_passes||0)
+      + " government passes · <b>" + (d.cameras||0) + "</b> of "
+      + (d.target_cameras||0) + " cameras"
+      + '<div class="why">'
+      + (d.ready ? "enough to attempt a first model"
+                 : need + " more" + (camsShort ? " · " + camsShort + " more street"
+                                                 + (camsShort>1?"s":"") : ""))
+      + "</div>";
+  }
+  function loadProgress(){
+    var t = activeEntries()[0];
+    if(!t) return;
+    api("/api/rv/progress", t.token, {})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){ if(j){ progressData = j; drawProgress(); } })
+      .catch(function(){});
+  }
+
 </script>
 </body>
 </html>

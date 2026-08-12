@@ -556,6 +556,20 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(404, "no crop")
                 return self._send(200, b, "image/jpeg",
                                   {"Cache-Control": "no-store"})
+            if p == "/api/rv/progress":
+                # How close the label set is to training a detector small enough
+                # to run on a phone. Computed on the machine that holds the crops
+                # (tools/label_progress.py) and pushed here, because the mirror
+                # deliberately banks nothing and cannot count them itself.
+                r = review_auth.identify(self.headers)
+                if not r:
+                    return self._err(401, "not signed in")
+                try:
+                    return self._json(json.loads(
+                        (DATA / "label_progress.json").read_text(encoding="utf-8")))
+                except Exception:
+                    return self._json({"unavailable": True})
+
             if p == "/api/rv/tokens":
                 if not self._is_local():
                     return self._err(403, "operator only")
