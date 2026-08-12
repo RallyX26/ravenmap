@@ -9,6 +9,9 @@
     --bg:#0d1219; --panel:#141b25; --panel2:#1b2432; --line:#25303f;
     --ink:#e8eef6; --dim:#8a97a8; --accent:#3b82f6; --accent2:#2563eb;
     --cop:#22c55e; --cop2:#16a34a; --not:#ef4444; --not2:#dc2626; --skip:#64748b;
+    /* Government-but-not-police. Deliberately NOT the police green: the two
+       are different claims and must not read as the same button. */
+    --gov:#f59e0b; --gov2:#d97706;
     --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
     --sans:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
   }
@@ -97,6 +100,7 @@
   .btn small{font-weight:500;font-size:11px;opacity:.8;font-family:var(--mono)}
   .btn.cop{background:linear-gradient(180deg,var(--cop),var(--cop2))}
   .btn.not{background:linear-gradient(180deg,var(--not),var(--not2))}
+  .btn.gov{background:linear-gradient(180deg,var(--gov),var(--gov2));flex:0 0 110px}
   .btn.skip{background:var(--panel2);color:var(--ink);border:1px solid var(--line);flex:0 0 88px}
   .btn.skip small{color:var(--dim)}
   .undo{
@@ -214,6 +218,11 @@
       <div class="actions">
         <button class="btn not" id="b-not">🚗 Not a cop <small>N / ←</small></button>
         <button class="btn skip" id="b-skip">⏭ Skip <small>Space</small></button>
+        <!-- Government but not police: a council truck, a state pickup, a
+             marked fleet vehicle. Same public tier, different claim - and the
+             human looking at it is a better judge of which than the classifier
+             that could not separate them. -->
+        <button class="btn gov" id="b-gov">🏛 Gov <small>G</small></button>
         <button class="btn cop" id="b-cop">🚔 Cop <small>C / →</small></button>
       </div>
       <button class="undo" id="undo" disabled>↩ undo last</button>
@@ -565,6 +574,7 @@
   });
 
   $("#b-cop").addEventListener("click", function(){ act("cop"); });
+  $("#b-gov").addEventListener("click", function(){ act("gov"); });
   $("#b-not").addEventListener("click", function(){ act("not"); });
   $("#b-skip").addEventListener("click", function(){ act("skip"); });
   $("#undo").addEventListener("click", undo);
@@ -577,6 +587,7 @@
     var k = e.key.toLowerCase();
     if(k==="c" || e.key==="ArrowRight"){ e.preventDefault(); act("cop"); }
     else if(k==="n" || e.key==="ArrowLeft"){ e.preventDefault(); act("not"); }
+    else if(k==="g"){ e.preventDefault(); act("gov"); }
     else if(k==="s" || e.key===" "){ e.preventDefault(); act("skip"); }
     else if(k==="z"){ e.preventDefault(); undo(); }
   });

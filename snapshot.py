@@ -368,6 +368,43 @@ def downscale_to_subres(data_url: str) -> bytes:
     return buf.getvalue()
 
 
+def crop_to_subres(data_url: str, vehicle_box: tuple) -> bytes:
+    """Crop a camera node's FRAME to its vehicle, then shrink it for the pen.
+
+    🚨 THE PEN WAS HOLDING WHOLE STREETS.
+    `downscale_to_subres` says "a CAMERA node sends a full-size crop" and only
+    resizes. That belief is wrong, and `store_submitted` says so directly two
+    hundred lines up: run_live.py posts its best FRAME, and the server crops it
+    to the vehicle box. So the published snapshot was correctly cropped while
+    the review-pen copy of the same sighting was the entire frame, merely made
+    small - the neighbours' houses, their porches, other vehicles - shown to
+    every reviewer holding a token.
+
+    Two functions held contradictory beliefs about one field, and the pen
+    believed the wrong one. Same failure as the 900x506 bug that created
+    store_submitted, one surface later: fixing a leak on the path you are
+    looking at does not fix the second path that reads the same input.
+
+    Cropping first also makes the downscale do its real job: 200px across a
+    whole street leaves a vehicle a few pixels wide, while 200px across the
+    vehicle is a picture a human can actually judge - so this improves the
+    review it protects.
+    """
+    import io
+    img = decode_upload(data_url)
+    x0, y0, x1, y1 = vehicle_box
+    pw, ph = (x1 - x0) * CROP_PAD, (y1 - y0) * CROP_PAD
+    img = img.crop((max(0, int(x0 - pw)), max(0, int(y0 - ph)),
+                    min(img.width, int(x1 + pw)), min(img.height, int(y1 + ph))))
+    if max(img.size) > SUBRES_MAX_EDGE:
+        s = SUBRES_MAX_EDGE / max(img.size)
+        img = img.resize((max(1, int(img.width * s)),
+                          max(1, int(img.height * s))), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "JPEG", quality=82)
+    return buf.getvalue()
+
+
 def blur_faces(img: Image.Image) -> Image.Image:
     """Blur faces in a full frame.
 

@@ -152,12 +152,21 @@ def _delete_pen(sid: int) -> None:
     (mirror.REVIEW / f"{sid}.json").unlink(missing_ok=True)
 
 
-def _publish(sid: int, reviewer: dict) -> None:
+def _publish(sid: int, reviewer: dict, force_vclass: Optional[str] = None) -> None:
+    """Publish a pen item. ``force_vclass`` is the REVIEWER'S own call.
+
+    Without it the class is inherited from whatever the model guessed, which
+    makes the two buttons a single decision: a human who can see the vehicle is
+    a better judge of police-versus-ordinary-government than the classifier
+    that could not tell them apart, and the distinction matters - a patrol car
+    and a council pickup are the same tier but not the same claim.
+    """
     meta = _pen_meta(sid)
     row = db.sighting(sid) if hasattr(db, "sighting") else None
-    vclass = meta.get("vclass") or (row or {}).get("vclass") or "gov"
+    vclass = force_vclass or meta.get("vclass") or (row or {}).get("vclass") or "gov"
     vclass = "police" if vclass == "police" else "gov"
-    why = f"confirmed by reviewer {reviewer.get('label')} as a government vehicle"
+    kind = "a patrol vehicle" if vclass == "police" else "a government vehicle"
+    why = f"confirmed by reviewer {reviewer.get('label')} as {kind}"
 
     # Attach the pen crop as the published photo (plate-less already).
     crop = crop_bytes(sid)
@@ -193,9 +202,20 @@ def verdict(reviewer: dict, sid: int, call: str, ip: str = "") -> dict:
     if not may_touch(reviewer, sid):
         return {"ok": False, "error": "not your camera"}
     if call == "cop":
-        _publish(sid, reviewer)
+        _publish(sid, reviewer, force_vclass="police")
         db.audit("review:confirm", str(sid), actor=who, ip=ip)
         return {"ok": True, "id": sid, "verdict": "cop"}
+    if call == "gov":
+        # Government but NOT police: a council truck, a state pickup, a fleet
+        # vehicle with a department decal. Same public tier - a publicly owned
+        # vehicle doing public work is a public record either way - but a
+        # different claim, and the reviewer is the one who can actually see
+        # which it is. Audited under its own action so the two calls can be
+        # counted separately when the classifier's confusion matrix is
+        # published.
+        _publish(sid, reviewer, force_vclass="gov")
+        db.audit("review:confirm_gov", str(sid), actor=who, ip=ip)
+        return {"ok": True, "id": sid, "verdict": "gov"}
     if call == "not":
         # Never published, so nothing to retract: drop the crop, leave the row
         # private. The verdict is logged so the call is attributable and the crop

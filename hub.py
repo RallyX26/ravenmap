@@ -1422,9 +1422,22 @@ class Handler(BaseHTTPRequestHandler):
         if (source != "phone_node" and mirror.relay_enabled()
                 and ev.get("snap_b64") and c["vclass"] in ("police", "gov_dot")):
             try:
-                # Shrink (never reject) a camera's full-size crop to a
-                # plate-illegible thumbnail for the pen.
-                review_crop = snapshot.downscale_to_subres(ev["snap_b64"])
+                # 🚨 CROP TO THE VEHICLE FIRST. A camera node posts its whole
+                # FRAME (store_submitted crops it server-side), so merely
+                # downscaling it parked a 200px photograph of the street - and
+                # the neighbours' houses with it - in front of every reviewer.
+                # The published snapshot was already being cropped correctly;
+                # only this second reader of the same field was not.
+                _vb = ev.get("vehicle_box")
+                if _vb:
+                    review_crop = snapshot.crop_to_subres(ev["snap_b64"],
+                                                          tuple(_vb))
+                else:
+                    # No box means nothing to crop to. Park no picture rather
+                    # than a bystander's - the same call the snapshot path
+                    # already makes a few lines below. The candidate still
+                    # reaches the reviewer, without an image.
+                    review_crop = None
             except Exception:
                 review_crop = None
 
