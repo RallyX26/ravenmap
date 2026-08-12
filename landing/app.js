@@ -43,3 +43,39 @@ const CONTACT_EMAIL = "sparrowmap@icloud.com";
   }
   host.replaceChildren(...out);
 })();
+
+/* First-visit nudge to add a camera - people were not finding the button. Shown
+   once per browser, dismissible, built with DOM calls (style-src allows inline
+   styles here; there is still no inline <script>). */
+(function () {
+  try { if (localStorage.getItem("sparrow.introSeen")) return; } catch (e) { return; }
+  const mk = (tag, text, css) => {
+    const el = document.createElement(tag);
+    if (text) el.textContent = text;
+    if (css) el.style.cssText = css;
+    return el;
+  };
+  const ov = mk("div", "", "position:fixed;inset:0;z-index:3000;display:flex;"
+    + "align-items:center;justify-content:center;background:rgba(0,0,0,.6);padding:20px");
+  const card = mk("div", "", "max-width:380px;width:100%;background:#0d1219;"
+    + "border:1px solid #22303c;border-radius:16px;padding:26px;text-align:center;"
+    + "color:#c7d2dc;font:15px/1.55 system-ui,sans-serif;box-shadow:0 24px 70px rgba(0,0,0,.6)");
+  const h = mk("div", "Watch the watchers",
+    "font-size:21px;font-weight:700;color:#fff;margin-bottom:10px");
+  const p = mk("div", "SparrowMap runs on volunteer cameras. Point a spare phone "
+    + "at a street and it maps the patrols that pass — plates destroyed on the "
+    + "device, never uploaded.", "color:#93a3b3;margin-bottom:20px");
+  const add = mk("a", "Add a camera", "display:block;padding:14px;border-radius:11px;"
+    + "background:#3b82f6;color:#fff;font-weight:600;text-decoration:none;margin-bottom:10px");
+  add.href = APP_URL || "https://map.sparrowmap.com/app"; add.rel = "noopener";
+  const skip = mk("button", "Just browsing", "display:block;width:100%;padding:12px;"
+    + "border-radius:11px;background:transparent;border:1px solid #22303c;color:#7f93a6;"
+    + "cursor:pointer;font:inherit");
+  const done = () => { try { localStorage.setItem("sparrow.introSeen", "1"); } catch (e) {} ov.remove(); };
+  skip.addEventListener("click", done);
+  add.addEventListener("click", done);
+  ov.addEventListener("click", (e) => { if (e.target === ov) done(); });
+  card.append(h, p, add, skip);
+  ov.appendChild(card);
+  document.body.appendChild(ov);
+})();

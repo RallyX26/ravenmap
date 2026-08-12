@@ -826,6 +826,50 @@ const HeatControl = L.Control.extend({
   },
 });
 map.addControl(new HeatControl());
+
+/* First-visit nudge: people were not finding the "Add a camera" link, so on a
+ * first visit put the invitation front and centre. Shown once per browser
+ * (localStorage), dismissible, and built with DOM calls so it survives the CSP.
+ */
+function showIntro() {
+  try { if (localStorage.getItem('sparrow.introSeen')) return; } catch (e) { return; }
+  const ov = document.createElement('div');
+  Object.assign(ov.style, { position: 'fixed', inset: '0', zIndex: '3000',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'rgba(0,0,0,.6)', padding: '20px' });
+  const card = document.createElement('div');
+  Object.assign(card.style, { maxWidth: '380px', width: '100%',
+    background: '#0d1219', border: '1px solid #22303c', borderRadius: '16px',
+    padding: '26px', textAlign: 'center', color: '#c7d2dc',
+    font: '15px/1.55 system-ui,sans-serif', boxShadow: '0 24px 70px rgba(0,0,0,.6)' });
+  const mk = (tag, text, style) => {
+    const el = document.createElement(tag);
+    if (text) el.textContent = text;
+    if (style) Object.assign(el.style, style);
+    return el;
+  };
+  const h = mk('div', 'Watch the watchers',
+    { fontSize: '21px', fontWeight: '700', color: '#fff', marginBottom: '10px' });
+  const p = mk('div', 'SparrowMap runs on volunteer cameras. Point a spare phone '
+    + 'at a street and it maps the patrols that pass — plates destroyed on the '
+    + 'device, never uploaded.', { color: '#93a3b3', marginBottom: '20px' });
+  const add = mk('a', 'Add a camera', { display: 'block', padding: '14px',
+    borderRadius: '11px', background: '#3b82f6', color: '#fff', fontWeight: '600',
+    textDecoration: 'none', marginBottom: '10px' });
+  add.href = '/app';
+  const skip = mk('button', 'Just browsing', { display: 'block', width: '100%',
+    padding: '12px', borderRadius: '11px', background: 'transparent',
+    border: '1px solid #22303c', color: '#7f93a6', cursor: 'pointer',
+    font: 'inherit' });
+  const done = () => { try { localStorage.setItem('sparrow.introSeen', '1'); } catch (e) {} ov.remove(); };
+  skip.addEventListener('click', done);
+  add.addEventListener('click', done);
+  ov.addEventListener('click', (e) => { if (e.target === ov) done(); });
+  card.append(h, p, add, skip);
+  ov.appendChild(card);
+  document.body.appendChild(ov);
+}
+setTimeout(showIntro, 700);
 setInterval(renderList, 10000);   // keep the "3m ago" column honest
 setInterval(ageTraffic, 1000);    // the live traffic view
 
