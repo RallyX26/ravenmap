@@ -35,7 +35,7 @@
   /* History, not a car that is there now - amber, so the two never read alike. */
   #alert.hot{background:linear-gradient(180deg,rgba(245,158,11,.97),rgba(245,158,11,.82));
     color:#1a1206}
-  #calbar{position:absolute;left:12px;z-index:1000;bottom:calc(env(safe-area-inset-bottom) + 92px);
+  #calbar{position:absolute;left:12px;z-index:1000;bottom:calc(env(safe-area-inset-bottom) + 250px);
     background:rgba(13,18,25,.86);border:1px solid var(--line);border-radius:12px;
     padding:8px 12px;font-family:var(--mono);font-size:.72rem;color:var(--dim);
     display:none;align-items:center;gap:10px}
@@ -71,12 +71,28 @@
   #report:disabled{filter:grayscale(.5) brightness(.7)}
   #report .em{font-size:1.35rem}
   /* --- privacy chip --- */
+  /* A promise that is cut off at both edges reads as a promise with something
+     hidden in it, which is the opposite of the point. Wrap it instead of
+     letting it overflow: bounded width, centred, two short lines on a phone. */
   #priv{position:absolute;z-index:1000;left:50%;transform:translateX(-50%);
-    bottom:calc(env(safe-area-inset-bottom) + 84px);font-size:.72rem;color:var(--dim);
-    background:rgba(13,18,25,.7);border:1px solid var(--line);border-radius:999px;
-    padding:5px 12px;white-space:nowrap;backdrop-filter:blur(6px)}
+    bottom:calc(env(safe-area-inset-bottom) + 96px);font-size:.68rem;color:var(--dim);
+    background:rgba(13,18,25,.82);border:1px solid var(--line);border-radius:14px;
+    padding:6px 14px;backdrop-filter:blur(6px);
+    max-width:min(92vw,420px);width:max-content;text-align:center;
+    line-height:1.45;white-space:normal;text-wrap:balance}
+  /* Leaflet's attribution ships light-on-white and lands as a bright bar across
+     the bottom of a dark, night-driving screen. Attribution is required and
+     stays - it is just dressed to match, and tucked left so it never sits under
+     the thumb that presses the report button. */
+  .leaflet-control-attribution{
+    background:rgba(10,13,18,.72) !important;color:#5f7b8f !important;
+    font-size:.6rem !important;padding:2px 8px !important;
+    border-radius:8px 0 0 0;backdrop-filter:blur(4px);
+    max-width:62vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .leaflet-control-attribution a{color:var(--dim) !important;text-decoration:none}
+  .leaflet-bottom.leaflet-right{margin-bottom:env(safe-area-inset-bottom)}
   /* --- toast --- */
-  #toast{position:absolute;z-index:1300;left:50%;bottom:calc(env(safe-area-inset-bottom) + 150px);
+  #toast{position:absolute;z-index:1300;left:50%;bottom:calc(env(safe-area-inset-bottom) + 320px);
     transform:translateX(-50%);background:#141b24;border:1px solid var(--line);
     color:var(--ink);padding:10px 18px;border-radius:12px;font-weight:600;display:none;
     box-shadow:0 8px 24px rgba(0,0,0,.4)}
@@ -116,8 +132,11 @@
   .me{width:20px;height:20px}
   .me svg{filter:drop-shadow(0 0 4px rgba(59,130,246,.6))}
   /* --- dashcam preview tile --- */
+  /* Sits ABOVE the privacy line, which now wraps to two lines and spans the
+     width a 116px tile used to sit inside. The bottom of a driving screen is a
+     stack, not a pile: button, then the promise, then the preview. */
   #camTile{position:absolute;z-index:1000;left:12px;
-    bottom:calc(env(safe-area-inset-bottom) + 96px);width:116px;height:88px;
+    bottom:calc(env(safe-area-inset-bottom) + 152px);width:116px;height:88px;
     border-radius:12px;overflow:hidden;border:1px solid var(--line);background:#000;
     display:none;box-shadow:0 6px 18px rgba(0,0,0,.5);transition:box-shadow .2s,border-color .2s}
   #camTile.flash{border-color:var(--ok);box-shadow:0 0 0 3px rgba(34,197,94,.55)}
