@@ -180,15 +180,35 @@ function showReviewBanner(tok) {
     host.insertBefore(el, host.firstChild);
   }
   el.textContent = '';
+
+  // 🔑 A TAPPABLE LINK, NOT A TOKEN TO COPY.
+  // This used to print the raw token and expect the volunteer to select 32
+  // characters out of a banner and paste them into a box on their phone.
+  // Most never did, so cameras contributed catches their owner never saw and
+  // could not rule on. The token rides in the FRAGMENT, which is never sent to
+  // the server, and /rv strips it from the address bar as soon as it is read.
   const line = document.createElement('div');
-  line.textContent = 'Review your camera’s catches at ' + location.origin + '/rv';
+  line.textContent = 'Your camera has catches to review. ';
+  const a = document.createElement('a');
+  a.href = location.origin + '/rv#t=' + encodeURIComponent(tok);
+  a.textContent = 'Open your review page →';
+  Object.assign(a.style, { color: '#7fd1ff', fontWeight: '600' });
+  line.appendChild(a);
+
+  const hint = document.createElement('div');
+  hint.textContent = 'Bookmark it. It only ever shows YOUR camera.';
+  Object.assign(hint.style, { opacity: '.7', marginTop: '4px', fontSize: '12px' });
+
+  // Kept, smaller, for anyone moving to another device or re-adding by hand.
   const code = document.createElement('code');
   code.textContent = tok;
   Object.assign(code.style, { userSelect: 'all', color: '#7fd1ff' });
   const lbl = document.createElement('div');
-  lbl_label(lbl, 'Your reviewer token: ');
+  Object.assign(lbl.style, { opacity: '.55', marginTop: '6px', fontSize: '11px' });
+  lbl_label(lbl, 'token: ');
   lbl.appendChild(code);
-  el.appendChild(line); el.appendChild(lbl);
+
+  el.appendChild(line); el.appendChild(hint); el.appendChild(lbl);
 }
 function lbl_label(node, text) { node.appendChild(document.createTextNode(text)); }
 

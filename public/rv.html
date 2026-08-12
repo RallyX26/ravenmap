@@ -651,8 +651,40 @@
       .catch(function(){});
   }
 
+  // A one-tap link: /rv#t=<token>. Enrolment hands a volunteer their reviewer
+  // token, and until now the only way to use it was to select a 32-character
+  // string out of a banner and paste it into a box - on a phone, in a window,
+  // usually one-handed. Most people simply did not.
+  //
+  // 🔑 THE FRAGMENT, NOT A QUERY STRING. A #hash is never sent to the server,
+  // so the token stays out of access logs, proxy logs and Referer headers -
+  // none of which is true of ?t=. It is stripped from the address bar the
+  // moment it is read, so it does not linger in a screenshot or get shared
+  // when someone sends the page to a friend.
+  function tokenFromUrl(){
+    var m = /[#&]t=([^&]+)/.exec(location.hash || "");
+    if(!m) return null;
+    var tok = decodeURIComponent(m[1]);
+    try { history.replaceState(null, "", location.pathname + location.search); }
+    catch(e){ location.hash = ""; }
+    return tok;
+  }
+
   function boot(){
     wallet = loadWallet();
+    var urlTok = tokenFromUrl();
+    if(urlTok){
+      // Validated like any other token - a link is a claim, not a credential
+      // check. A bad or revoked one falls through to the normal add screen
+      // with the error, rather than pretending it worked.
+      addToken(urlTok, function(){
+        if(wallet.length){ start(); } else { show("add"); }
+      }, function(msg){
+        show("add");
+        var e = $("#first-err"); if(e) e.textContent = msg;
+      });
+      return;
+    }
     if(!wallet.length){ show("add"); $("#first-token").focus(); return; }
     start();
   }
