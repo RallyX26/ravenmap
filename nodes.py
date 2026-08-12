@@ -264,8 +264,29 @@ def sighting_position(nd: dict, lat: Optional[float] = None,
         # A mobile node reported its own GPS. That is the contributor's
         # position, so it gets the same jitter budget rather than being
         # published to the metre.
-        return jitter_position(float(lat), float(lon),
-                               float(CONFIG.get("node_position_jitter_m", 60)))
+        jl, jo = jitter_position(float(lat), float(lon),
+                                 float(CONFIG.get("node_position_jitter_m", 60)))
+        # 🚨 THEN PUT IT ON THE ROAD.
+        # A fixed camera gets a watched span at enrolment and its sightings are
+        # placed along it. A phone has no span - it moves - so this branch
+        # published the jittered GPS and nothing else, and 60 m in a random
+        # direction lands off the road often: a park, a back garden, the middle
+        # of a block. Reported as "park police dot NOT on the road", and it was
+        # never the road snapping failing - snapping had simply never applied
+        # to mobile contributors at all.
+        #
+        # Snapping AFTER the jitter, deliberately. The displacement is already
+        # applied, so this redistributes it ALONG the road rather than undoing
+        # it - which is also the more honest shape, since what is known is "a
+        # vehicle passed on this street", not "a vehicle was in this garden".
+        try:
+            import road
+            snapped = road.snap_point(jl, jo, seed or f"{nd.get('id','')}:{now()}")
+            if snapped:
+                return snapped
+        except Exception:
+            pass          # road lookup down: an off-road dot beats no dot
+        return (jl, jo)
 
     span = span_of(nd)
     if span:

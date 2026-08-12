@@ -280,6 +280,63 @@ def span_nearest(lat: float, lon: float, ways: list) -> Optional[dict]:
             "watched_m": SPAN_MIN_M, "source": "nearest"}
 
 
+# A grid cell's road geometry, kept so a MOBILE contributor does not hit
+# Overpass once per vehicle. The key is the same ~400 m cell the query is
+# already snapped to, so the cache cannot be finer-grained than the request
+# and a hit reveals nothing a miss would not have.
+_WAYS_CACHE: dict[tuple[int, int], list] = {}
+_WAYS_CACHE_MAX = 64
+
+
+def _cell(lat: float, lon: float) -> tuple[int, int]:
+    dlon = GRID_DEG / max(math.cos(math.radians(lat)), 1e-6)
+    return (int(math.floor(lat / GRID_DEG)), int(math.floor(lon / dlon)))
+
+
+def snap_point(lat: float, lon: float, seed: str,
+               online: bool = True) -> Optional[tuple[float, float]]:
+    """Put a loose point on the nearest road, or None if we cannot.
+
+    🚨 FOR MOBILE CONTRIBUTORS, WHOSE DOTS LANDED IN PARKS AND BUILDINGS.
+    A fixed camera gets a watched span at enrolment and its sightings are
+    placed along it. A phone has no span - it moves - so its sightings were
+    published as its own GPS with the 60 m jitter applied and nothing else, and
+    60 m in a random direction routinely lands off the road: a park, a back
+    garden, the middle of a block.
+
+    Snapping AFTER the jitter matters and is not the same as snapping before.
+    The caller jitters first, so what arrives here is already displaced; this
+    finds the nearest road to THAT point and then places the dot at a stable
+    position along an 80 m stretch of it. The privacy noise is not undone - it
+    is redistributed along the road instead of across it, which is also the
+    more honest shape, since what is actually known is "a vehicle passed on
+    this street", not "a vehicle was in this garden".
+
+    Returns None when the road lookup is unavailable, and the caller keeps the
+    jittered point: a dot slightly off the road beats no dot at all, and a
+    third-party API being down must never drop a sighting.
+    """
+    try:
+        key = _cell(lat, lon)
+        ways = _WAYS_CACHE.get(key)
+        if ways is None:
+            if not online:
+                return None
+            ways = fetch_ways(lat, lon)
+            if len(_WAYS_CACHE) >= _WAYS_CACHE_MAX:
+                _WAYS_CACHE.clear()      # bounded; a cold cell just refetches
+            _WAYS_CACHE[key] = ways
+        if not ways:
+            return None
+        got = span_nearest(lat, lon, ways)
+        span = (got or {}).get("span")
+        if not span or len(span) < 2:
+            return None
+        return point_on_span(span, seed)
+    except (urllib.error.URLError, OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def resolve(lat: float, lon: float, heading: float, fov: float,
             reach_m: float, online: bool = True) -> dict:
     """Best available watched span for a camera. Never raises.
