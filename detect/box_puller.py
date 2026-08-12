@@ -171,8 +171,20 @@ def run_once(vid: VehicleIdentifier, args) -> dict:
         call = VehicleIdentifier.gov_call(r)
         head_pos = call.get("source") == "head" and call.get("gov")
         hc = call["conf"] if call.get("source") == "head" else None
-        marked = (r["vclass"] in MARKED_CLASSES
-                  and r["conf"] >= MIN_CONF and r["margin"] >= MIN_MARGIN)
+        # 🚨 NOTHING AUTO-PUBLISHES WITHOUT THE TRAINED HEAD AGREEING (his call).
+        # `marked` used to be CLIP alone: argmax in MARKED_CLASSES over a
+        # confidence and margin bar. That published a stranger's vehicle to the
+        # public tier on a zero-shot guess, with no human and no head - and
+        # CLIP's argmax alone calls a large fraction of ordinary traffic police.
+        #
+        # Now the head must have RULED and ruled positive. If the head did not
+        # speak at all, this does not fall back to publishing: it declines, and
+        # the crop goes to a human instead. "No opinion" is not consent to
+        # publish. That is the whole difference between a queue that wastes a
+        # reviewer's time and a map that names an innocent driver.
+        clip_marked = (r["vclass"] in MARKED_CLASSES
+                       and r["conf"] >= MIN_CONF and r["margin"] >= MIN_MARGIN)
+        marked = bool(clip_marked and head_pos)
 
         # 🚨 WHEN THE HEAD HAS RULED, THE HEAD DECIDES.
         # This was `r["vclass"] in MARKED_CLASSES or head_pos`, and the `or`
@@ -226,7 +238,8 @@ def run_once(vid: VehicleIdentifier, args) -> dict:
                 "id": sid, "vclass": vclass, "conf": r["conf"],
                 "why": (f"contributor ({meta.get('node_name') or 'a phone'}); "
                         f"clearly-marked {r['vclass']} "
-                        f"(conf {r['conf']:.2f}, margin {r['margin']:.2f})")})
+                        f"(conf {r['conf']:.2f}, margin {r['margin']:.2f})"
+                        + (f", head {hc:.2f} agrees" if hc is not None else ""))})
             tag = "  -> PUBLISH"
         elif candidate:
             vclass = "police" if r["vclass"] == "police" else "gov"

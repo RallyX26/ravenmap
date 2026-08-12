@@ -1376,22 +1376,50 @@ class Handler(BaseHTTPRequestHandler):
         # plate TEXT through, and it keeps the strict bar. Gating both on
         # `tierable` meant a plate-blind camera could never contribute
         # anything, which is most cameras. See classify.py rule 4.
-        tier = "public" if (c["tierable"] or c["sightable"]) else "private"
-
-        # A phone submission is one person's eyes, not a calibrated detector.
-        # It is allowed to reach the public tier, because a human looking at a
-        # marked patrol car is more reliable than any classifier - but it is
-        # marked as unverified and it is attributed to the node that sent it.
+        # 🚨 A HUMAN SUBMISSION IS A CLAIM, NOT A RECORD (his call: nothing
+        # auto-publishes without the trained head first).
+        #
+        # This used to reach the public tier directly on the argument that a
+        # person looking at a marked patrol car beats any classifier. True of an
+        # honest person, and that is the whole problem: the submitter chooses
+        # the markers, so "two distinct visual markers" is two taps, and the map
+        # would publish whatever a stranger asserted about a vehicle they picked.
+        # Every other route to the public tier is gated by a model that cannot
+        # be argued with. This one was gated by the submitter's own honesty.
+        #
+        # So it is recorded PRIVATE and routed to the pen, where the trained head
+        # scores its crop and a human confirms it. Nothing is thrown away and
+        # nothing is distrusted - the claim simply has to survive the same gate
+        # everything else survives before it names a vehicle in public.
+        #
+        # ⚠️ THIS MUST HAPPEN BEFORE `tier` IS COMPUTED. Clearing the flags after
+        # the tier line reads as a fix, changes the reason string, and publishes
+        # exactly as before - the failure this codebase keeps producing: a check
+        # that runs and is not applied to the thing it governs.
         if source == "phone":
-            c["why"] = f"human-submitted by {nid}, unverified; " + c["why"]
+            c["why"] = f"human-submitted by {nid}, awaiting review; " + c["why"]
+            c["tierable"] = False
+            c["sightable"] = False
+
+        # A public SIGHTING and a published PLATE are different decisions.
+        # `sightable` puts "a marked patrol unit was here" on the public map -
+        # no identifier, so nothing to protect. `tierable` is what allows the
+        # plate TEXT through, and it keeps the strict bar. Gating both on
+        # `tierable` meant a plate-blind camera could never contribute
+        # anything, which is most cameras. See classify.py rule 4.
+        tier = "public" if (c["tierable"] or c["sightable"]) else "private"
 
         # A camera node scores its own crop, so its GOVERNMENT candidates go
         # straight to the review pen for a human to confirm - captured here as a
         # sub-resolution, plate-less crop BEFORE the mirror strips the image
         # below. Phone-node crops take the inbox path instead (box_puller pulls
         # and scores them at home first), so they are excluded here.
+        # `phone` (a human submission) is included here now that it no longer
+        # reaches the public tier by itself: the pen is where its claim gets
+        # looked at. `phone_node` is still excluded because it has its own route
+        # - the inbox, which box_puller pulls and scores at home.
         review_crop = None
-        if (source not in ("phone", "phone_node") and mirror.relay_enabled()
+        if (source != "phone_node" and mirror.relay_enabled()
                 and ev.get("snap_b64") and c["vclass"] in ("police", "gov_dot")):
             try:
                 # Shrink (never reject) a camera's full-size crop to a

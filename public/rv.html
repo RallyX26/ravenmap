@@ -61,7 +61,15 @@
     position:relative;background:#000;flex:1;min-height:0;
     display:flex;align-items:center;justify-content:center;min-height:180px;
   }
-  .photo img{max-width:100%;max-height:100%;display:block;object-fit:contain}
+  /* 🚨 HIDDEN UNTIL IT HAS A REAL IMAGE. The element ships with no `src`, and
+     setPhoto() only makes it visible once a blob has actually loaded - but it
+     defaulted to VISIBLE, so from first paint until the queue fetch returned
+     the browser drew a broken-image icon and the alt text "vehicle crop".
+     That is a whole round trip on a phone, and it is permanent if the fetch
+     fails. Reported as "the vehicle crop image is a broken link", which sounds
+     like a 404 and is really a styling default. */
+  .photo img{max-width:100%;max-height:100%;display:block;object-fit:contain;
+             visibility:hidden}
   .noimg{color:var(--dim);font-size:13px;font-family:var(--mono);padding:40px;text-align:center}
   .spin{width:26px;height:26px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite}
   @keyframes sp{to{transform:rotate(360deg)}}
