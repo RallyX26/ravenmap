@@ -593,20 +593,24 @@
     // refresh is honest; it is not a live counter.
     setInterval(loadProgress, 300000);
   }
-  function boot(){
-    wallet = loadWallet();
-    if(!wallet.length){ show("add"); $("#first-token").focus(); return; }
-    start();
-  }
-  boot();
-})();
-
   /* Why the reviewing matters, made visible. Every cop / not-a-cop answered is
      one more example toward a detector small enough to run in a phone browser -
      which is the only way a phone could ever be trusted to keep a government
      plate, because the device has to know what it is looking at first.
      Counted in PASSES (one vehicle, however many crops it made) and in distinct
-     cameras, because a model trained on one street learns that street. */
+     cameras, because a model trained on one street learns that street.
+
+     🚨 THESE THREE MUST LIVE INSIDE THE IIFE. They were appended AFTER its
+     closing `})();`, which put them in global scope while `$`, `api` and
+     `activeEntries` stayed private. Two things then threw on every load:
+       loadProgress()  -> ReferenceError: activeEntries is not defined
+       drawProgress()  -> ReferenceError: $ is not defined
+     and the second one is the damaging one, because `updateCounts()` calls
+     drawProgress() and `render()` calls updateCounts() FIRST. So render died
+     before ever reaching showCrop(), on every render and every skip.
+     The symptom was a black photo panel with no image, no spinner and no
+     error text - because the code that draws all three is downstream of the
+     throw. It reads as a broken image and is a scope boundary. */
   var progressData = null;
   function drawProgress(){
     var el = $("#progress");
@@ -635,6 +639,14 @@
       .then(function(j){ if(j){ progressData = j; drawProgress(); } })
       .catch(function(){});
   }
+
+  function boot(){
+    wallet = loadWallet();
+    if(!wallet.length){ show("add"); $("#first-token").focus(); return; }
+    start();
+  }
+  boot();
+})();
 
 </script>
 </body>
