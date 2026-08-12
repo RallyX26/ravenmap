@@ -8,7 +8,7 @@
  * (the ~36 MB model + wasm) is cached the first time it's fetched, so a node
  * that has run once can start again with no network.
  */
-const CACHE = 'sparrow-v5';
+const CACHE = 'sparrow-v6';
 const SHELL = [
   '/app',
   '/static/sparrow-app.js',
@@ -56,21 +56,18 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Our own app code (/static/) is stale-while-revalidate: serve the cached copy
-  // instantly for offline resilience, but always re-fetch in the background so a
-  // shipped fix lands on the very next load. Cache-first here would freeze the
-  // app on an old build - the bug this project already hit once.
+  // Our own app code (/static/) is NETWORK-FIRST: always try the network so a
+  // shipped fix lands on the very next refresh, and fall back to the cached copy
+  // only when offline. Stale-while-revalidate served the OLD build on the first
+  // load after a deploy (the fix landed a load late), which read as "the browser
+  // is not loading the new one". Freshness matters more than a few ms here; the
+  // large pinned runtime under /vendor/ is what stays cache-first for offline.
   if (url.pathname.startsWith('/static/')) {
     e.respondWith(
-      caches.open(CACHE).then((c) =>
-        c.match(e.request).then((hit) => {
-          const net = fetch(e.request).then((res) => {
-            if (res.ok) c.put(e.request, res.clone());
-            return res;
-          }).catch(() => hit);
-          return hit || net;
-        })
-      )
+      fetch(e.request).then((res) => {
+        if (res.ok) caches.open(CACHE).then((c) => c.put(e.request, res.clone()));
+        return res;
+      }).catch(() => caches.match(e.request))
     );
     return;
   }
