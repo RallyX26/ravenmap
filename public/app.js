@@ -738,7 +738,16 @@ async function refresh() {
   const dot = $('#live');
   try {
     await load();
-    if (dot) { dot.classList.add('on'); dot.lastChild.textContent = 'live'; }
+    if (dot) {
+      dot.classList.add('on');
+      // Make "live" tangible: show how many vehicles have passed a camera in the
+      // last minute. It reads "live" on a quiet road and "live · N passing" when
+      // traffic is actually crossing, so the map obviously IS the live view.
+      const now = Date.now() / 1000;
+      let passes = 0;
+      state.traffic.forEach((e) => { if (now - e.rec.ts < 60) passes += 1; });
+      dot.lastChild.textContent = passes ? `live · ${passes} passing` : 'live';
+    }
   } catch (e) {
     if (dot) { dot.classList.remove('on'); dot.lastChild.textContent = 'reconnecting'; }
   }
