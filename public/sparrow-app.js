@@ -477,7 +477,7 @@ async function start() {
   // 90-second window. A sighting also beats; this covers the gaps between.
   lastWork = Date.now();          // the stream is open; the loop starts next
   sendBeat();
-  beatTimer = setInterval(sendBeat, 45000);
+  beatTimer = setInterval(sendBeat, 30000);
   requestAnimationFrame(loop);
 }
 

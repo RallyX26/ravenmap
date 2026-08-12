@@ -91,6 +91,27 @@ def crop_bytes(sid: int) -> Optional[bytes]:
     return None
 
 
+def may_touch(reviewer: dict, sid: int) -> bool:
+    """May this reviewer see or rule on this pen item?
+
+    🚨 SCOPE HAS TO BE CHECKED ON EVERY ACCESS, NOT JUST ON THE LISTING.
+    `queue()` filters an 'own'-scoped reviewer down to their own cameras, and
+    that was the only place the check existed - so a token scoped to one camera
+    could still fetch, publish or reject any other camera's crop simply by
+    naming its id. Ids are sequential and appear next to sightings on the public
+    map, so guessing one is not a feat. A pool token is unrestricted by design.
+    """
+    allowed = reviewer.get("nodes")
+    if allowed is None:                       # pool scope: the whole queue
+        return True
+    meta = _pen_meta(sid)
+    node_id = meta.get("node_id")
+    if not node_id:
+        row = db.sighting(sid) if hasattr(db, "sighting") else None
+        node_id = (row or {}).get("node_id") or ""
+    return node_id in allowed
+
+
 def _delete_pen(sid: int) -> None:
     (mirror.REVIEW / f"{sid}.jpg").unlink(missing_ok=True)
     (mirror.REVIEW / f"{sid}.json").unlink(missing_ok=True)
@@ -134,6 +155,8 @@ def verdict(reviewer: dict, sid: int, call: str, ip: str = "") -> dict:
     sid = int(sid)
     call = (call or "").lower()
     who = reviewer.get("label") or "reviewer"
+    if not may_touch(reviewer, sid):
+        return {"ok": False, "error": "not your camera"}
     if call == "cop":
         _publish(sid, reviewer)
         db.audit("review:confirm", str(sid), actor=who, ip=ip)

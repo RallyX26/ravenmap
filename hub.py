@@ -547,6 +547,10 @@ class Handler(BaseHTTPRequestHandler):
                     sid = int(p.rsplit("/", 1)[-1])
                 except ValueError:
                     return self._err(400, "bad id")
+                # An 'own'-scoped token may only see its own cameras' crops -
+                # checked here, not only in the queue listing.
+                if not review_api.may_touch(r, sid):
+                    return self._err(404, "no crop")
                 b = review_api.crop_bytes(sid)
                 if not b:
                     return self._err(404, "no crop")
