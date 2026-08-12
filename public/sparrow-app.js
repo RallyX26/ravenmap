@@ -215,8 +215,16 @@ const SIZE = 320, CONF = 0.45, SEND_EDGE = 200, MIN_FRAMES = 3, GONE_MS = 900;
 const VEHICLE = { 2: 'car', 3: 'motorcycle', 5: 'bus', 7: 'truck' };
 let session = null, stream = null, running = false, wakeLock = null, beatTimer = null;
 
+/* The last moment a frame actually went through the detector. The beat reads
+ * it, so "online" means this phone is really watching - not just that a timer
+ * is ticking in a tab whose detector has wedged or been throttled by the
+ * browser. A quiet street still beats; only a stopped pipeline goes dark. */
+let lastWork = 0;
+const STALL_AFTER_MS = 120000;
+
 async function sendBeat() {
   if (!(node && node.id && node.token)) return;
+  if (!lastWork || Date.now() - lastWork > STALL_AFTER_MS) return;
   try {
     await fetch('/api/heartbeat', {
       method: 'POST',
@@ -360,6 +368,7 @@ async function loop() {
     say($('#watchMsg'), 'Detector error: ' + e.message, false);
     running = false; return;
   }
+  lastWork = Date.now();          // a real frame went through the detector
   const now = performance.now();
   if (lastT) fpsEMA = fpsEMA * 0.8 + (1000 / (now - lastT)) * 0.2;
   lastT = now;
@@ -404,6 +413,7 @@ async function start() {
   // A phone on a quiet street posts no sightings for minutes, but it is still
   // watching - so beat on its own, or the map shows it offline within the
   // 90-second window. A sighting also beats; this covers the gaps between.
+  lastWork = Date.now();          // the stream is open; the loop starts next
   sendBeat();
   beatTimer = setInterval(sendBeat, 45000);
   requestAnimationFrame(loop);
@@ -411,6 +421,7 @@ async function start() {
 
 function stop() {
   running = false;
+  lastWork = 0;                   // stopped watching: stop claiming to be online
   if (beatTimer) { clearInterval(beatTimer); beatTimer = null; }
   if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }

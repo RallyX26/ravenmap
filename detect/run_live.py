@@ -55,6 +55,12 @@ EVAL = DATA / "eval" / "live"
 # is far more than a human watching a box needs and cheap now the models are
 # on the GPU. Verdicts are cached per track id between looks.
 LIVE_ID_EVERY = 8
+
+# How long the pipeline may go without processing a frame before this node stops
+# claiming to be online. Generous next to the hub's 90s online window, so a slow
+# model or a brief camera hiccup does not flap the map - but a wedged pipeline
+# goes dark within a couple of minutes instead of lying for hours.
+STALL_AFTER_S = 120
 LIVE_ID: dict = {}
 VehicleIdentifier = None
 
@@ -175,6 +181,7 @@ def main() -> None:
             continue
         dead_reads = 0
         idx += 1
+        LAST_WORK[0] = time.time()      # a real frame reached the pipeline
 
         tracked = tracker.track(frame)
         fh, fw = frame.shape[:2]
@@ -376,6 +383,11 @@ def main() -> None:
 
 POSTED = [0, 0]      # sent, failed
 
+# The last moment this detector actually PROCESSED a frame. The heartbeat reads
+# it, so "online" means the work is happening rather than merely that a thread
+# is alive. See heartbeat_loop.
+LAST_WORK = [0.0]
+
 
 def claim_single_instance(node_id: str, port_base: int = 47800) -> "socket.socket":
     """Refuse to start if this node is already being watched by another process.
@@ -482,10 +494,37 @@ def heartbeat_loop(args, stop) -> None:
     node's job (night, low traffic, a residential street), the more confidently
     the map called it dead. Liveness is a thing a node knows and should state,
     not a thing a hub should guess from traffic.
+
+    🚨 BUT IT MUST NOT STATE MORE THAN IT KNOWS. This loop is its own thread, so
+    it kept beating happily while the capture/detection pipeline was wedged: a
+    detector ran 18 hours, stopped processing frames entirely, and the map still
+    showed the camera ONLINE because a timer in a separate thread was ticking.
+    A liveness signal that does not depend on the work it reports on cannot
+    detect the work stopping - it only proves the process has not exited.
+
+    So the beat is now CONDITIONAL on recent work (run_live.LAST_WORK, stamped
+    every processed frame). If no frame has been through the pipeline in
+    STALL_AFTER_S the beat is withheld, the hub's window lapses, and the camera
+    goes offline - which is the truth. A quiet street still beats: an empty road
+    still produces frames. Only a stalled pipeline goes dark.
     """
     import urllib.request
     body = json.dumps({"node_id": args.node}).encode()
+    warned = False
     while not stop.is_set():
+        idle = time.time() - (LAST_WORK[0] or time.time())
+        if idle > STALL_AFTER_S:
+            # Say it once, loudly, rather than every 30s forever.
+            if not warned:
+                print(f"  ! no frame processed in {idle:.0f}s - withholding the "
+                      f"heartbeat; this camera will show OFFLINE until it "
+                      f"recovers")
+                warned = True
+            stop.wait(30)
+            continue
+        if warned:
+            print("  frames flowing again - resuming heartbeat")
+            warned = False
         try:
             req = urllib.request.Request(
                 f"{args.hub}/api/heartbeat", method="POST", data=body,
