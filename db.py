@@ -618,6 +618,23 @@ def revoke_review_token(tid: int) -> bool:
     return cur.rowcount > 0
 
 
+def gov_heat() -> list[dict]:
+    """Every confirmed government sighting ever, aggregated to a ~100m grid with
+    counts - the cumulative "where patrols have been" layer, for spotting the
+    hotspots. These positions are already the published public record; rounding
+    to a grid adds a little fuzz on top and keeps the payload small as it grows.
+    """
+    rows = connect().execute(
+        "SELECT lat, lon FROM sightings "
+        "WHERE tier='public' AND reviewed='confirmed' "
+        "AND lat IS NOT NULL AND lon IS NOT NULL").fetchall()
+    cells: dict = {}
+    for r in rows:
+        key = (round(r["lat"], 3), round(r["lon"], 3))
+        cells[key] = cells.get(key, 0) + 1
+    return [{"lat": k[0], "lon": k[1], "n": v} for k, v in cells.items()]
+
+
 def add_driver_report(lat: float, lon: float, kind: str = "police",
                       ttl_s: float = 2700) -> int:
     """Record a live driver report of a patrol at a point. Expires by itself."""

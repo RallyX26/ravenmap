@@ -774,6 +774,58 @@ async function loadReports() {
 }
 loadReports();
 setInterval(loadReports, 10000);
+
+/* Patrol hotspots: every confirmed government sighting ever, as a translucent
+ * heat so a driver can see which areas run hot. Off by default, toggled by a
+ * control button. No plugin - overlapping low-opacity circles glow where
+ * patrols cluster; the server already aggregated them to a grid. */
+state.heatLayer = L.layerGroup();
+state.heatOn = false;
+async function loadHeat() {
+  let cells;
+  try { cells = (await (await fetch('/api/heat')).json()).cells || []; }
+  catch (e) { return; }
+  state.heatLayer.clearLayers();
+  let max = 1;
+  for (const c of cells) if (c.n > max) max = c.n;
+  for (const c of cells) {
+    const t = c.n / max;
+    L.circle([c.lat, c.lon], {
+      radius: 70 + t * 140, stroke: false,
+      fillColor: '#ff3b30', fillOpacity: 0.12 + t * 0.30,
+    }).addTo(state.heatLayer);
+  }
+}
+function toggleHeat() {
+  state.heatOn = !state.heatOn;
+  const b = document.getElementById('heatBtn');
+  if (state.heatOn) {
+    loadHeat();
+    state.heatLayer.addTo(map);
+    if (b) { b.style.background = '#ff3b3033'; b.style.color = '#ff6b60'; }
+  } else {
+    map.removeLayer(state.heatLayer);
+    state.heatLayer.clearLayers();
+    if (b) { b.style.background = '#0d1219cc'; b.style.color = '#fff'; }
+  }
+}
+const HeatControl = L.Control.extend({
+  options: { position: 'topright' },
+  onAdd() {
+    const d = L.DomUtil.create('button', 'heatctl');
+    d.id = 'heatBtn';
+    d.title = 'Show everywhere patrols have been (hotspots)';
+    d.textContent = '🔥';
+    Object.assign(d.style, {
+      width: '40px', height: '40px', borderRadius: '10px',
+      border: '1px solid var(--line2)', background: '#0d1219cc',
+      color: '#fff', fontSize: '18px', cursor: 'pointer', lineHeight: '1' });
+    L.DomEvent.disableClickPropagation(d);
+    L.DomEvent.on(d, 'click', (e) => { L.DomEvent.stop(e); toggleHeat(); });
+    return d;
+  },
+});
+map.addControl(new HeatControl());
 setInterval(renderList, 10000);   // keep the "3m ago" column honest
 setInterval(ageTraffic, 1000);    // the live traffic view
 

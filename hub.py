@@ -214,7 +214,8 @@ class Handler(BaseHTTPRequestHandler):
     # Public read paths served IDENTICALLY to every anonymous viewer, so a short
     # shared cache collapses thousands of pollers into ~one origin fetch/window.
     _CACHEABLE_API = frozenset({"/api/sightings", "/api/stats", "/api/policy",
-                                "/api/nodes", "/api/leaderboard", "/api/health"})
+                                "/api/nodes", "/api/leaderboard", "/api/health",
+                                "/api/heat"})
 
     def _cache_control(self) -> str:
         """Per-path caching policy.
@@ -512,6 +513,12 @@ class Handler(BaseHTTPRequestHandler):
                 # Live crowd reports for the driving radar. Public read, like the
                 # map. Ephemeral and unverified by construction.
                 return self._json({"reports": db.active_driver_reports()})
+            if p == "/api/heat":
+                # Cumulative "everywhere a patrol has ever been confirmed",
+                # aggregated to a grid. The published record, gridded.
+                cells = db.gov_heat()
+                return self._json({"cells": cells,
+                                   "total": sum(c["n"] for c in cells)})
 
             if p == "/rv":
                 return self._file(PUBLIC / "rv.html")

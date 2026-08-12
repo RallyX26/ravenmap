@@ -140,6 +140,7 @@
   <button class="rbtn" id="recenter" title="Recenter">◎</button>
   <button class="rbtn" id="trailBtn" title="Show my trail (stays on this phone)">〜</button>
   <button class="rbtn" id="soundBtn" title="Alert sound">🔊</button>
+  <button class="rbtn" id="heatBtn" title="Everywhere patrols have been (hotspots)">🔥</button>
 </div>
 
 <button id="report" disabled><span class="em">🚨</span> Patrol here</button>
@@ -170,6 +171,18 @@
   var verifiedLayer=L.layerGroup().addTo(map);
   var liveLayer=L.layerGroup().addTo(map);
   var trailLayer=L.layerGroup().addTo(map);
+  var heatLayer=L.layerGroup(), heatOn=false;
+  function loadHeat(){ fetch('/api/heat').then(function(r){return r.json();})
+    .then(function(d){ var cells=(d&&d.cells)||[]; heatLayer.clearLayers();
+      var max=1; cells.forEach(function(c){if(c.n>max)max=c.n;});
+      cells.forEach(function(c){ var t=c.n/max;
+        L.circle([c.lat,c.lon],{radius:70+t*140,stroke:false,
+          fillColor:'#ff3b30',fillOpacity:0.12+t*0.30,interactive:false}).addTo(heatLayer);
+      }); }).catch(function(){}); }
+  function toggleHeat(){ heatOn=!heatOn; var b=$('#heatBtn');
+    if(heatOn){ loadHeat(); heatLayer.addTo(map); b.className='rbtn on'; }
+    else{ map.removeLayer(heatLayer); heatLayer.clearLayers(); b.className='rbtn'; } }
+  $('#heatBtn').addEventListener('click',toggleHeat);
 
   // ---- state ----
   var me=null, meMarker=null, accCircle=null, follow=true, lastFix=null;
