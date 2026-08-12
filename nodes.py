@@ -303,7 +303,33 @@ def sighting_position(nd: dict, lat: Optional[float] = None,
     dlat = (reach * math.cos(hdg)) / 111_320.0
     dlon = (reach * math.sin(hdg)) / (111_320.0 *
                                       max(math.cos(math.radians(base_lat)), 1e-6))
-    return round(base_lat + dlat, 6), round(base_lon + dlon, 6)
+    fb_lat, fb_lon = round(base_lat + dlat, 6), round(base_lon + dlon, 6)
+
+    # 🚨 THIS BRANCH IS WHERE THE OFF-ROAD DOTS ACTUALLY CAME FROM, and it is
+    # worse than it looks. A browser enrolment reports NO heading, so `hdg` is
+    # 0 and every sighting from the node is pushed the same distance DUE NORTH
+    # of the same jittered point - so they do not merely land off the road,
+    # they all land on ONE invented point, stacked, forever. On the live map
+    # that is a single dot sitting in a park with dozens of passes behind it.
+    #
+    # road.py already named this exact failure in span_nearest's docstring and
+    # fixed it for nodes that HAVE a span. Most nodes do not: they enrolled
+    # from a window with no heading, so the span was never computed and this
+    # branch runs every time.
+    #
+    # Snapping here is the safety net. The real repair is giving the node a
+    # span (tools/resnap_nodes.py), which also re-places its stored history;
+    # this makes the fallback tolerable in the meantime and for any node that
+    # enrols while the road lookup is down.
+    try:
+        import road
+        snapped = road.snap_point(fb_lat, fb_lon,
+                                  seed or f"{nd.get('id','')}:{now()}")
+        if snapped:
+            return snapped
+    except Exception:
+        pass
+    return fb_lat, fb_lon
 
 
 def in_view(nd: dict, lat: float, lon: float) -> bool:
