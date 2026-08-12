@@ -207,7 +207,7 @@
     }
     if(h==null || isNaN(h)) return;
     compassHeading=h;
-    if(speedMph<=3) heading=h;      // at rest the compass IS the heading
+    if(speedMph<=3) heading=h;      // at rest the compass IS the travel heading
     var now=Date.now();
     if(now-lastCompassDraw>200){    // redraw at ~5fps, not per sensor event
       lastCompassDraw=now;
@@ -519,10 +519,24 @@
    * angled or partly-hidden vehicle throws the width estimate off - so the
    * distance is clamped and this is a best-effort refinement over "at the car".*/
   var HFOV_DEG=62, VEH_W_M=1.9, R_EARTH=6378137;
+
+  /* 🚨 THE CAMERA'S AIM IS NOT THE CAR'S COURSE, AND THIS MATHS NEEDS THE AIM.
+   *
+   * A detected vehicle's bearing is measured from wherever the LENS points. GPS
+   * gives course-over-ground - where the car is travelling - which only equals
+   * the aim if the phone sits perfectly square in its mount. Any rotation in
+   * the cradle swings every projected marker by that same error, consistently,
+   * in the same direction. The magnetometer reports where the phone actually
+   * faces, so it is the correct input here even while moving; course is the
+   * fallback for a device with no compass (or one that refused permission). */
+  function aimHeading(){
+    return compassHeading != null ? compassHeading : heading;
+  }
   function projectVehicle(box,vw){
-    if(!me||heading==null||!vw) return null;
+    var aim=aimHeading();
+    if(!me||aim==null||!vw) return null;
     var cx=(box[0]+box[2])/2, bw=Math.max(1,box[2]-box[0]);
-    var brg=(((heading+((cx/vw)-0.5)*HFOV_DEG)%360)+360)%360;
+    var brg=(((aim+((cx/vw)-0.5)*HFOV_DEG)%360)+360)%360;
     var angW=(bw/vw)*HFOV_DEG*Math.PI/180;
     var dist=Math.max(6,Math.min(120,(VEH_W_M/2)/Math.tan(Math.max(angW,1e-4)/2)));
     var latR=me[0]*Math.PI/180, b=brg*Math.PI/180;
