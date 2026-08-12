@@ -542,6 +542,37 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(401, "not signed in")
                 scope = (q.get("scope") or ["pool"])[0]
                 return self._json(review_api.queue(r, scope))
+            # --- retracted-photo shelf (pool-scope reviewer only) ------------
+            # A retraction demotes the row and drops the plate, but never
+            # touched the picture, and /snap/<name> serves any file by name -
+            # so the photograph of a vehicle the map no longer claims stayed
+            # fetchable by direct URL. This is where those are listed and
+            # deleted. Gated on pool scope rather than an operator secret: a
+            # mirror has no operator surface by design, and a pool reviewer can
+            # already see and retract everything anyway.
+            if p == "/rv/retracted":
+                return self._file(PUBLIC / "retracted.html")
+            if p == "/api/rv/retracted":
+                r = review_auth.identify(self.headers)
+                if not r:
+                    return self._err(401, "not signed in")
+                if not review_api.is_trusted(r):
+                    return self._err(403, "pool reviewers only")
+                return self._json(review_api.retracted(r))
+            if p.startswith("/api/rv/retracted/photo/"):
+                r = review_auth.identify(self.headers)
+                if not r:
+                    return self._err(401, "not signed in")
+                try:
+                    sid = int(p.rsplit("/", 1)[-1])
+                except ValueError:
+                    return self._err(400, "bad id")
+                b = review_api.retracted_photo_bytes(r, sid)
+                if not b:
+                    return self._err(404, "no photo")
+                return self._send(200, b, "image/jpeg",
+                                  {"Cache-Control": "no-store"})
+
             if p.startswith("/api/rv/crop/"):
                 r = review_auth.identify(self.headers)
                 if not r:
@@ -884,7 +915,8 @@ class Handler(BaseHTTPRequestHandler):
                        "/api/operator/logout", "/api/report",
                        "/api/rv/login", "/api/rv/logout", "/api/rv/verdict",
                        "/api/rv/tokens/new", "/api/rv/tokens/revoke",
-                       "/api/rv/my-token", "/api/drive/report", "/api/drive/vote"}
+                       "/api/rv/my-token", "/api/drive/report", "/api/drive/vote",
+                       "/api/rv/retracted/delete"}
 
     def do_POST(self) -> None:
         try:
@@ -1161,6 +1193,18 @@ class Handler(BaseHTTPRequestHandler):
                            "application/json",
                            {"Set-Cookie": review_auth.cookie_header("", clear=True)})
                 return
+            if p == "/api/rv/retracted/delete":
+                r = review_auth.identify(self.headers)
+                if not r:
+                    return self._err(401, "not signed in")
+                b = self._body()
+                try:
+                    sid = int(b.get("id"))
+                except (TypeError, ValueError):
+                    return self._err(400, "bad id")
+                return self._json(review_api.delete_retracted_photo(
+                    r, sid, privacy.audit_ip(self.client_ip)))
+
             if p == "/api/rv/verdict":
                 r = review_auth.identify(self.headers)
                 if not r:

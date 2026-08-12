@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SparrowMap · Retracted photos</title>
+<style>
+  :root{
+    --bg:#0d1219; --panel:#141b25; --panel2:#1b2432; --line:#25303f;
+    --ink:#e8eef6; --dim:#8a97a8; --accent:#3b82f6; --accent2:#2563eb;
+    --not:#ef4444; --not2:#dc2626;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg); color:var(--ink); font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .hidden{display:none!important}
+  header{
+    display:flex; align-items:center; gap:10px; padding:12px 14px;
+    border-bottom:1px solid var(--line); background:var(--panel);
+    position:sticky; top:0; z-index:5;
+  }
+  .brand{display:flex;align-items:center;gap:8px;font-weight:700}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--not);box-shadow:0 0 10px var(--not)}
+  .grow{flex:1}
+  .count{font-family:var(--mono);font-size:12px;color:var(--dim);white-space:nowrap}
+  a.back{font:11px var(--mono);letter-spacing:.1em;text-transform:uppercase;
+         color:var(--dim);text-decoration:none}
+  a.back:hover{color:var(--ink)}
+
+  .wrap{max-width:900px;margin:0 auto;padding:18px 14px 60px}
+  .lede{color:var(--dim);font-size:13.5px;line-height:1.65;margin:0 0 18px}
+  .lede b{color:var(--ink)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;
+        display:flex;flex-direction:column}
+  .shot{background:#000;min-height:150px;display:flex;align-items:center;justify-content:center}
+  .shot img{max-width:100%;max-height:260px;display:block;visibility:hidden}
+  .shot .ph{color:var(--dim);font:11px var(--mono);padding:30px}
+  .info{padding:10px 12px;font-size:12.5px;color:var(--dim);line-height:1.55}
+  .info .who{color:var(--ink);font-weight:600;font-size:13.5px}
+  .info .id{font-family:var(--mono);font-size:11px}
+  .del{
+    appearance:none;border:0;border-top:1px solid var(--line);
+    background:transparent;color:var(--not);font:inherit;font-size:13px;font-weight:600;
+    padding:11px;cursor:pointer;width:100%
+  }
+  .del:hover{background:#1a0e11}
+  .del:disabled{color:var(--dim);cursor:default;background:transparent}
+  .center{padding:60px 20px;text-align:center;color:var(--dim)}
+  .center h2{color:var(--ink);margin:0 0 8px;font-size:19px}
+  .toasts{position:fixed;left:0;right:0;bottom:18px;display:flex;flex-direction:column;
+          align-items:center;gap:8px;pointer-events:none;z-index:50}
+  .toast{background:var(--panel2);border:1px solid var(--line);border-radius:999px;
+         padding:9px 16px;font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <span class="brand"><span class="dot"></span> Retracted photos</span>
+  <span class="grow"></span>
+  <span class="count" id="count"></span>
+  <a class="back" href="/rv">&larr; review</a>
+</header>
+
+<div class="wrap">
+  <p class="lede">
+    Retracting a sighting demotes the row and drops the plate text, but it never
+    deleted the <b>photograph</b> &mdash; and <span class="id">/snap/&lt;name&gt;</span>
+    serves any file by name, so the picture of a vehicle the map no longer claims
+    is government stayed fetchable by direct URL. Unlinked is not deleted.
+    These are the leftovers. Deleting one removes the file and forgets the
+    reference; <b>the sighting itself is kept</b>, because the vehicle really did
+    pass and erasing the row would replace one wrong claim with another.
+  </p>
+  <div id="body"></div>
+</div>
+<div class="toasts" id="toasts"></div>
+
+<script>
+(function(){
+  "use strict";
+  var $ = function(s){ return document.querySelector(s); };
+  var WKEY = "sparrow_rv_wallet";
+  var token = null, items = [];
+
+  function loadToken(){
+    var w = [];
+    try { w = JSON.parse(localStorage.getItem(WKEY) || "[]"); } catch(e) { w = []; }
+    return w.length ? w[0].token : null;
+  }
+  function api(path, opts){
+    opts = opts || {};
+    opts.headers = Object.assign({}, opts.headers);
+    if(token) opts.headers["Authorization"] = "Bearer " + token;
+    if(opts.body && typeof opts.body !== "string"){
+      opts.body = JSON.stringify(opts.body);
+      opts.headers["Content-Type"] = "application/json";
+    }
+    return fetch(path, opts);
+  }
+  function toast(msg){
+    var t = document.createElement("div");
+    t.className = "toast"; t.textContent = msg;
+    $("#toasts").appendChild(t);
+    setTimeout(function(){ t.style.opacity = "0"; t.style.transition = "opacity .3s"; }, 2200);
+    setTimeout(function(){ t.remove(); }, 2600);
+  }
+  function ago(ts){
+    if(!ts) return "";
+    var s = Math.max(0, Date.now()/1000 - ts);
+    if(s < 3600) return Math.round(s/60) + "m ago";
+    if(s < 86400) return Math.round(s/3600) + "h ago";
+    return Math.round(s/86400) + "d ago";
+  }
+  function message(title, detail){
+    var d = document.createElement("div");
+    d.className = "center";
+    var h = document.createElement("h2"); h.textContent = title;
+    var p = document.createElement("p"); p.textContent = detail;
+    d.appendChild(h); d.appendChild(p);
+    $("#body").innerHTML = ""; $("#body").appendChild(d);
+  }
+
+  // An <img> cannot carry a bearer header, so each photo is fetched and shown
+  // as a blob - the same approach the review app uses for pen crops.
+  function loadPhoto(it, img, ph){
+    api(it.photo).then(function(r){
+      if(!r.ok) throw 0;
+      return r.blob();
+    }).then(function(b){
+      img.src = URL.createObjectURL(b);
+      img.style.visibility = "visible";
+      ph.remove();
+    }).catch(function(){
+      ph.textContent = "photo unavailable";
+    });
+  }
+
+  function card(it){
+    var c = document.createElement("div"); c.className = "card";
+    var shot = document.createElement("div"); shot.className = "shot";
+    var img = document.createElement("img"); img.alt = "";
+    var ph = document.createElement("div"); ph.className = "ph"; ph.textContent = "loading";
+    shot.appendChild(img); shot.appendChild(ph);
+
+    var info = document.createElement("div"); info.className = "info";
+    var who = document.createElement("div"); who.className = "who";
+    who.textContent = it.node_name || "a camera";
+    var meta = document.createElement("div");
+    meta.textContent = "seen " + ago(it.ts) + " · retracted " + ago(it.retracted_at);
+    var id = document.createElement("div"); id.className = "id";
+    id.textContent = "#" + it.id + (it.vclass ? " · now " + it.vclass : "");
+    info.appendChild(who); info.appendChild(meta); info.appendChild(id);
+
+    var del = document.createElement("button");
+    del.className = "del"; del.textContent = "Delete this photo";
+    del.addEventListener("click", function(){
+      del.disabled = true; del.textContent = "deleting…";
+      api("/api/rv/retracted/delete", {method:"POST", body:{id:it.id}})
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          if(j && j.ok){ c.remove(); items = items.filter(function(x){ return x.id !== it.id; });
+                         updateCount(); toast("photo deleted"); if(!items.length) render(); }
+          else { del.disabled = false; del.textContent = "Delete this photo";
+                 toast((j && j.error) || "could not delete"); }
+        })
+        .catch(function(){ del.disabled = false; del.textContent = "Delete this photo";
+                           toast("network error"); });
+    });
+
+    c.appendChild(shot); c.appendChild(info); c.appendChild(del);
+    loadPhoto(it, img, ph);
+    return c;
+  }
+
+  function updateCount(){
+    $("#count").textContent = items.length + (items.length === 1 ? " photo" : " photos");
+  }
+
+  function render(){
+    updateCount();
+    if(!items.length){
+      message("Nothing left on the shelf",
+              "No retracted sighting is still holding a photograph.");
+      return;
+    }
+    var g = document.createElement("div"); g.className = "grid";
+    items.forEach(function(it){ g.appendChild(card(it)); });
+    $("#body").innerHTML = ""; $("#body").appendChild(g);
+  }
+
+  function start(){
+    token = loadToken();
+    if(!token){
+      message("Not signed in",
+              "Open the review app first so this browser holds your token, then come back.");
+      return;
+    }
+    api("/api/rv/retracted").then(function(r){
+      if(r.status === 401){ message("Not signed in", "Your token was not accepted."); return null; }
+      if(r.status === 403){
+        message("Not permitted",
+                "This shelf is limited to a pool-scope reviewer token."); return null;
+      }
+      if(!r.ok) throw 0;
+      return r.json();
+    }).then(function(j){
+      if(!j) return;
+      items = j.items || [];
+      render();
+    }).catch(function(){
+      message("Could not load", "The server did not answer. Try again in a moment.");
+    });
+  }
+
+  start();
+})();
+</script>
+</body>
+</html>

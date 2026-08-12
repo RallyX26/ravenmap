@@ -126,6 +126,83 @@ def crop_bytes(sid: int) -> Optional[bytes]:
     return None
 
 
+def is_trusted(reviewer: dict) -> bool:
+    """May this reviewer see the retracted-photo shelf?
+
+    Pool scope, which today is one token. The other reviewers are 'own'-scoped
+    volunteers who may only see their own camera.
+
+    🔑 WHY THIS GATE AND NOT AN OPERATOR ONE. A mirror deliberately has NO
+    operator surface - mirror.route_allowed 404s /review and /api/operator
+    outright, on the argument that a disabled review page is still a review
+    page to find a bug in. Adding an operator route here to reach these photos
+    would reopen exactly that. A pool reviewer, meanwhile, can already see
+    every crop in the pen and publish or retract anything on the map, so
+    showing them the photographs of things they themselves retracted grants no
+    power they did not already hold. The gate reuses an existing, audited,
+    revocable mechanism instead of cutting a new hole.
+    """
+    return reviewer.get("nodes") is None and reviewer.get("scope") == "pool"
+
+
+def retracted(reviewer: dict) -> dict:
+    """Photographs still on disk for sightings the map no longer claims."""
+    if not is_trusted(reviewer):
+        return {"items": [], "count": 0}
+    out = []
+    for r in db.retracted_with_photo():
+        if not (SNAPS / Path(str(r["snap"])).name).exists():
+            continue          # row remembers a file that is already gone
+        node = db.node(r.get("node_id") or "") or {}
+        out.append({
+            "id": r["id"], "ts": r.get("ts"),
+            "retracted_at": r.get("reviewed_at"),
+            "node_name": node.get("name") or "a camera",
+            "vclass": r.get("vclass"), "why": r.get("vclass_why"),
+            "photo": f"/api/rv/retracted/photo/{r['id']}",
+        })
+    return {"items": out, "count": len(out)}
+
+
+def delete_retracted_photo(reviewer: dict, sid: int, ip: str = "") -> dict:
+    """Delete the leftover photograph of a retracted sighting.
+
+    Row reference first, file second - see db.clear_snap. The sighting itself
+    is kept: the vehicle really did pass, and deleting the row would replace
+    one wrong claim with another. Only the picture goes.
+    """
+    if not is_trusted(reviewer):
+        return {"ok": False, "error": "not permitted"}
+    row = db.sighting(int(sid))
+    if not row or row.get("reviewed") != "retracted":
+        return {"ok": False, "error": "not a retracted sighting"}
+    name = db.clear_snap(int(sid))
+    if not name:
+        return {"ok": False, "error": "no photo to delete"}
+    try:
+        (SNAPS / Path(name).name).unlink(missing_ok=True)
+    except Exception:
+        pass                  # reference is already cleared; an orphan file is tidy-up
+    db.audit("retracted:photo_delete", str(sid),
+             actor=reviewer.get("label") or "reviewer", ip=ip)
+    return {"ok": True, "id": int(sid)}
+
+
+def retracted_photo_bytes(reviewer: dict, sid: int) -> Optional[bytes]:
+    if not is_trusted(reviewer):
+        return None
+    row = db.sighting(int(sid))
+    if not row or row.get("reviewed") != "retracted" or not row.get("snap"):
+        return None
+    p = SNAPS / Path(str(row["snap"])).name
+    if not p.exists():
+        return None
+    try:
+        return p.read_bytes()
+    except Exception:
+        return None
+
+
 def park_reported(sid: int, row: dict, reason: str = "") -> bool:
     """Put a publicly-flagged sighting in front of a human.
 

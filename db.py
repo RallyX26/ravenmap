@@ -573,6 +573,39 @@ def reports_for(sighting_id: int, open_only: bool = True) -> list:
                                           (sighting_id,)).fetchall()]
 
 
+def retracted_with_photo() -> list[dict]:
+    """Retracted sightings that still carry a stored photograph.
+
+    A retraction demotes the row and drops the plate text, but it never touched
+    the picture - and /snap/<name> serves any file by name, so the photograph
+    of a vehicle the map no longer claims is government stayed fetchable by
+    direct URL. Unlinked is not deleted. This is what that leftover set is.
+    """
+    rows = connect().execute(
+        "SELECT id, ts, node_id, tier, vclass, vclass_why, snap, reviewed_at "
+        "FROM sightings WHERE reviewed='retracted' AND snap IS NOT NULL "
+        "AND snap != '' ORDER BY reviewed_at DESC, ts DESC").fetchall()
+    return [dict(r) for r in rows]
+
+
+def clear_snap(sighting_id: int) -> Optional[str]:
+    """Forget a sighting's photograph. Returns the filename it used to hold.
+
+    Only the reference is cleared here; deleting the file is the caller's job,
+    and it does it AFTER this succeeds. That order matters: a cleared row with
+    an orphan file on disk is a tidy-up problem, while a deleted file still
+    referenced by a row is a broken image on somebody's screen.
+    """
+    conn = connect()
+    row = conn.execute("SELECT snap FROM sightings WHERE id=?",
+                       (int(sighting_id),)).fetchone()
+    if not row or not row["snap"]:
+        return None
+    conn.execute("UPDATE sightings SET snap=NULL WHERE id=?", (int(sighting_id),))
+    conn.commit()
+    return str(row["snap"])
+
+
 def resolve_reports(sighting_id: int) -> None:
     """Clear a sighting's open flags. Called when the operator reviews it, so
     acting on a flag is what takes it out of the queue."""
