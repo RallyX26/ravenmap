@@ -155,15 +155,77 @@ $('#btnEnroll').onclick = async () => {
   if (r.error) return say($('#setupMsg'), r.error, false);
 
   node = { id: r.id, token: r.token, name };
+  if (r.review_token) node.review_token = r.review_token;
   localStorage.setItem(KEY, JSON.stringify(node));
   say($('#setupMsg'), `Registered as ${r.id}. Watch and Key are open now.`, true);
+  showReviewBanner(node.review_token);
   refreshChrome();
 };
+
+/* Show the owner where to review their OWN camera's catches. The token is
+ * captured at enrollment; a camera enrolled before tokens existed fetches it
+ * once, proving ownership with its node token. Built with DOM calls (no inline
+ * style/script) so it survives the strict CSP. */
+function showReviewBanner(tok) {
+  if (!tok) return;
+  let el = document.getElementById('reviewBanner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'reviewBanner';
+    Object.assign(el.style, {
+      margin: '10px 0', padding: '10px 12px', borderRadius: '10px',
+      border: '1px solid #244', background: '#0f1621', color: '#bfe3d0',
+      font: '13px/1.5 system-ui, sans-serif', wordBreak: 'break-all' });
+    const host = document.querySelector('main') || document.body;
+    host.insertBefore(el, host.firstChild);
+  }
+  el.textContent = '';
+  const line = document.createElement('div');
+  line.textContent = 'Review your camera’s catches at ' + location.origin + '/rv';
+  const code = document.createElement('code');
+  code.textContent = tok;
+  Object.assign(code.style, { userSelect: 'all', color: '#7fd1ff' });
+  const lbl = document.createElement('div');
+  lbl_label(lbl, 'Your reviewer token: ');
+  lbl.appendChild(code);
+  el.appendChild(line); el.appendChild(lbl);
+}
+function lbl_label(node, text) { node.appendChild(document.createTextNode(text)); }
+
+async function ensureReviewToken() {
+  if (!(node && node.id && node.token)) return;
+  if (node.review_token) { showReviewBanner(node.review_token); return; }
+  try {
+    const r = await fetch('/api/rv/my-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json',
+                 'Authorization': 'Bearer ' + node.token },
+      body: JSON.stringify({ node_id: node.id }),
+    }).then((x) => x.json());
+    if (r && r.new && r.review_token) {
+      node.review_token = r.review_token;
+      localStorage.setItem(KEY, JSON.stringify(node));
+      showReviewBanner(node.review_token);
+    }
+  } catch (e) { /* offline is fine; they can review later */ }
+}
 
 /* ---- 2 · watch (the detector) ---------------------------------------- */
 const SIZE = 320, CONF = 0.45, SEND_EDGE = 200, MIN_FRAMES = 3, GONE_MS = 900;
 const VEHICLE = { 2: 'car', 3: 'motorcycle', 5: 'bus', 7: 'truck' };
-let session = null, stream = null, running = false, wakeLock = null;
+let session = null, stream = null, running = false, wakeLock = null, beatTimer = null;
+
+async function sendBeat() {
+  if (!(node && node.id && node.token)) return;
+  try {
+    await fetch('/api/heartbeat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json',
+                 'Authorization': 'Bearer ' + node.token },
+      body: JSON.stringify({ node_id: node.id }),
+    });
+  } catch (e) { /* a missed beat is not worth interrupting the watch */ }
+}
 let tracks = [], nextId = 1, seen = 0, sent = 0, fpsEMA = 0, lastT = 0;
 let LB = { s: 1, ox: 0, oy: 0 };
 
@@ -339,11 +401,17 @@ async function start() {
   $('#btnStop').classList.remove('hidden');
   net('on', 'watching');
   say($('#watchMsg'), 'Watching. Leave this window visible.', true);
+  // A phone on a quiet street posts no sightings for minutes, but it is still
+  // watching - so beat on its own, or the map shows it offline within the
+  // 90-second window. A sighting also beats; this covers the gaps between.
+  sendBeat();
+  beatTimer = setInterval(sendBeat, 45000);
   requestAnimationFrame(loop);
 }
 
 function stop() {
   running = false;
+  if (beatTimer) { clearInterval(beatTimer); beatTimer = null; }
   if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
   const cv = $('#ov'); cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
@@ -444,6 +512,7 @@ $('#kRotate').onclick = async () => {
 /* ---- boot ------------------------------------------------------------ */
 refreshChrome();
 batteryWatch();
+ensureReviewToken();
 listCameras();
 go(node && node.token ? 'watch' : 'setup');
 

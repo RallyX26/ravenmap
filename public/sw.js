@@ -8,7 +8,7 @@
  * (the ~36 MB model + wasm) is cached the first time it's fetched, so a node
  * that has run once can start again with no network.
  */
-const CACHE = 'sparrow-v4';
+const CACHE = 'sparrow-v5';
 const SHELL = [
   '/app',
   '/static/sparrow-app.js',

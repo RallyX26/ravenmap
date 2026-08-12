@@ -156,7 +156,7 @@ function ago(ts) {
    of it. Rounding down to a fixed bucket means every viewer in the same window
    requests the IDENTICAL url, so the origin serves it once and the edge serves
    the crowd. The bucket matches the server's max-age (15s). */
-const CACHE_BUCKET_S = 15;
+const CACHE_BUCKET_S = 8;
 const bucketed = (sec) => Math.floor(sec / CACHE_BUCKET_S) * CACHE_BUCKET_S;
 
 /* The oldest timestamp the window admits. 0 means no limit - decided here
@@ -789,8 +789,8 @@ loadStats();
 applyConfiguredView();
 policyBanner();
 setInterval(refresh, CACHE_BUCKET_S * 1000);  // new sightings; matches the cache window
-setInterval(loadStats, 20000);
-setInterval(loadCameras, 30000);  // so 'online' reacts within a beat or two
+setInterval(loadStats, 3000);     // live counters - matches the 3s edge cache
+setInterval(loadCameras, 5000);   // 'online' reacts within a beat or two
 setInterval(renderList, 10000);   // keep the "3m ago" column honest
 setInterval(ageTraffic, 1000);    // the live traffic view
 

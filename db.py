@@ -137,6 +137,21 @@ CREATE TABLE IF NOT EXISTS review_tokens (
     last_used_at REAL
 );
 CREATE INDEX IF NOT EXISTS ix_rvtok_hash ON review_tokens(token_hash);
+
+-- Live, ephemeral "a patrol is here right now" reports from drivers in driving
+-- mode. Deliberately SEPARATE from sightings: these are crowd signals, not the
+-- verified record - unphotographed, unreviewed, and they EXPIRE. A driver's own
+-- route is never stored; only the point they tapped, which is about the patrol,
+-- not them. Waze-for-patrols, and just as disposable.
+CREATE TABLE IF NOT EXISTS driver_reports (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts       REAL, lat REAL, lon REAL,
+    kind     TEXT,                   -- 'police' for now; room for more later
+    confirms INTEGER DEFAULT 1,
+    denies   INTEGER DEFAULT 0,
+    expires  REAL
+);
+CREATE INDEX IF NOT EXISTS ix_driver_reports_exp ON driver_reports(expires);
 """
 
 
@@ -601,6 +616,55 @@ def revoke_review_token(tid: int) -> bool:
         (now(), tid))
     conn.commit()
     return cur.rowcount > 0
+
+
+def add_driver_report(lat: float, lon: float, kind: str = "police",
+                      ttl_s: float = 2700) -> int:
+    """Record a live driver report of a patrol at a point. Expires by itself."""
+    conn = connect()
+    t = now()
+    cur = conn.execute(
+        "INSERT INTO driver_reports(ts,lat,lon,kind,expires) VALUES(?,?,?,?,?)",
+        (t, float(lat), float(lon), kind, t + float(ttl_s)))
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def active_driver_reports() -> list[dict]:
+    prune_driver_reports()
+    rows = connect().execute(
+        "SELECT id,ts,lat,lon,kind,confirms,denies FROM driver_reports "
+        "WHERE expires > ? ORDER BY ts DESC", (now(),)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def vote_driver_report(rid: int, still_there: bool, ttl_s: float = 2700) -> bool:
+    """A passing driver agrees ('still there', extends it) or disagrees ('gone',
+    and enough of those retire it early)."""
+    conn = connect()
+    r = conn.execute("SELECT confirms,denies FROM driver_reports WHERE id=?",
+                     (rid,)).fetchone()
+    if not r:
+        return False
+    if still_there:
+        conn.execute("UPDATE driver_reports SET confirms=confirms+1, expires=? "
+                     "WHERE id=?", (now() + float(ttl_s), rid))
+    else:
+        d = r["denies"] + 1
+        # Two independent "it's gone" reports retire it now.
+        if d >= 2:
+            conn.execute("UPDATE driver_reports SET denies=?, expires=? WHERE id=?",
+                         (d, now() - 1, rid))
+        else:
+            conn.execute("UPDATE driver_reports SET denies=? WHERE id=?", (d, rid))
+    conn.commit()
+    return True
+
+
+def prune_driver_reports() -> None:
+    conn = connect()
+    conn.execute("DELETE FROM driver_reports WHERE expires < ?", (now() - 3600,))
+    conn.commit()
 
 
 def list_review_tokens(include_revoked: bool = True) -> list[dict]:

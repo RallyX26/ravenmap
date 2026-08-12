@@ -147,6 +147,7 @@ _HIT_LOCK = threading.Lock()
 # the map pulls tens of tiles a minute; 600/5min is generous for that and still
 # caps a scraper walking the whole tile pyramid.
 RATE = {"/api/enroll": (5, 3600), "/api/sightings": (600, 3600),
+        "/api/drive/report": (40, 3600), "/api/drive/vote": (120, 3600),
         "/api/tile": (600, 300), "/api/report": (20, 3600)}
 
 
@@ -248,6 +249,16 @@ class Handler(BaseHTTPRequestHandler):
         if p in self._CACHEABLE_API:
             # The public map data. The frontend buckets its `since` timestamps
             # so the URL is stable within the window and the cache actually hits.
+            #
+            # The live COUNTERS at the top of the map - cameras online, sightings
+            # today - get a very short window so the page feels live, while still
+            # collapsing a crowd into one origin hit every few seconds (stats and
+            # the node list are small, cheap queries). The heavier per-row
+            # sighting feed keeps a longer window; it is the expensive one.
+            if p in ("/api/stats", "/api/nodes", "/api/health"):
+                return "public, max-age=3"
+            if p == "/api/sightings":
+                return "public, max-age=8"
             return "public, max-age=15"
         if p == "/" or p.endswith(".html") or p in (
                 "/about", "/transparency", "/app", "/node", "/key"):
@@ -495,6 +506,13 @@ class Handler(BaseHTTPRequestHandler):
             if p.startswith("/snap/"):   return self._file(SNAPS / Path(unquote(p[6:])).name)
 
             # --- reviewer app (token-gated; separate from operator /review) ---
+            if p == "/drive":
+                return self._file(PUBLIC / "drive.html")
+            if p == "/api/drive/reports":
+                # Live crowd reports for the driving radar. Public read, like the
+                # map. Ephemeral and unverified by construction.
+                return self._json({"reports": db.active_driver_reports()})
+
             if p == "/rv":
                 return self._file(PUBLIC / "rv.html")
             if p == "/rv/admin":
@@ -838,7 +856,7 @@ class Handler(BaseHTTPRequestHandler):
                        "/api/operator/logout", "/api/report",
                        "/api/rv/login", "/api/rv/logout", "/api/rv/verdict",
                        "/api/rv/tokens/new", "/api/rv/tokens/revoke",
-                       "/api/rv/my-token"}
+                       "/api/rv/my-token", "/api/drive/report", "/api/drive/vote"}
 
     def do_POST(self) -> None:
         try:
@@ -1110,6 +1128,32 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(400, "bad id")
                 return self._json(review_api.verdict(
                     r, sid, b.get("verdict"), privacy.audit_ip(self.client_ip)))
+
+            if p == "/api/drive/report":
+                # A driver taps "patrol here". Public + rate-limited; lands on the
+                # ephemeral live layer, never the verified map. No identity, no
+                # route - only the point.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "reporting too fast")
+                b = self._body()
+                try:
+                    lat, lon = float(b["lat"]), float(b["lon"])
+                except (KeyError, TypeError, ValueError):
+                    return self._err(400, "need lat and lon")
+                if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                    return self._err(400, "lat/lon out of range")
+                rid = db.add_driver_report(lat, lon, str(b.get("kind") or "police")[:16])
+                return self._json({"ok": True, "id": rid})
+            if p == "/api/drive/vote":
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "voting too fast")
+                b = self._body()
+                try:
+                    rid = int(b.get("id"))
+                except (TypeError, ValueError):
+                    return self._err(400, "bad id")
+                ok = db.vote_driver_report(rid, bool(b.get("still_there")))
+                return self._json({"ok": ok})
 
             if p == "/api/rv/my-token":
                 # A camera fetches its OWN reviewer token, proving ownership with
