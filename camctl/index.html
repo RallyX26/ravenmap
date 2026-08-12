@@ -577,10 +577,22 @@ document.addEventListener('click', async e => {
  * connection and nothing happens.
  */
 /* ---- confirm a government vehicle, as it passes --------------------- */
-let confirmQueue = [], showing = null;
+// `answering` guards the window between hiding a prompt and the server being
+// told to clear it. Declared here rather than assigned into existence, because
+// pollConfirm READS it before answerConfirm ever runs and an undeclared read
+// is a ReferenceError, not undefined.
+let confirmQueue = [], showing = null, answering = false;
 
 async function pollConfirm(){
-  if (showing) return;                       // never interrupt an open prompt
+  // 🚨 `answering` IS NOT REDUNDANT WITH `showing`.
+  // answerConfirm hides the prompt and nulls `showing` immediately, then
+  // AWAITS the label write and the clear. This poll runs every 2 seconds, so a
+  // tick landing inside that window saw showing===null, fetched a queue the
+  // server had not been told to clear yet, and re-showed the SAME vehicle. The
+  // operator clicked again, which reopened the same window, which re-showed it
+  // again - a prompt from an hour ago that would not go away no matter how
+  // many times it was answered.
+  if (showing || answering) return;
   let d;
   try { d = await api('/api/confirm'); } catch(e){ return; }
   confirmQueue = d.pending || [];
@@ -597,21 +609,38 @@ function showConfirm(c){
 
 async function answerConfirm(label){
   const c = showing;
-  if (!c) return;
+  if (!c || answering) return;     // a second click while the first is in flight
+  answering = true;
   $('#confirm').style.display = 'none';
   showing = null;
-  if (label){
-    // Same endpoint the labelling page uses, so one judgement writes the
-    // training label AND moves the sighting. sampling='likely' keeps it out of
-    // the measurable set - it is prompted, not randomly sampled.
-    // ⚠️ camctl's api(path, BODY) takes the body object, while the labelling
-    // page's api(path, OPTIONS) takes fetch options. Same name, two
-    // signatures, two files - I passed the label page's idiom here and the
-    // whole options object got posted as the body, so every answer silently
-    // did nothing while the popup sat there.
-    await api('/api/bank/label', {day:c.day, stem:c.stem, label, mode:'likely'});
+  try {
+    if (label){
+      // Same endpoint the labelling page uses, so one judgement writes the
+      // training label AND moves the sighting. sampling='likely' keeps it out
+      // of the measurable set - it is prompted, not randomly sampled.
+      // ⚠️ camctl's api(path, BODY) takes the body object, while the labelling
+      // page's api(path, OPTIONS) takes fetch options. Same name, two
+      // signatures, two files - I passed the label page's idiom here and the
+      // whole options object got posted as the body, so every answer silently
+      // did nothing while the popup sat there.
+      //
+      // Swallowed on purpose: a failed label write must not stop the CLEAR
+      // below. Leaving the crop pending because the sidecar could not be
+      // written is how one bad write turns into an immortal prompt.
+      try {
+        await api('/api/bank/label', {day:c.day, stem:c.stem, label, mode:'likely'});
+      } catch(e){ /* fall through and still dismiss it */ }
+    }
+    await api('/api/confirm', {stem:c.stem, clear:true});
+  } catch(e){
+    // Server unreachable. The prompt legitimately returns on the next poll,
+    // which is correct - nothing was recorded, so nothing should be dismissed.
+  } finally {
+    // 🚨 ALWAYS, on every path. `answering` gates pollConfirm, so leaking it
+    // as true would freeze the queue permanently - a worse bug than the one
+    // this flag exists to fix.
+    answering = false;
   }
-  await api('/api/confirm', {stem:c.stem, clear:true});
   pollConfirm();
 }
 
