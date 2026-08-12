@@ -182,6 +182,17 @@ def main() -> None:
         dead_reads = 0
         idx += 1
         LAST_WORK[0] = time.time()      # a real frame reached the pipeline
+        # Judge the picture itself now and then - once a second is plenty, and
+        # it costs one greyscale median rather than a model pass.
+        if idx % 20 == 0:
+            ok, why = frame_usable(frame)
+            if ok:
+                LAST_SEEING[0] = time.time()
+                FRAME_STATE[0] = ""
+            else:
+                FRAME_STATE[0] = why
+                if LAST_SEEING[0] == 0.0:
+                    LAST_SEEING[0] = time.time()   # start the clock, do not trip on frame 20
 
         tracked = tracker.track(frame)
         fh, fw = frame.shape[:2]
@@ -388,6 +399,43 @@ POSTED = [0, 0]      # sent, failed
 # is alive. See heartbeat_loop.
 LAST_WORK = [0.0]
 
+# 🚨 FRAMES FLOWING IS NOT THE SAME AS SEEING.
+#
+# The stall gate above asks whether frames reach the pipeline. A camera pinned
+# at pure white passes that test perfectly - it delivered thousands of frames,
+# every one of them blank - and it reported itself online for six hours while
+# finding nothing, because "no vehicles" is also what a quiet street looks like.
+#
+# Traffic volume cannot separate those two: an empty road at 4am is healthy. The
+# PICTURE can. A frame that is entirely clipped or entirely black is unusable
+# whatever the traffic is doing, so that is what gets measured - and a node that
+# cannot see stops claiming to be watching.
+LAST_SEEING = [0.0]        # last time the frame was actually usable
+FRAME_STATE = [""]         # why it is not, when it is not
+BLIND_MEDIAN_HIGH = 245    # the whole frame has clipped
+BLIND_MEDIAN_LOW = 6       # the whole frame is black
+BLIND_AFTER_S = 180        # tolerate a passing headlight or a lens wipe
+
+
+def frame_usable(frame) -> tuple[bool, str]:
+    """Can anything be seen in this frame at all?
+
+    Deliberately crude and deliberately not about vehicles: it answers "is this
+    picture capable of showing a car", not "is there a car in it".
+    """
+    try:
+        import cv2
+        import numpy as np
+        g = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        med = float(np.median(g))
+    except Exception:
+        return True, ""        # cannot judge; never fail a node on that
+    if med >= BLIND_MEDIAN_HIGH:
+        return False, f"washed out (median {med:.0f}/255) - exposure too long"
+    if med <= BLIND_MEDIAN_LOW:
+        return False, f"black (median {med:.0f}/255) - no light reaching the sensor"
+    return True, ""
+
 
 def claim_single_instance(node_id: str, port_base: int = 47800) -> "socket.socket":
     """Refuse to start if this node is already being watched by another process.
@@ -511,7 +559,22 @@ def heartbeat_loop(args, stop) -> None:
     import urllib.request
     body = json.dumps({"node_id": args.node}).encode()
     warned = False
+    blind_warned = False
     while not stop.is_set():
+        # A camera that cannot SEE must not report itself as watching, even
+        # though frames are arriving perfectly.
+        blind_for = time.time() - (LAST_SEEING[0] or time.time())
+        if FRAME_STATE[0] and blind_for > BLIND_AFTER_S:
+            if not blind_warned:
+                print(f"  ! the camera cannot see: {FRAME_STATE[0]} "
+                      f"({blind_for:.0f}s) - withholding the heartbeat; this "
+                      f"camera will show OFFLINE until the picture recovers")
+                blind_warned = True
+            stop.wait(30)
+            continue
+        if blind_warned:
+            print("  the picture recovered - resuming heartbeat")
+            blind_warned = False
         idle = time.time() - (LAST_WORK[0] or time.time())
         if idle > STALL_AFTER_S:
             # Say it once, loudly, rather than every 30s forever.
