@@ -48,6 +48,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from detect import bank as _bank                  # noqa: E402
 from detect.vehicle_id import VehicleIdentifier    # noqa: E402
 
 REMOTE_PY = "/opt/sparrowmap/.venv/bin/python"
@@ -160,6 +161,29 @@ def run_once(vid: VehicleIdentifier, args) -> dict:
         marked = (r["vclass"] in MARKED_CLASSES
                   and r["conf"] >= MIN_CONF and r["margin"] >= MIN_MARGIN)
         candidate = r["vclass"] in MARKED_CLASSES or head_pos
+
+        # Store EVERY pulled crop as training data for the head. It is already
+        # plate-illegible (sub-resolution), and banking it with the CLIP/head
+        # features it was scored on is how the model gets better the longer the
+        # network runs - especially the ones a human later calls civilian, which
+        # are the hard negatives (the black-SUV false positives) it needs most.
+        # Unlabelled here; a review verdict or a labelling pass sets the label.
+        try:
+            banked = _bank.bank_remote(
+                jpg_path.read_bytes(), meta.get("node_name") or "remote",
+                {"ts": meta.get("ts"), "cls_name": meta.get("body") or "car",
+                 "det_conf": meta.get("det_conf")})
+            if banked:
+                sc = _bank.sidecar(banked)
+                if sc and sc.exists():
+                    d = json.loads(sc.read_text(encoding="utf-8"))
+                    d["clip"] = {"vclass": r["vclass"], "conf": r["conf"],
+                                 "margin": r["margin"], "scores": r["scores"],
+                                 "head_conf": hc, "head_gov": bool(head_pos)}
+                    d["sighting_id"] = sid    # so a review verdict can label it
+                    sc.write_text(json.dumps(d, indent=1), encoding="utf-8")
+        except Exception:
+            pass          # banking is a bonus; never fail the pull for it
 
         if marked:
             vclass = "police" if r["vclass"] == "police" else "gov"

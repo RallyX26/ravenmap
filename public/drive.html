@@ -105,6 +105,16 @@
     border:2px solid #0b2447;box-shadow:0 0 0 3px rgba(59,130,246,.25)}
   .me{width:20px;height:20px}
   .me svg{filter:drop-shadow(0 0 4px rgba(59,130,246,.6))}
+  /* --- dashcam preview tile --- */
+  #camTile{position:absolute;z-index:1000;left:12px;
+    bottom:calc(env(safe-area-inset-bottom) + 96px);width:116px;height:88px;
+    border-radius:12px;overflow:hidden;border:1px solid var(--line);background:#000;
+    display:none;box-shadow:0 6px 18px rgba(0,0,0,.5);transition:box-shadow .2s,border-color .2s}
+  #camTile.flash{border-color:var(--ok);box-shadow:0 0 0 3px rgba(34,197,94,.55)}
+  #dashvid{width:100%;height:100%;object-fit:cover;display:block}
+  #dashov{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  #camTag{position:absolute;left:5px;top:4px;font-size:.55rem;letter-spacing:.1em;
+    text-transform:uppercase;color:#cfe3ff;background:rgba(0,0,0,.5);padding:1px 6px;border-radius:6px}
 </style>
 </head>
 <body>
@@ -116,16 +126,24 @@
 <div id="hud">
   <div class="stat"><b id="mph">—</b><span>mph</span></div>
   <div class="stat near"><b id="near">0</b><span>near</span></div>
+  <div class="stat" id="sentStat" style="display:none"><b id="sent">0</b><span>sent</span></div>
+</div>
+
+<div id="camTile">
+  <video id="dashvid" playsinline muted autoplay></video>
+  <canvas id="dashov"></canvas>
+  <div id="camTag">dashcam</div>
 </div>
 
 <div id="side">
+  <button class="rbtn" id="camBtn" title="Dashcam — watch the road for patrols">📷</button>
   <button class="rbtn" id="recenter" title="Recenter">◎</button>
   <button class="rbtn" id="trailBtn" title="Show my trail (stays on this phone)">〜</button>
   <button class="rbtn" id="soundBtn" title="Alert sound">🔊</button>
 </div>
 
 <button id="report" disabled><span class="em">🚨</span> Patrol here</button>
-<div id="priv">Your route stays on your phone — only patrols you tap are shared</div>
+<div id="priv">Your route stays on your phone · the dashcam sends only vehicle crops, never video</div>
 <div id="toast"></div>
 
 <div id="cover">
@@ -133,7 +151,8 @@
   <p>Get a heads-up when you're near a known patrol, and tap to flag one you pass so the next driver knows too.</p>
   <button class="go" id="startBtn">Start driving mode</button>
   <div class="lock">🔒 Your route is never uploaded — only patrols you tap</div>
-  <p class="fine" id="coverFine">Keeps the screen on. Works best mounted.</p>
+  <p class="fine" id="coverFine">Keeps the screen on. Works best mounted. Turn on the
+    📷 dashcam to let it watch the road and flag patrols for you.</p>
 </div>
 
 <script src="/vendor/leaflet.js"></script>
@@ -328,6 +347,181 @@
     navigator.geolocation.watchPosition(onFix,onGeoErr,{enableHighAccuracy:true,maximumAge:1000,timeout:20000});
   }
   $('#startBtn').onclick=start;
+
+  /* ===================== dashcam (optional) =========================== *
+   * Reuses the in-browser detector from the contributor app (sparrow-app.js):
+   * same yolo11s.onnx over onnxruntime-web/wasm, same letterbox pre-process,
+   * same output decode + NMS, same track association, same crop routine that
+   * shrinks the vehicle box to SEND_EDGE=200 (plate destroyed on the device).
+   * Difference: a MOVING camera must not flood, so instead of one submit per
+   * vehicle it sends at most ONE crop every 5s - the largest stable vehicle in
+   * that window - geotagged with the current GPS fix. The home head decides
+   * cop-or-not; the phone asserts nothing. Video never leaves the device.      */
+  var SIZE=320, CONF=0.45, SEND_EDGE=200, MIN_FRAMES=3, GONE_MS=900;
+  var SEND_EVERY_MS=5000, VEHICLE={2:'car',3:'motorcycle',5:'bus',7:'truck'};
+  var camOn=false, camStream=null, session=null, ortLoading=null;
+  var dtracks=[], dnextId=1, winBest=null, lastSend=0, dsent=0, driveNode=null;
+  var pre=document.createElement('canvas'); pre.width=pre.height=SIZE;
+  var pctx=pre.getContext('2d',{willReadFrequently:true});
+  var cropCv=document.createElement('canvas');
+  var LB={s:1,ox:0,oy:0};
+
+  function loadOrt(){
+    if(window.ort) return Promise.resolve();
+    if(ortLoading) return ortLoading;
+    ortLoading=new Promise(function(res,rej){
+      var s=document.createElement('script'); s.src='/vendor/ort.wasm.min.js';
+      s.onload=function(){res();}; s.onerror=function(){rej(new Error('runtime'));};
+      document.head.appendChild(s);
+    });
+    return ortLoading;
+  }
+  function loadModel(){
+    if(session) return Promise.resolve();
+    ort.env.wasm.numThreads=1; ort.env.wasm.simd=true; ort.env.wasm.wasmPaths='/vendor/';
+    return ort.InferenceSession.create('/vendor/yolo11s.onnx',
+      {executionProviders:['wasm'],graphOptimizationLevel:'all'})
+      .then(function(s){session=s;});
+  }
+  function letterbox(src,sw,sh){
+    LB.s=Math.min(SIZE/sw,SIZE/sh);
+    var dw=Math.round(sw*LB.s), dh=Math.round(sh*LB.s);
+    LB.ox=(SIZE-dw)/2; LB.oy=(SIZE-dh)/2;
+    pctx.fillStyle='#727272'; pctx.fillRect(0,0,SIZE,SIZE);
+    pctx.drawImage(src,LB.ox,LB.oy,dw,dh);
+  }
+  function iou(a,b){
+    var x0=Math.max(a[0],b[0]),y0=Math.max(a[1],b[1]),
+        x1=Math.min(a[2],b[2]),y1=Math.min(a[3],b[3]);
+    var i=Math.max(0,x1-x0)*Math.max(0,y1-y0);
+    var ua=(a[2]-a[0])*(a[3]-a[1])+(b[2]-b[0])*(b[3]-b[1])-i;
+    return ua>0?i/ua:0;
+  }
+  function decode(out){
+    var d=out.data,N=out.dims[2],hits=[],cls=[2,3,5,7];
+    for(var i=0;i<N;i++){
+      var best=-1,bs=0;
+      for(var k=0;k<4;k++){var c=cls[k],v=d[(4+c)*N+i];if(v>bs){bs=v;best=c;}}
+      if(bs<CONF)continue;
+      var cx=d[i],cy=d[N+i],w=d[2*N+i],h=d[3*N+i];
+      hits.push({cls:VEHICLE[best],score:bs,box:[
+        (cx-w/2-LB.ox)/LB.s,(cy-h/2-LB.oy)/LB.s,
+        (cx+w/2-LB.ox)/LB.s,(cy+h/2-LB.oy)/LB.s]});
+    }
+    hits.sort(function(a,b){return b.score-a.score;});
+    var keep=[];
+    for(var j=0;j<hits.length;j++){var hh=hits[j];
+      var dup=false; for(var m=0;m<keep.length;m++){if(iou(keep[m].box,hh.box)>0.45){dup=true;break;}}
+      if(!dup)keep.push(hh);}
+    return keep;
+  }
+  function cropOf(video,box){
+    var x0=box[0],y0=box[1],x1=box[2],y1=box[3];
+    var pw=(x1-x0)*0.06, ph=(y1-y0)*0.06;
+    var sx=Math.max(0,x0-pw), sy=Math.max(0,y0-ph);
+    var sw=Math.min(video.videoWidth-sx,(x1-x0)+2*pw);
+    var sh=Math.min(video.videoHeight-sy,(y1-y0)+2*ph);
+    var s=Math.min(1,SEND_EDGE/Math.max(sw,sh));
+    cropCv.width=Math.max(1,Math.round(sw*s));
+    cropCv.height=Math.max(1,Math.round(sh*s));
+    cropCv.getContext('2d').drawImage(video,sx,sy,sw,sh,0,0,cropCv.width,cropCv.height);
+    return cropCv.toDataURL('image/jpeg',0.82);
+  }
+  function drawDashOverlay(hits,vw,vh){
+    var cv=$('#dashov');
+    if(cv.width!==cv.clientWidth){cv.width=cv.clientWidth;cv.height=cv.clientHeight;}
+    var g=cv.getContext('2d');
+    var s=Math.max(cv.width/vw,cv.height/vh);
+    var ox=(cv.width-vw*s)/2, oy=(cv.height-vh*s)/2;
+    g.clearRect(0,0,cv.width,cv.height);
+    g.lineWidth=1.5; g.strokeStyle='#60a5fa';
+    for(var i=0;i<hits.length;i++){var b=hits[i].box;
+      g.strokeRect(b[0]*s+ox,b[1]*s+oy,(b[2]-b[0])*s,(b[3]-b[1])*s);}
+  }
+  function flashTile(){ var t=$('#camTile'); t.classList.add('flash');
+    setTimeout(function(){t.classList.remove('flash');},450); }
+  function submitCrop(b){
+    if(!(driveNode&&driveNode.token&&me))return;
+    fetch('/api/sightings',{method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+driveNode.token},
+      body:JSON.stringify({node_id:driveNode.id,ts:Date.now()/1000,source:'phone_node',
+        body:b.cls,det_conf:b.score,plate_text:'',plate_conf:0,evidence:{},
+        snap_b64:b.crop,lat:me[0],lon:me[1]})})
+      .then(function(r){return r.json();}).then(function(r){
+        if(r&&!r.error){ dsent++; $('#sent').textContent=dsent;
+          $('#sentStat').style.display='block'; flashTile(); }
+      }).catch(function(){});
+  }
+  function dloop(){
+    if(!camOn)return;
+    var v=$('#dashvid');
+    if(v.readyState<2||!session){ return requestAnimationFrame(dloop); }
+    letterbox(v,v.videoWidth,v.videoHeight);
+    var px=pctx.getImageData(0,0,SIZE,SIZE).data;
+    var f=new Float32Array(3*SIZE*SIZE);
+    for(var i=0,n=SIZE*SIZE;i<n;i++){f[i]=px[i*4]/255;f[n+i]=px[i*4+1]/255;f[2*n+i]=px[i*4+2]/255;}
+    session.run({images:new ort.Tensor('float32',f,[1,3,SIZE,SIZE])}).then(function(o){
+      var hits=decode(o[Object.keys(o)[0]]);
+      var now=performance.now();
+      for(var j=0;j<hits.length;j++){var h=hits[j];
+        var tr=null;
+        for(var t=0;t<dtracks.length;t++){if(iou(dtracks[t].box,h.box)>0.3){tr=dtracks[t];break;}}
+        if(!tr){tr={id:dnextId++,seen:0,best:null,bestArea:0,cls:h.cls};dtracks.push(tr);}
+        tr.box=h.box; tr.last=now; tr.seen++; tr.cls=h.cls; tr.score=h.score;
+        var area=(h.box[2]-h.box[0])*(h.box[3]-h.box[1]);
+        if(area>tr.bestArea){tr.bestArea=area; tr.best=cropOf(v,h.box);}
+        // Track the largest STABLE vehicle since the last send (the window best).
+        if(tr.seen>=MIN_FRAMES && tr.best && (!winBest||area>winBest.area))
+          winBest={crop:tr.best,cls:tr.cls,score:tr.score,area:area};
+      }
+      dtracks=dtracks.filter(function(t){return now-t.last<GONE_MS;});
+      if(now-lastSend>=SEND_EVERY_MS && winBest && me && driveNode){
+        submitCrop(winBest); lastSend=now; winBest=null;
+      }
+      drawDashOverlay(hits,v.videoWidth,v.videoHeight);
+      requestAnimationFrame(dloop);
+    }).catch(function(){ requestAnimationFrame(dloop); });
+  }
+  function getDriveNode(cb){
+    var n=null; try{n=JSON.parse(localStorage.getItem('sparrow.node')||'null');}catch(e){}
+    if(n&&n.id&&n.token)return cb(n);
+    try{n=JSON.parse(localStorage.getItem('sparrow.drive.node')||'null');}catch(e){}
+    if(n&&n.id&&n.token)return cb(n);
+    if(!me)return cb(null);
+    var name='Driving '+new Date().toISOString().slice(0,10);
+    fetch('/api/enroll',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:name,kind:'phone',lat:me[0],lon:me[1]})})
+      .then(function(r){return r.json();}).then(function(r){
+        if(r&&r.id&&r.token){var nn={id:r.id,token:r.token,name:name};
+          try{localStorage.setItem('sparrow.drive.node',JSON.stringify(nn));}catch(e){}
+          cb(nn);} else cb(null);
+      }).catch(function(){cb(null);});
+  }
+  function camStart(){
+    $('#camBtn').className='rbtn warn';
+    loadOrt().then(loadModel).then(function(){
+      return navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
+    }).then(function(s){
+      camStream=s; var v=$('#dashvid'); v.srcObject=s;
+      var p=v.play(); if(p&&p.catch)p.catch(function(){});
+      camOn=true; $('#camBtn').className='rbtn on'; $('#camTile').style.display='block';
+      keepAwake(); requestAnimationFrame(dloop);
+      toast('Dashcam on — watching the road');
+      getDriveNode(function(nn){ driveNode=nn;
+        if(!nn) toast('Dashcam running, but could not register to send'); });
+    }).catch(function(e){
+      $('#camBtn').className='rbtn';
+      toast(e&&e.name==='NotAllowedError'?'Camera permission denied':'Camera unavailable');
+    });
+  }
+  function camStop(){
+    camOn=false;
+    if(camStream){camStream.getTracks().forEach(function(t){t.stop();});camStream=null;}
+    $('#dashvid').srcObject=null;
+    $('#camBtn').className='rbtn'; $('#camTile').style.display='none';
+    toast('Dashcam off');
+  }
+  $('#camBtn').onclick=function(){ if(camOn)camStop(); else camStart(); };
 })();
 </script>
 </body>

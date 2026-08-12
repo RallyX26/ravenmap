@@ -73,6 +73,7 @@ const state = {
   pingLayer: L.layerGroup(),
   trafficLayer: L.layerGroup(),
   trailLayer: L.layerGroup(),
+  reportLayer: L.layerGroup(),   // live driver reports (ephemeral, unverified)
   selected: null,
   trackHash: null,
 };
@@ -135,6 +136,7 @@ state.camLayer.addTo(map);
 state.trafficLayer.addTo(map);
 state.trailLayer.addTo(map);
 state.pingLayer.addTo(map);
+state.reportLayer.addTo(map);
 
 /* ------------------------------------------------------------- helpers --- */
 
@@ -791,6 +793,28 @@ policyBanner();
 setInterval(refresh, CACHE_BUCKET_S * 1000);  // new sightings; matches the cache window
 setInterval(loadStats, 3000);     // live counters - matches the 3s edge cache
 setInterval(loadCameras, 5000);   // 'online' reacts within a beat or two
+
+/* Live driver reports: ephemeral, unverified crowd pins from driving mode. An
+ * amber ring, deliberately unlike a verified sighting; cleared and redrawn each
+ * poll since the server drops the expired ones. */
+async function loadReports() {
+  let reports;
+  try { reports = (await (await fetch('/api/drive/reports')).json()).reports || []; }
+  catch (e) { return; }
+  state.reportLayer.clearLayers();
+  const now = Date.now() / 1000;
+  for (const r of reports) {
+    const mins = Math.max(0, Math.round((now - r.ts) / 60));
+    L.circleMarker([r.lat, r.lon], {
+      radius: 8, color: '#f5a623', weight: 2,
+      fillColor: '#f5a623', fillOpacity: 0.3,
+    }).bindPopup(`Live driver report — patrol<br>${mins}m ago · `
+        + `${r.confirms} confirmation${r.confirms === 1 ? '' : 's'}`)
+      .addTo(state.reportLayer);
+  }
+}
+loadReports();
+setInterval(loadReports, 10000);
 setInterval(renderList, 10000);   // keep the "3m ago" column honest
 setInterval(ageTraffic, 1000);    // the live traffic view
 
