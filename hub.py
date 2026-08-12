@@ -258,7 +258,7 @@ class Handler(BaseHTTPRequestHandler):
             if p in ("/api/stats", "/api/nodes", "/api/health"):
                 return "public, max-age=3"
             if p == "/api/sightings":
-                return "public, max-age=8"
+                return "public, max-age=4"    # live map: fresh within a few s
             return "public, max-age=15"
         if p == "/" or p.endswith(".html") or p in (
                 "/about", "/transparency", "/app", "/node", "/key"):

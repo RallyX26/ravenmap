@@ -49,7 +49,7 @@ const TRAFFIC = '#93a7c4';
  * behind, which is the same promise the storage layer already makes - the
  * plate was destroyed at the camera and the row expires in 14 days. The map
  * should not imply a persistence the system deliberately does not have. */
-const TRAFFIC_FADE_S = 120;
+const TRAFFIC_FADE_S = 45;   // live view: a pass shows, then fades quickly
 
 /* 0 = no limit, and it is the DEFAULT.
  *
@@ -158,7 +158,7 @@ function ago(ts) {
    of it. Rounding down to a fixed bucket means every viewer in the same window
    requests the IDENTICAL url, so the origin serves it once and the edge serves
    the crowd. The bucket matches the server's max-age (15s). */
-const CACHE_BUCKET_S = 8;
+const CACHE_BUCKET_S = 4;   // live view: new passes appear within a few seconds
 const bucketed = (sec) => Math.floor(sec / CACHE_BUCKET_S) * CACHE_BUCKET_S;
 
 /* The oldest timestamp the window admits. 0 means no limit - decided here
@@ -642,53 +642,12 @@ async function load() {
 let lastStats = null;
 
 function emptyState(stats) {
-  // Cached because the banner now depends on what is CURRENTLY drawn, not just
-  // on the server counts - the traffic layer empties on its own timer, and a
-  // banner that only refreshes when /api/stats does would be 20 s stale.
-  stats = lastStats = stats || lastStats;
-  if (!stats) return;
-  // An empty map should say it is empty. A map with no dots and no explanation
-  // reads as broken, and the temptation to fill it with plausible-looking
-  // sample data is exactly how a project whose only asset is truthfulness
-  // stops being truthful.
-  let el = document.getElementById('empty');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'empty';
-    el.style.cssText = `position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);
-      z-index:800;background:#0d1219f2;border:1px solid var(--line2);border-radius:12px;
-      padding:22px 26px;max-width:420px;text-align:center;font-size:13px;line-height:1.6;
-      color:var(--dim);backdrop-filter:blur(6px)`;
-    document.getElementById('map').appendChild(el);
-  }
-  // An empty map has to say WHICH kind of empty it is, now that the two are
-  // genuinely different: a public-tier map with nothing on it is the normal
-  // state of a working camera on a street no patrol car has driven down, and
-  // reading that as a fault sends people looking for a bug that is not there.
-  const pubs = state.sightings.size;
-  const live = state.traffic.size;
-  const cams = stats.nodes_active;
-
-  let html = null;
-  if (!cams) {
-    html = `<b style="color:var(--ink);font-size:15px">No cameras yet.</b><br><br>
-      Nothing is being watched, so there is nothing to show. This map only
-      ever displays real sightings from real cameras.<br><br>
-      <a href="/contribute" style="color:var(--police);font-weight:600">Add a camera &rarr;</a>`;
-  } else if (!pubs && !live) {
-    const beat = stats.nodes_online
-      ? `${stats.nodes_online} of ${cams} watching right now`
-      : `none of the ${cams} registered camera${cams === 1 ? ' is' : 's are'} running`;
-    html = `<b style="color:var(--ink);font-size:15px">Nothing on the map.</b><br><br>
-      ${beat}. No public-tier vehicle has passed in this window, and private
-      traffic only ever shows live &mdash; it fades after two minutes and is
-      never listed.<br><br>
-      <span style="color:var(--dim2);font-size:12px">
-        ${(stats.traffic_24h ?? 0).toLocaleString()} private passes recorded in
-        the last 24 hours. They are counted, never identified.</span>`;
-  }
-  el.innerHTML = html || '';
-  el.style.display = html ? 'block' : 'none';
+  // The empty-state panel was removed at the owner's request - a live map reads
+  // as live on its own, and the panel covered it. Keep the cached stats (other
+  // code reads lastStats) and clear any panel a previous version left behind.
+  lastStats = stats || lastStats;
+  const el = document.getElementById('empty');
+  if (el) el.remove();
 }
 
 /* Why the map has no police on it.

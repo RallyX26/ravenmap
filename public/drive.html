@@ -440,13 +440,32 @@
   }
   function flashTile(){ var t=$('#camTile'); t.classList.add('flash');
     setTimeout(function(){t.classList.remove('flash');},450); }
+  /* Pinpoint the vehicle itself, not just the phone. From the driver's fix and
+   * heading, the vehicle's position in the frame gives a bearing (how far off
+   * centre it sits, scaled by the camera's field of view) and its apparent
+   * width gives a rough range (a car is ~1.9 m wide). Project that bearing and
+   * distance from the current fix. Approximate - no lens calibration, and an
+   * angled or partly-hidden vehicle throws the width estimate off - so the
+   * distance is clamped and this is a best-effort refinement over "at the car".*/
+  var HFOV_DEG=62, VEH_W_M=1.9, R_EARTH=6378137;
+  function projectVehicle(box,vw){
+    if(!me||heading==null||!vw) return null;
+    var cx=(box[0]+box[2])/2, bw=Math.max(1,box[2]-box[0]);
+    var brg=(((heading+((cx/vw)-0.5)*HFOV_DEG)%360)+360)%360;
+    var angW=(bw/vw)*HFOV_DEG*Math.PI/180;
+    var dist=Math.max(6,Math.min(120,(VEH_W_M/2)/Math.tan(Math.max(angW,1e-4)/2)));
+    var latR=me[0]*Math.PI/180, b=brg*Math.PI/180;
+    var dLat=(dist*Math.cos(b))/R_EARTH, dLon=(dist*Math.sin(b))/(R_EARTH*Math.cos(latR));
+    return [me[0]+dLat*180/Math.PI, me[1]+dLon*180/Math.PI];
+  }
   function submitCrop(b){
     if(!(driveNode&&driveNode.token&&me))return;
+    var loc=(b.box&&projectVehicle(b.box,b.vw))||me;
     fetch('/api/sightings',{method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+driveNode.token},
       body:JSON.stringify({node_id:driveNode.id,ts:Date.now()/1000,source:'phone_node',
         body:b.cls,det_conf:b.score,plate_text:'',plate_conf:0,evidence:{},
-        snap_b64:b.crop,lat:me[0],lon:me[1]})})
+        snap_b64:b.crop,lat:loc[0],lon:loc[1]})})
       .then(function(r){return r.json();}).then(function(r){
         if(r&&!r.error){ dsent++; $('#sent').textContent=dsent;
           $('#sentStat').style.display='block'; flashTile(); }
@@ -469,10 +488,11 @@
         if(!tr){tr={id:dnextId++,seen:0,best:null,bestArea:0,cls:h.cls};dtracks.push(tr);}
         tr.box=h.box; tr.last=now; tr.seen++; tr.cls=h.cls; tr.score=h.score;
         var area=(h.box[2]-h.box[0])*(h.box[3]-h.box[1]);
-        if(area>tr.bestArea){tr.bestArea=area; tr.best=cropOf(v,h.box);}
+        if(area>tr.bestArea){tr.bestArea=area; tr.best=cropOf(v,h.box); tr.bestBox=h.box;}
         // Track the largest STABLE vehicle since the last send (the window best).
         if(tr.seen>=MIN_FRAMES && tr.best && (!winBest||area>winBest.area))
-          winBest={crop:tr.best,cls:tr.cls,score:tr.score,area:area};
+          winBest={crop:tr.best,cls:tr.cls,score:tr.score,area:area,
+                   box:tr.bestBox,vw:v.videoWidth};
       }
       dtracks=dtracks.filter(function(t){return now-t.last<GONE_MS;});
       if(now-lastSend>=SEND_EVERY_MS && winBest && me && driveNode){
