@@ -837,7 +837,8 @@ class Handler(BaseHTTPRequestHandler):
                        "/api/purge", "/api/key/rotate", "/api/operator/login",
                        "/api/operator/logout", "/api/report",
                        "/api/rv/login", "/api/rv/logout", "/api/rv/verdict",
-                       "/api/rv/tokens/new", "/api/rv/tokens/revoke"}
+                       "/api/rv/tokens/new", "/api/rv/tokens/revoke",
+                       "/api/rv/my-token"}
 
     def do_POST(self) -> None:
         try:
@@ -891,8 +892,25 @@ class Handler(BaseHTTPRequestHandler):
                 except node_mod.NodeAuthError as exc:
                     return self._err(403, str(exc))
                 # The token is returned exactly once, at enrollment.
-                return self._json({"id": rec["id"], "status": rec["status"],
-                                   "token": rec.get("token")})
+                out = {"id": rec["id"], "status": rec["status"],
+                       "token": rec.get("token")}
+                # A brand-new camera (no node_id came in - a re-save carries one)
+                # also gets its own reviewer token, scoped to just this camera,
+                # so the volunteer can review their own camera's catches without
+                # anyone having to hand them access. It is 'own' scope: it cannot
+                # see the shared pool or anyone else's cameras, every verdict is
+                # audited under it, and the operator can revoke it. Minted once,
+                # at creation, so nudging the camera later does not spawn more.
+                if not str(b.get("node_id") or "").strip():
+                    try:
+                        rtok = review_auth.ensure_own_token(
+                            rec["id"], str(b["name"])[:60], created_by="enroll")
+                        if rtok:
+                            out["review_token"] = rtok
+                            out["review_url"] = "/rv"
+                    except Exception:
+                        pass
+                return self._json(out)
 
             if p == "/api/sightings":
                 if not rate_ok(p, self.client_ip):
@@ -1092,6 +1110,26 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(400, "bad id")
                 return self._json(review_api.verdict(
                     r, sid, b.get("verdict"), privacy.audit_ip(self.client_ip)))
+
+            if p == "/api/rv/my-token":
+                # A camera fetches its OWN reviewer token, proving ownership with
+                # its node token. Lets a volunteer who enrolled before tokens
+                # existed get theirs automatically the next time their node runs,
+                # with no operator involvement. Minted once (ensure_own_token), so
+                # calling it repeatedly does not spawn tokens.
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                tok = review_auth.ensure_own_token(
+                    nd["id"], nd.get("name") or "a camera", created_by="self")
+                if tok:
+                    return self._json({"ok": True, "new": True,
+                                       "review_token": tok, "review_url": "/rv"})
+                return self._json({"ok": True, "new": False, "review_url": "/rv",
+                                   "note": "this camera already has a token"})
 
             # --- token administration (operator only) -------------------------
             if p == "/api/rv/tokens/new":

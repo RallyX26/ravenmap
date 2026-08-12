@@ -57,6 +57,31 @@ if (-not (Enrolled)) {
   Write-Host "  Camera enrolled." -ForegroundColor Green
 }
 
+# Show the owner where to review their OWN camera's catches. A camera enrolled
+# through camctl already has its reviewer token saved; one enrolled before that
+# existed fetches it now, proving ownership with its node token. Minted once.
+try {
+  $place = Get-Content $Place -Raw | ConvertFrom-Json
+  $rtok = $place.review_token
+  if (-not $rtok -and $place.node_id -and $place.token) {
+    $resp = Invoke-RestMethod -Method Post -Uri "$Hub/api/rv/my-token" `
+      -Headers @{ Authorization = "Bearer $($place.token)" } -ContentType 'application/json' `
+      -Body (@{ node_id = $place.node_id } | ConvertTo-Json) -TimeoutSec 15
+    if ($resp.new -and $resp.review_token) {
+      $rtok = $resp.review_token
+      $place | Add-Member -NotePropertyName review_token -NotePropertyValue $rtok -Force
+      $place | ConvertTo-Json | Set-Content $Place -Encoding UTF8
+    }
+  }
+  if ($rtok) {
+    Write-Host ""
+    Write-Host "  Review your camera's catches:" -ForegroundColor Green
+    Write-Host "    open $Hub/rv  and paste this token:" -ForegroundColor Green
+    Write-Host "    $rtok" -ForegroundColor Green
+    Write-Host ""
+  }
+} catch {}
+
 # 3) Run the detector against the hub. It reads the node id + token from the
 #    placement file (never pasted here), and is restarted if it dies for a real
 #    reason. Exit code 1 is the single-instance guard - do not loop on it.

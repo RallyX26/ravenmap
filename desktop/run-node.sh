@@ -62,6 +62,38 @@ if ! enrolled; then
   echo "  Camera enrolled."
 fi
 
+# Show the owner where to review their OWN camera's catches. A camera enrolled
+# through camctl already has its reviewer token saved; one enrolled before that
+# existed fetches it now, proving ownership with its node token. Minted once.
+RTOK="$("$PY" - "$PLACE" "$HUB" <<'PY' 2>/dev/null || true
+import json, sys, urllib.request
+place_path, hub = sys.argv[1], sys.argv[2]
+p = json.load(open(place_path))
+tok = p.get("review_token")
+if not tok and p.get("node_id") and p.get("token"):
+    try:
+        req = urllib.request.Request(
+            hub.rstrip("/") + "/api/rv/my-token", method="POST",
+            data=json.dumps({"node_id": p["node_id"]}).encode(),
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer " + p["token"]})
+        r = json.loads(urllib.request.urlopen(req, timeout=15).read())
+        if r.get("new") and r.get("review_token"):
+            tok = r["review_token"]
+            p["review_token"] = tok
+            json.dump(p, open(place_path, "w"), indent=1)
+    except Exception:
+        pass
+print(tok or "")
+PY
+)"
+if [ -n "$RTOK" ]; then
+  echo
+  echo "  Review your camera's catches: open $HUB/rv and paste this token:"
+  echo "    $RTOK"
+  echo
+fi
+
 # 3) Run the detector against the hub. It reads the node id + token from the
 #    placement file (never pasted here) and is restarted if it dies for a real
 #    reason. Exit code 1 is the single-instance guard - do not loop on it.

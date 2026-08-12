@@ -53,6 +53,28 @@ def revoke(token_id: int) -> bool:
     return db.revoke_review_token(int(token_id))
 
 
+def has_own_token(node_id: str) -> bool:
+    """Does this camera already have a live reviewer token of its own?"""
+    for t in db.list_review_tokens(include_revoked=False):
+        if t.get("scope") == "own" and node_id in (t.get("nodes") or "").split(","):
+            return True
+    return False
+
+
+def ensure_own_token(node_id: str, label: str,
+                     created_by: str = "self") -> Optional[str]:
+    """Give a camera a reviewer token scoped to itself, once.
+
+    Returns the plaintext the first time (to show the owner) and None if the
+    camera already has one - a token is stored only as a hash, so an existing
+    one can never be shown again, which is exactly why this must not mint a
+    second every time it is called.
+    """
+    if has_own_token(node_id):
+        return None
+    return issue(label or "a camera", "own", [node_id], created_by=created_by)
+
+
 def listing() -> list:
     return db.list_review_tokens()
 

@@ -679,6 +679,12 @@ class Handler(BaseHTTPRequestHandler):
                 p["node_id"] = r["id"]
                 if r.get("token"):
                     p["token"] = r["token"]
+                # A new camera comes back with its own reviewer token, scoped to
+                # just this camera - kept so the launcher can show the owner
+                # where to review their own catches.
+                if r.get("review_token"):
+                    p["review_token"] = r["review_token"]
+                    p["review_url"] = r.get("review_url") or "/rv"
                 p["enrolled"] = True
                 p["error"] = ""
             except Exception as exc:
