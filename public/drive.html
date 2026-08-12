@@ -32,6 +32,16 @@
     color:#fff;font-weight:800;font-size:1.35rem;letter-spacing:.2px;
     display:none;align-items:center;gap:12px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
   #alert.show{display:flex;animation:pop .25s ease}
+  /* History, not a car that is there now - amber, so the two never read alike. */
+  #alert.hot{background:linear-gradient(180deg,rgba(245,158,11,.97),rgba(245,158,11,.82));
+    color:#1a1206}
+  #calbar{position:absolute;left:12px;z-index:1000;bottom:calc(env(safe-area-inset-bottom) + 92px);
+    background:rgba(13,18,25,.86);border:1px solid var(--line);border-radius:12px;
+    padding:8px 12px;font-family:var(--mono);font-size:.72rem;color:var(--dim);
+    display:none;align-items:center;gap:10px}
+  #calbar.show{display:flex}
+  #calbar button{background:none;border:1px solid var(--line);color:var(--dim);
+    border-radius:8px;padding:3px 8px;font:inherit;cursor:pointer}
   #alert .em{font-size:1.6rem}
   @keyframes pop{from{transform:translateY(-16px);opacity:.3}to{transform:none;opacity:1}}
   /* --- readouts (top-left, glanceable) --- */
@@ -123,6 +133,8 @@
 
 <div id="alert"><span class="em">🚨</span><span id="alertTxt">Patrol ahead</span></div>
 
+<div id="calbar"><span id="calTxt">Calibrating…</span><button id="calReset">reset</button></div>
+
 <div id="hud">
   <div class="stat"><b id="mph">—</b><span>mph</span></div>
   <div class="stat"><b id="hdg">—</b><span>facing</span></div>
@@ -142,6 +154,7 @@
   <button class="rbtn" id="trailBtn" title="Show my trail (stays on this phone)">〜</button>
   <button class="rbtn" id="soundBtn" title="Alert sound">🔊</button>
   <button class="rbtn" id="heatBtn" title="Everywhere patrols have been (hotspots)">🔥</button>
+  <button class="rbtn" id="calBtn" title="Calibrate the phone's angle in its mount">🧭</button>
 </div>
 
 <button id="report" disabled><span class="em">🚨</span> Patrol here</button>
@@ -184,6 +197,15 @@
     if(heatOn){ loadHeat(); heatLayer.addTo(map); b.className='rbtn on'; }
     else{ map.removeLayer(heatLayer); heatLayer.clearLayers(); b.className='rbtn'; } }
   $('#heatBtn').addEventListener('click',toggleHeat);
+  $('#calBtn').addEventListener('click',function(){
+    calMode=!calMode;
+    this.className='rbtn'+(calMode?' on':'');
+    $('#calbar').className=calMode?'show':'';
+    if(calMode){ showCal();
+      toast(calOffset!=null ? 'Calibrated. Drive straight to refine.'
+                            : 'Drive straight above 15 mph to calibrate.'); }
+  });
+  $('#calReset').addEventListener('click',resetCal);
 
   // ---- state ----
   var me=null, meMarker=null, accCircle=null, follow=true, lastFix=null;
@@ -316,6 +338,49 @@
     $('#near').textContent=n;
     if(closest){ alerted[closest.id]=true; fireAlert(Math.round(cdist)); }
   }
+  /* HEADING INTO A HOT AREA.
+   *
+   * Avoidance without routing: the hotspot layer already knows where patrols
+   * have historically been, so the useful half of "route me around the cops" is
+   * simply telling a driver they are aimed at one BEFORE they arrive. A cell
+   * counts if it sits inside a narrow cone along the direction of travel and
+   * within a warning distance - far enough to still turn off, and only while
+   * actually moving, since a cone means nothing when parked.
+   *
+   * Deliberately separate from the patrol alert: this is history, not a car
+   * that is there now, so it is a quieter, different message. */
+  var heatCells=[], heatWarned={};
+  var HOT_AHEAD_M=1200, HOT_CONE_DEG=30, HOT_REARM_M=2500, HOT_MIN_N=3;
+  function loadHeatCells(){
+    fetch('/api/heat').then(function(r){return r.json();})
+      .then(function(d){ heatCells=(d&&d.cells)||[]; }).catch(function(){});
+  }
+  function checkHotAhead(){
+    if(!me||heading==null||speedMph<8||!heatCells.length) return;
+    var best=null, bd=1e9;
+    for(var i=0;i<heatCells.length;i++){
+      var c=heatCells[i];
+      if((c.n||0)<HOT_MIN_N) continue;            // one old sighting is not a zone
+      var key=c.lat.toFixed(3)+','+c.lon.toFixed(3);
+      var d=haversine(me[0],me[1],c.lat,c.lon);
+      if(d>HOT_REARM_M){ delete heatWarned[key]; continue; }
+      if(heatWarned[key]||d>HOT_AHEAD_M) continue;
+      var br=bearing(me[0],me[1],c.lat,c.lon);
+      if(Math.abs(((br-heading+540)%360)-180)>HOT_CONE_DEG) continue;
+      if(d<bd){ bd=d; best={key:key,cell:c,d:d}; }
+    }
+    if(best){
+      heatWarned[best.key]=true;
+      var a=$('#alert');
+      $('#alertTxt').textContent='Hot area ahead — '+Math.round(best.d)+' m · '
+        + best.cell.n + ' past patrols';
+      a.className='show hot'; beep();
+      if(navigator.vibrate)navigator.vibrate(80);
+      clearTimeout(fireAlert._t);
+      fireAlert._t=setTimeout(function(){a.className='';},6000);
+    }
+  }
+
   function fireAlert(dist){ var a=$('#alert');
     $('#alertTxt').textContent='Patrol ahead — '+dist+' m';
     a.className='show'; beep(); if(navigator.vibrate)navigator.vibrate([120,60,120]);
@@ -357,8 +422,10 @@
     // GPS course only exists once you are MOVING, so it is the better answer at
     // speed (it is where the car is actually going) and no answer at rest. The
     // compass fills the gap - see startCompass.
-    if(c.heading!=null && !isNaN(c.heading) && speedMph>3) heading=c.heading;
-    else if(lastFix && speedMph>3){ heading=bearing(lastFix.ll[0],lastFix.ll[1],now[0],now[1]); }
+    var course=null;
+    if(c.heading!=null && !isNaN(c.heading) && speedMph>3) course=c.heading;
+    else if(lastFix && speedMph>3){ course=bearing(lastFix.ll[0],lastFix.ll[1],now[0],now[1]); }
+    if(course!=null){ heading=course; calSample(course); }
     else if(compassHeading!=null) heading=compassHeading;
     lastFix={ll:now,t:pos.timestamp};
     me=now;
@@ -371,6 +438,7 @@
     else{accCircle=L.circle(me,{radius:c.accuracy||20,color:'#3b82f6',weight:1,
       opacity:.3,fillOpacity:.06,interactive:false}).addTo(map);}
     checkProximity();
+    checkHotAhead();
   }
   function onGeoErr(e){ var msg = e.code===1
     ? 'Location permission was denied. Enable it for this site to use driving mode.'
@@ -409,6 +477,9 @@
     $('#cover').style.display='none';
     loadVerified(); loadLive();
     setInterval(loadVerified,POLL_MS); setInterval(loadLive,POLL_MS);
+    // Hotspot history for the "hot area ahead" warning. Slow-moving data, so a
+    // long refresh; the warning itself is checked on every GPS fix.
+    loadHeatCells(); setInterval(loadHeatCells,300000);
     navigator.geolocation.getCurrentPosition(onFix,onGeoErr,{enableHighAccuracy:true,timeout:15000,maximumAge:2000});
     navigator.geolocation.watchPosition(onFix,onGeoErr,{enableHighAccuracy:true,maximumAge:1000,timeout:20000});
     startCompass();   // must be asked from this gesture (iOS permission prompt)
@@ -529,8 +600,54 @@
    * in the same direction. The magnetometer reports where the phone actually
    * faces, so it is the correct input here even while moving; course is the
    * fallback for a device with no compass (or one that refused permission). */
+  /* CALIBRATION: learn how the phone sits in its mount.
+   *
+   * The compass says where the phone faces; GPS course says where the car is
+   * going. Driving straight, those differ by exactly one thing - the angle the
+   * phone is rotated in its cradle - so sampling the difference on straight,
+   * fast stretches measures the mount offset, and subtracting it turns compass
+   * readings into true camera aim. Samples are averaged as unit vectors, not
+   * numbers: the mean of 359 and 1 is 0, not 180.
+   *
+   * Only straight fast driving qualifies, because in a turn the two genuinely
+   * disagree, and at low speed GPS course is noise. Stored per device. */
+  var calOffset=null, calSin=0, calCos=0, calN=0, calMode=false, lastCourse=null;
+  try{ var cs=localStorage.getItem('sparrow.drive.calOffset');
+       if(cs!=null) calOffset=parseFloat(cs); }catch(e){}
+
+  function calSample(course){
+    if(compassHeading==null || course==null) return;
+    if(speedMph<15) return;                       // GPS course is noise slowly
+    if(lastCourse!=null){
+      var turn=Math.abs(((course-lastCourse+540)%360)-180);
+      if(turn>4){ lastCourse=course; return; }    // mid-turn: they disagree
+    }
+    lastCourse=course;
+    var diff=((compassHeading-course)%360+360)%360, r=diff*Math.PI/180;
+    calSin+=Math.sin(r); calCos+=Math.cos(r); calN++;
+    var mean=((Math.atan2(calSin,calCos)*180/Math.PI)%360+360)%360;
+    if(calN>=8){
+      calOffset=mean;
+      try{ localStorage.setItem('sparrow.drive.calOffset',String(mean)); }catch(e){}
+    }
+    if(calMode) showCal();
+  }
+  function showCal(){
+    var el=$('#calTxt'); if(!el) return;
+    if(calN<8){ el.textContent='Calibrating — drive straight ('+calN+'/8)'; }
+    else{ var o=calOffset>180?calOffset-360:calOffset;
+      el.textContent='Mount offset '+(o>0?'+':'')+o.toFixed(0)+'° ('+calN+' samples)'; }
+  }
+  function resetCal(){ calSin=calCos=calN=0; calOffset=null; lastCourse=null;
+    try{ localStorage.removeItem('sparrow.drive.calOffset'); }catch(e){}
+    showCal(); toast('Calibration cleared — drive straight to re-learn'); }
+
   function aimHeading(){
-    return compassHeading != null ? compassHeading : heading;
+    if(compassHeading==null) return heading;
+    // Subtract the learned mount rotation so the aim is the CAMERA's, not the
+    // phone's arbitrary angle in the cradle.
+    if(calOffset!=null) return ((compassHeading-calOffset)%360+360)%360;
+    return compassHeading;
   }
   function projectVehicle(box,vw){
     var aim=aimHeading();
