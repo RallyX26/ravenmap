@@ -222,17 +222,45 @@ let session = null, stream = null, running = false, wakeLock = null, beatTimer =
 let lastWork = 0;
 const STALL_AFTER_MS = 120000;
 
+/* 🚨 THE BEAT REPORTS ITSELF, IMMEDIATELY.
+ *
+ * The map only learns a camera is up on its next poll, and the operator had no
+ * way to tell "working" from "silently broken" without staring at another
+ * device for a minute. That is unusable feedback. The phone knows the answer
+ * the instant the request returns, so it says so here: LIVE on a 200, and the
+ * actual reason on anything else, rather than swallowing the failure. */
 async function sendBeat() {
   if (!(node && node.id && node.token)) return;
-  if (!lastWork || Date.now() - lastWork > STALL_AFTER_MS) return;
+  if (!lastWork || Date.now() - lastWork > STALL_AFTER_MS) {
+    net('warn', 'starting…');
+    return;
+  }
   try {
-    await fetch('/api/heartbeat', {
+    const r = await fetch('/api/heartbeat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json',
                  'Authorization': 'Bearer ' + node.token },
       body: JSON.stringify({ node_id: node.id }),
     });
-  } catch (e) { /* a missed beat is not worth interrupting the watch */ }
+    if (r.ok) {
+      net('on', 'LIVE on the map');
+      say($('#watchMsg'), 'Watching — this camera is LIVE on the map.', true);
+    } else if (r.status === 401) {
+      net('warn', 'not signed in');
+      say($('#watchMsg'), 'The hub rejected this camera’s key (401). '
+        + 'Re-register it in Setup.', false);
+    } else if (r.status === 404) {
+      net('warn', 'unknown camera');
+      say($('#watchMsg'), 'The hub does not know this camera (404). '
+        + 'Re-register it in Setup.', false);
+    } else {
+      net('warn', 'hub error ' + r.status);
+    }
+  } catch (e) {
+    // Offline or the hub is unreachable. Detection keeps running; say so
+    // plainly rather than leaving a stale "LIVE" on screen.
+    net('warn', 'offline — retrying');
+  }
 }
 let tracks = [], nextId = 1, seen = 0, sent = 0, fpsEMA = 0, lastT = 0;
 let LB = { s: 1, ox: 0, oy: 0 };
@@ -241,13 +269,47 @@ const pre = document.createElement('canvas'); pre.width = pre.height = SIZE;
 const pctx = pre.getContext('2d', { willReadFrequently: true });
 const cropCv = document.createElement('canvas');
 
+/* The model is ~38 MB and on a phone that is a real wait. Fetching it here
+ * rather than letting the runtime do it silently means the bar can move: a
+ * stalled download and a slow one look identical otherwise, and that is exactly
+ * the ambiguity that made "is my camera working?" unanswerable. */
 async function loadModel() {
-  say($('#watchMsg'), 'Downloading the detector…');
-  $('#loadbar').style.width = '15%';
+  net('busy', 'loading detector');
   ort.env.wasm.numThreads = 1;
   ort.env.wasm.simd = true;
   ort.env.wasm.wasmPaths = '/vendor/';
-  session = await ort.InferenceSession.create('/vendor/yolo11s.onnx',
+
+  let bytes = null;
+  try {
+    const res = await fetch('/vendor/yolo11s.onnx');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const total = +res.headers.get('Content-Length') || 37925610;
+    const reader = res.body && res.body.getReader ? res.body.getReader() : null;
+    if (reader) {
+      const chunks = []; let got = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value); got += value.length;
+        const pct = Math.min(99, Math.round((got / total) * 100));
+        $('#loadbar').style.width = pct + '%';
+        say($('#watchMsg'), `Downloading the detector… ${pct}%  `
+          + `(${(got / 1048576).toFixed(0)} of ${(total / 1048576).toFixed(0)} MB, `
+          + `first time only)`);
+      }
+      bytes = new Uint8Array(got); let at = 0;
+      for (const c of chunks) { bytes.set(c, at); at += c.length; }
+    } else {
+      bytes = new Uint8Array(await res.arrayBuffer());
+    }
+  } catch (e) {
+    // Fall back to letting the runtime fetch it by URL; no progress, but it
+    // still works (and a cached copy makes this instant anyway).
+    bytes = null;
+  }
+
+  say($('#watchMsg'), 'Starting the detector…');
+  session = await ort.InferenceSession.create(bytes || '/vendor/yolo11s.onnx',
     { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
   $('#loadbar').style.width = '100%';
   say($('#watchMsg'), 'Detector ready — cached now, instant next time.', true);
