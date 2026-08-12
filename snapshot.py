@@ -368,6 +368,25 @@ def downscale_to_subres(data_url: str) -> bytes:
     return buf.getvalue()
 
 
+def subres_from_stored(raw: bytes) -> bytes:
+    """Shrink an ALREADY-STORED snapshot to review-pen resolution.
+
+    For putting a published sighting back in front of a human - a public flag,
+    say. The stored file is a public-tier photograph and may carry a legible
+    government plate; the pen is sub-resolution by contract, so it is brought
+    down to SUBRES_MAX_EDGE like everything else parked there rather than
+    copied across at full size.
+    """
+    img = Image.open(io.BytesIO(raw))
+    if max(img.size) > SUBRES_MAX_EDGE:
+        s = SUBRES_MAX_EDGE / max(img.size)
+        img = img.resize((max(1, int(img.width * s)),
+                          max(1, int(img.height * s))), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "JPEG", quality=82)
+    return buf.getvalue()
+
+
 def crop_to_subres(data_url: str, vehicle_box: tuple) -> bytes:
     """Crop a camera node's FRAME to its vehicle, then shrink it for the pen.
 

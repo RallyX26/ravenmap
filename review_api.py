@@ -126,6 +126,57 @@ def crop_bytes(sid: int) -> Optional[bytes]:
     return None
 
 
+def park_reported(sid: int, row: dict, reason: str = "") -> bool:
+    """Put a publicly-flagged sighting in front of a human.
+
+    🚨 A FLAG THAT ONLY REACHES A TABLE IS A BLACK HOLE.
+    /api/report wrote a `reports` row and stopped. The only reader was the
+    OPERATOR queue, which is local-only and does not exist on a public mirror
+    at all - so on the live site every public flag landed somewhere nothing
+    running on that machine could display. Six real reports sat unresolved,
+    four of them "not a government vehicle": the public correctly telling us a
+    car was wrong, into a void.
+
+    Parking it in the pen puts it in the reviewer app beside everything else,
+    and the existing verdict path already does the right thing from there:
+    "not a cop" calls db.review_sighting(sid, "retracted"), which demotes the
+    row to private, drops the plate text, and resolves the flags.
+
+    Note what is deliberately NOT recorded here: no `head` verdict. The queue
+    filter hides an item only when it has both a score and a threshold, so an
+    item with neither is always shown - which is what a human flag deserves.
+    A model already had its say on this vehicle and a person is disagreeing.
+    """
+    if not row or row.get("tier") != "public":
+        return False
+    jp = mirror.REVIEW / f"{int(sid)}.json"
+    if jp.exists():
+        return False                      # already queued; a second flag is not a second job
+    snap = row.get("snap")
+    if not snap:
+        return False
+    src = SNAPS / Path(str(snap)).name
+    if not src.exists():
+        return False
+    try:
+        crop = snapshot.subres_from_stored(src.read_bytes())
+    except Exception:
+        return False
+    node = db.node(row.get("node_id") or "") or {}
+    return bool(mirror.review_write(int(sid), crop, {
+        "ts": row.get("ts"),
+        "node_id": row.get("node_id") or "",
+        "node_name": node.get("name") or "a camera",
+        "vclass": row.get("vclass"),
+        "body": row.get("body"),
+        "reported": True,
+        "report_reason": reason,
+        # Shown to the reviewer as the reason this is in front of them. It is
+        # the public's claim, attributed as such - not the model's.
+        "why": f"flagged by the public: {db.REPORT_REASONS.get(reason, reason)}",
+    }))
+
+
 def may_touch(reviewer: dict, sid: int) -> bool:
     """May this reviewer see or rule on this pen item?
 

@@ -1017,6 +1017,22 @@ class Handler(BaseHTTPRequestHandler):
                               privacy.audit_ip(self.client_ip))
                 db.audit("report", str(sid), actor="public",
                          ip=privacy.audit_ip(self.client_ip))
+                # 🚨 AND PUT IT IN FRONT OF A HUMAN.
+                # This used to end at the table. The only reader of `reports`
+                # is the OPERATOR queue, which is local-only and does not exist
+                # on a public mirror - so on the live site every public flag
+                # landed where nothing running there could show it. Parking it
+                # in the review pen routes it to the reviewer app, and the
+                # existing "not a cop" verdict already retracts the row and
+                # resolves the flag from there.
+                #
+                # Best-effort on purpose: the flag is recorded either way, and
+                # a sighting with no stored photo simply cannot be re-judged
+                # visually. Never let the queueing failure lose the report.
+                try:
+                    review_api.park_reported(sid, row, reason)
+                except Exception:
+                    traceback.print_exc()
                 return self._json({"ok": True})
 
             if p == "/api/review":
