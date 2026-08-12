@@ -125,6 +125,7 @@
 
 <div id="hud">
   <div class="stat"><b id="mph">—</b><span>mph</span></div>
+  <div class="stat"><b id="hdg">—</b><span>facing</span></div>
   <div class="stat near"><b id="near">0</b><span>near</span></div>
   <div class="stat" id="sentStat" style="display:none"><b id="sent">0</b><span>sent</span></div>
 </div>
@@ -187,6 +188,54 @@
   // ---- state ----
   var me=null, meMarker=null, accCircle=null, follow=true, lastFix=null;
   var heading=null, speedMph=0;
+
+  /* Which way the PHONE is pointing, from the magnetometer.
+   *
+   * GPS gives course-over-ground, which needs movement: parked at a light the
+   * heading goes stale, the driver arrow stops turning, and the dashcam's
+   * bearing maths (projectVehicle) has nothing to project from. The compass
+   * answers while stationary, so it fills exactly that gap. iOS needs explicit
+   * permission and reports a true-north heading of its own; Android exposes an
+   * absolute orientation whose alpha counts the other way round. */
+  var compassHeading=null, lastCompassDraw=0;
+  function applyCompass(e){
+    var h=null;
+    if(typeof e.webkitCompassHeading==='number' && !isNaN(e.webkitCompassHeading)){
+      h=e.webkitCompassHeading;                       // iOS: already true north
+    } else if(e.absolute===true && typeof e.alpha==='number'){
+      h=(360-e.alpha)%360;                            // Android: alpha is CCW
+    }
+    if(h==null || isNaN(h)) return;
+    compassHeading=h;
+    if(speedMph<=3) heading=h;      // at rest the compass IS the heading
+    var now=Date.now();
+    if(now-lastCompassDraw>200){    // redraw at ~5fps, not per sensor event
+      lastCompassDraw=now;
+      var el=$('#hdg'); if(el) el.textContent=Math.round(h)+'° '+compassPoint(h);
+      if(me) drawMe();
+    }
+  }
+  function compassPoint(h){
+    var pts=['N','NE','E','SE','S','SW','W','NW'];
+    return pts[Math.round(((h%360)+360)%360/45)%8];
+  }
+  function startCompass(){
+    // iOS 13+ gates the sensor behind a permission prompt that must be asked
+    // from a user gesture - this runs inside the Start tap for that reason.
+    try{
+      var DOE=window.DeviceOrientationEvent;
+      if(!DOE) return;
+      if(typeof DOE.requestPermission==='function'){
+        DOE.requestPermission().then(function(state){
+          if(state==='granted') bindCompass();
+        }).catch(function(){});
+      } else { bindCompass(); }
+    }catch(e){}
+  }
+  function bindCompass(){
+    window.addEventListener('deviceorientationabsolute',applyCompass,true);
+    window.addEventListener('deviceorientation',applyCompass,true);
+  }
   var soundOn=true, trailOn=false, audioCtx=null;
   var trail=[];                     // on-device only, never sent
   var verified=[], live=[];
@@ -305,8 +354,12 @@
     else if(lastFix){ var dt=(pos.timestamp-lastFix.t)/1000;
       if(dt>0){ var d=haversine(lastFix.ll[0],lastFix.ll[1],now[0],now[1]);
         speedMph=(d/dt)*2.23694; } }
-    if(c.heading!=null && !isNaN(c.heading)) heading=c.heading;
-    else if(lastFix && speedMph>2){ heading=bearing(lastFix.ll[0],lastFix.ll[1],now[0],now[1]); }
+    // GPS course only exists once you are MOVING, so it is the better answer at
+    // speed (it is where the car is actually going) and no answer at rest. The
+    // compass fills the gap - see startCompass.
+    if(c.heading!=null && !isNaN(c.heading) && speedMph>3) heading=c.heading;
+    else if(lastFix && speedMph>3){ heading=bearing(lastFix.ll[0],lastFix.ll[1],now[0],now[1]); }
+    else if(compassHeading!=null) heading=compassHeading;
     lastFix={ll:now,t:pos.timestamp};
     me=now;
     $('#mph').textContent=Math.max(0,Math.round(speedMph));
@@ -358,6 +411,7 @@
     setInterval(loadVerified,POLL_MS); setInterval(loadLive,POLL_MS);
     navigator.geolocation.getCurrentPosition(onFix,onGeoErr,{enableHighAccuracy:true,timeout:15000,maximumAge:2000});
     navigator.geolocation.watchPosition(onFix,onGeoErr,{enableHighAccuracy:true,maximumAge:1000,timeout:20000});
+    startCompass();   // must be asked from this gesture (iOS permission prompt)
     // Dashcam on by default - a driving app that watches the road is the point.
     // The camera-permission prompt rides on this same start gesture. A driver
     // who wants radar-only taps the 📷 button off.

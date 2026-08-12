@@ -8,7 +8,21 @@
  * (the ~36 MB model + wasm) is cached the first time it's fetched, so a node
  * that has run once can start again with no network.
  */
-const CACHE = 'sparrow-v6';
+/* TWO caches, deliberately. The app cache is versioned and PURGED on every
+ * update; the vendor cache holds the pinned detector runtime (a ~38 MB model
+ * plus wasm) and must survive those updates.
+ *
+ * 🚨 THEY USED TO BE ONE. Every app fix bumped the version, the activate
+ * handler deleted every cache that was not the new one, and a phone had to
+ * re-download 38 MB before its camera could start again - so shipping a small
+ * JS fix quietly knocked every phone camera offline until it finished pulling
+ * the model over mobile data. Version the code; never the thing that takes a
+ * minute to fetch. */
+const CACHE = 'sparrow-app-v7';
+// Deliberately the LAST app cache name rather than a fresh one: devices already
+// hold the model under it, and renaming would throw away the very download this
+// split exists to protect. Bump ONLY when the vendored model itself changes.
+const VENDOR_CACHE = 'sparrow-v6';
 const SHELL = [
   '/app',
   '/static/sparrow-app.js',
@@ -30,7 +44,9 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((ks) => Promise.all(ks
+        .filter((k) => k !== CACHE && k !== VENDOR_CACHE)
+        .map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -44,7 +60,7 @@ self.addEventListener('fetch', (e) => {
   // and never re-downloads it.
   if (url.pathname.startsWith('/vendor/')) {
     e.respondWith(
-      caches.open(CACHE).then((c) =>
+      caches.open(VENDOR_CACHE).then((c) =>
         c.match(e.request).then((hit) =>
           hit || fetch(e.request).then((res) => {
             if (res.ok) c.put(e.request, res.clone());
