@@ -96,7 +96,12 @@ def review_one(item: dict) -> None:
             meta = json.loads(im.read_text(encoding="utf-8"))
         except Exception:
             meta = {}
+    # `threshold` makes the item self-describing: a score means nothing without
+    # the operating point it was judged against, and this box cannot load the
+    # head to look it up. review_api.queue() needs both to hide an item the
+    # head already rejected.
     meta["head"] = {"conf": item.get("head_conf"), "vclass": item.get("vclass"),
+                    "threshold": item.get("head_threshold"),
                     "why": item.get("why"), "at": time.time()}
     if ij.exists():
         rj.write_bytes(ij.read_bytes())

@@ -492,6 +492,9 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/":                 return self._file(PUBLIC / "index.html")
             if p == "/about":            return self._file(PUBLIC / "about.html")
             if p == "/transparency":     return self._file(PUBLIC / "transparency.html")
+            # What a node costs in compute, and how to measure your own board
+            # rather than take this page's word for it.
+            if p == "/hardware":         return self._file(PUBLIC / "hardware.html")
             # One program, three modes. /node and /key are kept as aliases
             # because keys, QR codes and bookmarks already point at them - a
             # link a volunteer printed must not stop working because the pages

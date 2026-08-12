@@ -47,18 +47,50 @@ def _score(meta: dict, row: Optional[dict]) -> Optional[float]:
     return (row or {}).get("vclass_conf")
 
 
+def head_rejected(meta: dict) -> bool:
+    """Did the trained head already rule this crop out?
+
+    🚨 THE PEN WAS SHOWING HUMANS CARS THE MODEL HAD ALREADY DISMISSED.
+    Contributor crops are parked here by box_puller, which used to admit
+    anything CLIP's bare argmax called a marked class - even when the head had
+    scored it and said no. The head's number was written into the `why` string
+    the reviewer reads, and then ignored by the gate that put it there. 477 of
+    485 live pen items arrived that way from one browser contributor, CLIP at
+    ~0.50 against a head at ~0.00, and a queue full of ordinary cars reads as
+    the classifier getting worse rather than as a filter that was never applied.
+
+    Both numbers must be present to hide anything. A score without its operating
+    point is not a judgement, and this box cannot load the head to supply one -
+    so an item that does not carry its own threshold is SHOWN, not hidden.
+    Failing towards a human looking at an extra car is the safe direction; the
+    opposite failure hides a real patrol unit for ever.
+    """
+    h = meta.get("head") or {}
+    conf, thr = h.get("conf"), h.get("threshold")
+    if conf is None or thr is None:
+        return False
+    try:
+        return float(conf) < float(thr)
+    except (TypeError, ValueError):
+        return False
+
+
 def queue(reviewer: dict, scope: str = "pool", limit: int = 60) -> dict:
     """Pending pool items this reviewer may see, newest first."""
     allowed = reviewer.get("nodes")            # None = all nodes
     if not mirror.REVIEW.exists():
-        return {"items": [], "count": 0}
+        return {"items": [], "count": 0, "hidden": 0}
     items = []
+    hidden = 0
     for jp in mirror.REVIEW.glob("*.json"):
         try:
             sid = int(jp.stem)
         except ValueError:
             continue
         meta = _pen_meta(sid)
+        if head_rejected(meta):
+            hidden += 1
+            continue
         row = db.sighting(sid) if hasattr(db, "sighting") else None
         node_id = meta.get("node_id") or (row or {}).get("node_id") or ""
         node_name = meta.get("node_name")
@@ -78,7 +110,10 @@ def queue(reviewer: dict, scope: str = "pool", limit: int = 60) -> dict:
             "crop": f"/api/rv/crop/{sid}",
         })
     items.sort(key=lambda x: x.get("ts") or 0, reverse=True)
-    return {"items": items[:limit], "count": len(items)}
+    # `hidden` is reported rather than swallowed. A filter that silently shrinks
+    # a queue is indistinguishable from a queue that is genuinely empty, and
+    # this one is capable of hiding hundreds of items at once.
+    return {"items": items[:limit], "count": len(items), "hidden": hidden}
 
 
 def crop_bytes(sid: int) -> Optional[bytes]:

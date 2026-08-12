@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Node hardware — SparrowMap</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  /* style.css pins html,body to height:100% with overflow:hidden for the map
+     app. A long document has to undo BOTH - setting overflow on body alone
+     leaves html clamped and the page simply refuses to scroll. */
+  html,body{height:auto; overflow:visible}
+  .doc{max-width:820px; margin:0 auto; padding:38px 20px 90px}
+  .doc h1{font-size:30px; letter-spacing:-.01em; margin:0 0 6px}
+  .doc h2{font-size:15px; letter-spacing:.14em; text-transform:uppercase;
+          color:var(--dim2); margin:42px 0 12px; font-weight:600;
+          border-top:1px solid var(--line); padding-top:18px}
+  .doc h3{font-size:15px; margin:24px 0 8px; color:var(--ink)}
+  .doc p{color:#c3ccda; margin:0 0 14px}
+  .doc strong{color:var(--ink)}
+  .doc code{font:12.5px var(--mono); background:#0f1420; border:1px solid var(--line);
+            border-radius:4px; padding:1px 5px; color:var(--cam)}
+  .lede{color:var(--dim); font-size:16px}
+  .back{display:inline-block; margin-bottom:22px; font:11px var(--mono);
+        letter-spacing:.12em; text-transform:uppercase; color:var(--dim); text-decoration:none}
+  .back:hover{color:var(--ink)}
+
+  .wrap{overflow-x:auto; margin:16px 0 20px; -webkit-overflow-scrolling:touch}
+  table{border-collapse:collapse; width:100%; min-width:480px; font-size:13px}
+  th,td{text-align:left; padding:8px 12px; border-bottom:1px solid var(--line)}
+  th{font:600 11px var(--mono); letter-spacing:.1em; text-transform:uppercase;
+     color:var(--dim2); white-space:nowrap}
+  td{color:#c3ccda; vertical-align:top}
+  td.n{font:12.5px var(--mono); text-align:right; white-space:nowrap; color:var(--ink)}
+  tr.me td{background:#0f1622}
+  .yes{color:var(--cam); font-weight:600}
+  .no{color:var(--hot); font-weight:600}
+  .maybe{color:var(--fleet); font-weight:600}
+
+  pre{background:#0d1219; border:1px solid var(--line2); border-radius:8px;
+      padding:14px 16px; overflow-x:auto; font:12.5px/1.6 var(--mono);
+      color:#cbd5e4; margin:14px 0}
+  pre b{color:var(--cam); font-weight:600}
+
+  .call{border-left:2px solid var(--fleet); background:#161208; border-radius:0 8px 8px 0;
+        padding:14px 18px; margin:20px 0}
+  .call.warn{border-color:var(--hot); background:#1a0e11}
+  .call.good{border-color:var(--cam); background:#0b1a15}
+  .call p{margin:0 0 8px} .call p:last-child{margin:0}
+  .call h3{margin:0 0 8px; font:600 12px var(--mono); letter-spacing:.1em;
+           text-transform:uppercase; color:var(--fleet)}
+  .call.warn h3{color:var(--hot)} .call.good h3{color:var(--cam)}
+
+  .tiers{display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin:18px 0}
+  .tier{border:1px solid var(--line2); border-radius:9px; padding:14px 15px; background:#0d1219}
+  .tier h3{margin:0 0 8px; font:600 12px/1.3 var(--mono); letter-spacing:.06em;
+           text-transform:uppercase; color:var(--cam)}
+  .tier.mid h3{color:var(--fleet)} .tier.hi h3{color:var(--police)}
+  .tier p{font-size:12.5px; color:var(--dim); margin:0 0 8px; line-height:1.6}
+  .tier .cost{font:11px var(--mono); color:var(--dim2); letter-spacing:.06em}
+  ul{color:#c3ccda; font-size:13.5px; line-height:1.75; padding-left:20px; margin:0 0 16px}
+  li{margin-bottom:4px}
+  .foot{margin-top:44px; padding-top:16px; border-top:1px solid var(--line);
+        font:11.5px var(--mono); color:var(--dim2); line-height:1.8}
+  @media (max-width:700px){
+    .tiers{grid-template-columns:1fr}
+    .doc{padding:26px 15px 70px}
+    .doc h1{font-size:25px}
+  }
+</style>
+</head>
+<body>
+<div class="doc">
+  <a class="back" href="/">&larr; back to the map</a>
+  <h1>Node hardware</h1>
+  <p class="lede">What a camera node actually costs in compute, what a Raspberry Pi
+     really does with it, and how to measure your own board so the answer stops
+     being an opinion.</p>
+
+  <div class="call">
+    <h3>The short version</h3>
+    <p><strong>The detector you run matters about eleven times more than the board you buy.</strong>
+       That was measured, not guessed, and it is the opposite of how the question
+       is usually asked. Pick the model first, then the hardware.</p>
+    <p>A <strong>Pi 5</strong> runs a full node. A <strong>Pi 4</strong> runs a
+       detect-and-ship node. A <strong>Pi Zero</strong> does not run one at all.
+       All three of those statements have a caveat, and they are below.</p>
+  </div>
+
+  <h2>A node is three workloads, not one</h2>
+  <p>Most of the confusion about hardware comes from treating "run a SparrowMap
+     node" as a single thing. It is three, and they have wildly different
+     appetites. A board can pass the first two and fail the third and still be a
+     genuinely useful node.</p>
+
+  <div class="tiers">
+    <div class="tier">
+      <h3>1 · Vehicle detection</h3>
+      <p>Finds vehicles in the frame and tracks them across it. ONNX, no torch.
+         This is the one that runs constantly, so it sets your frame rate.</p>
+      <p class="cost">rf-detr-small-512 · runs anywhere · the expensive one</p>
+    </div>
+    <div class="tier mid">
+      <h3>2 · Plate read</h3>
+      <p>Localises the plate inside a vehicle box and reads it. ONNX, no torch.
+         Only runs when a vehicle was found, so its cost scales with traffic
+         rather than with time.</p>
+      <p class="cost">yolo-v9-s-608 + cct-s-v2 · runs anywhere</p>
+    </div>
+    <div class="tier hi">
+      <h3>3 · The government call</h3>
+      <p>Decides patrol car versus ordinary car. Needs CLIP and a trained head,
+         which means torch, which means about 2.5 GB installed. <strong>This is
+         the tier a small board skips.</strong></p>
+      <p class="cost">CLIP ViT-B/32 + head · needs torch</p>
+    </div>
+  </div>
+
+  <p>Leave out tier three and the node still runs. It still reports vehicles and
+     still reads plates; it simply treats every vehicle as civilian and lets a
+     hub or a desktop node make the government call. That is not a degraded
+     node, it is the same split the browser camera already uses.</p>
+
+  <h2>What was actually measured</h2>
+  <p>Median inference time per call, CPU only, on an <strong>i9-9900K</strong>
+     (8 cores / 16 threads). The four-thread column is there because a Pi has
+     four cores, so it is the honest structural comparison — not the sixteen-thread
+     number a desktop would quote.</p>
+
+  <div class="wrap">
+  <table>
+    <thead><tr>
+      <th>Model</th><th>Stage</th><th>1 thread</th><th>2</th><th>4 threads</th><th>8</th>
+    </tr></thead>
+    <tbody>
+      <tr><td>rf-detr-small-512</td><td>vehicle detect</td>
+          <td class="n">649 ms</td><td class="n">379</td><td class="n">250 ms</td><td class="n">210</td></tr>
+      <tr><td>yolo-v9-s-608</td><td>plate box</td>
+          <td class="n">267 ms</td><td class="n">152</td><td class="n">98 ms</td><td class="n">92</td></tr>
+      <tr class="me"><td>yolo11s @320</td><td>vehicle detect (browser path)</td>
+          <td class="n">66 ms</td><td class="n">34</td><td class="n">23 ms</td><td class="n">24</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Two things fall out of that table, and both are more useful than a shopping
+     recommendation.</p>
+
+  <p><strong>The heavy detector barely scales.</strong> rf-detr goes from 649 ms
+     on one thread to 210 ms on eight — a factor of three from eight times the
+     cores. Throwing cores at it does not rescue it, which is why "just get more
+     cores" is the wrong lever here.</p>
+
+  <p><strong>The light detector is eleven times cheaper.</strong> Same box, same
+     conditions: 649 ms against 66 ms single-threaded. That is a bigger gap than
+     exists between any two boards you might be choosing between, and it is a
+     software choice rather than a purchase.</p>
+
+  <p>End to end, the whole Python pipeline on that box measures
+     <strong>240 ms per frame, about 4.2 detections per second</strong>, with the
+     detector on CPU. That is the anchor every estimate below is scaled from.</p>
+
+  <h2>What a Pi should expect</h2>
+
+  <div class="call warn">
+    <h3>These are estimates, and they are labelled as such</h3>
+    <p>The numbers in the table above were measured. The numbers below were
+       <strong>scaled</strong> from them by a per-core factor — roughly 3× for a
+       Pi 5's Cortex-A76 against a 9900K core, roughly 8× for a Pi 4's A72 — and
+       that factor was not measured here. <strong>No SparrowMap node has ever run
+       on a Pi.</strong> Treat this as a well-founded prediction and then go and
+       replace it with a measurement, which is what the benchmark below is for.</p>
+  </div>
+
+  <div class="wrap">
+  <table>
+    <thead><tr>
+      <th>Board</th><th>rf-detr (default)</th><th>yolo11s (light)</th><th>Verdict</th>
+    </tr></thead>
+    <tbody>
+      <tr class="me"><td>i9-9900K desktop <em>(measured)</em></td>
+        <td class="n">4.2 /sec</td><td class="n">~40 /sec</td><td class="yes">full node</td></tr>
+      <tr><td>Pi 5, 8 GB</td>
+        <td class="n">~1 /sec</td><td class="n">~12 /sec</td><td class="yes">full node</td></tr>
+      <tr><td>Pi 5, 4 GB</td>
+        <td class="n">~1 /sec</td><td class="n">~12 /sec</td><td class="yes">detect + plates</td></tr>
+      <tr><td>Pi 4, 4 GB</td>
+        <td class="n">~0.4 /sec</td><td class="n">~5 /sec</td><td class="maybe">light detector only</td></tr>
+      <tr><td>Pi Zero 2 W</td>
+        <td class="n">—</td><td class="n">—</td><td class="no">no</td></tr>
+      <tr><td>Pi Zero / Zero W</td>
+        <td class="n">—</td><td class="n">—</td><td class="no">no</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Why the Zero is a flat no</h3>
+  <p>The Zero 2 W fails on <strong>memory, not speed</strong>. 512 MB has to hold
+     three ONNX sessions, OpenCV, and a frame buffer at the same time. Slow would
+     be survivable at a low duty cycle; running out of RAM is not something you
+     can tune around. The original Zero and Zero W fail earlier still — they are
+     ARMv6, and onnxruntime does not ship wheels for ARMv6 at all, so there is
+     nothing to install.</p>
+
+  <h3>What the "light detector" row assumes</h3>
+  <p>Honesty about scope: <strong>yolo11s is not a configuration flag on a Python
+     node today.</strong> It is the model the in-browser camera already uses, it
+     is already in this repo at <code>public/vendor/yolo11s.onnx</code>, and the
+     measurement above says it would transform Pi-class performance — but wiring
+     it into the Python detector is a change to the code, not a setting you pass.
+     If you are experimenting on a Pi, that is probably the most valuable thing
+     you could contribute.</p>
+
+  <h2>How to test your own board</h2>
+  <p>Everything above is a prediction until somebody runs it. The benchmark is in
+     the repo and needs no camera, no test footage and no hub — it generates its
+     own deterministic frame so that two people on two continents produce
+     comparable numbers.</p>
+
+<pre>git clone https://github.com/SparrowMap/sparrowmap
+cd sparrowmap
+pip install -r requirements-node.txt   <b># or omit torch; see below</b>
+
+<b># the standard run — this is the one to report</b>
+python tools/bench_node.py --label "Pi 5 8GB, active cooler"
+
+<b># a proper thermal soak, ten minutes</b>
+python tools/bench_node.py --seconds 600 --label "Pi 5 8GB, no cooler"
+
+<b># time it against a real road photo instead of the synthetic frame</b>
+python tools/bench_node.py --image myshot.jpg
+
+<b># also check the camera can actually feed it</b>
+python tools/bench_node.py --camera 0</pre>
+
+  <p>It prints a verdict and a single JSON line. <strong>Paste the JSON line</strong>
+     — it carries the board model, core count, RAM, onnxruntime version, per-stage
+     medians and the thermal drift, which is everything needed to compare two
+     results without a conversation.</p>
+
+  <h3>What the benchmark deliberately does</h3>
+  <ul>
+    <li><strong>Times the three stages separately</strong>, because "it is too
+        slow" and "torch will not install" are different problems with the same
+        symptom.</li>
+    <li><strong>Warms up before timing.</strong> The first ONNX run allocates
+        arenas and is not representative of anything.</li>
+    <li><strong>Reports medians, not means.</strong> One background job on a small
+        board wrecks a mean.</li>
+    <li><strong>Soaks for minutes and reports first-versus-last.</strong> A
+        passively cooled board holds full clocks for about a minute, so a burst
+        benchmark reports a number the machine cannot sustain for an afternoon —
+        and an afternoon is the only duration that matters for a camera in a
+        window.</li>
+    <li><strong>Reads the SoC's own throttle flags</strong> via
+        <code>vcgencmd get_throttled</code>, including the latched-since-boot bits.
+        A latched under-voltage flag is the single most common cause of a Pi that
+        "runs slow", and it is a power supply, not software.</li>
+    <li><strong>Treats missing torch as a tier, not a failure.</strong> That is
+        the expected result on a small board.</li>
+  </ul>
+
+  <div class="call warn">
+    <h3>It measures speed, not accuracy</h3>
+    <p>CNN inference cost is set by input size, not by picture content, so the
+       synthetic frame gives a comparable timing on a machine with no test data.
+       Detection <em>accuracy</em> on that frame is meaningless and the script does
+       not report it. Do not quote it as a quality number.</p>
+  </div>
+
+  <h2>Results so far</h2>
+  <p>One row, because one machine has been measured. Add yours.</p>
+  <div class="wrap">
+  <table>
+    <thead><tr>
+      <th>Machine</th><th>Cores / RAM</th><th>Vehicle</th><th>Plate</th><th>CLIP</th><th>Tier</th>
+    </tr></thead>
+    <tbody>
+      <tr class="me"><td>i9-9900K, Windows 11</td><td>16 / 64 GB</td>
+        <td class="n">240 ms</td><td class="n">105 ms</td><td class="n">11 ms *</td>
+        <td class="yes">full node</td></tr>
+      <tr><td colspan="6" style="color:var(--dim2)">* that CLIP figure is GPU-assisted
+        (RTX 2070 Super) and is <strong>not</strong> comparable to a CPU-only board.
+        The two ONNX stages are CPU.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>Pi versus the old phone in your drawer</h2>
+  <p>For a first camera this is the more interesting comparison, and the phone
+     wins more often than people expect.</p>
+
+  <div class="wrap">
+  <table>
+    <thead><tr><th></th><th>Old phone (browser)</th><th>Raspberry Pi node</th></tr></thead>
+    <tbody>
+      <tr><td>Cost</td><td>nothing, you own it</td><td>$60–120 with supply, card, case</td></tr>
+      <tr><td>Install</td><td>none — open the page</td><td>Python environment plus ~3 GB of models</td></tr>
+      <tr><td>Detector</td><td>yolo11s, in the browser</td><td>rf-detr, heavier and better</td></tr>
+      <tr><td>Reads plates</td><td class="no">no</td><td class="yes">yes</td></tr>
+      <tr><td>Government call locally</td><td class="no">no — crops go to a head</td><td class="maybe">Pi 5 only</td></tr>
+      <tr><td>Power cut</td><td class="yes">has a battery</td><td class="no">dies</td></tr>
+      <tr><td>Unattended for months</td><td class="maybe">screen sleep and OS updates fight you</td><td class="yes">what it is for</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="call good">
+    <h3>The configuration worth starting with</h3>
+    <p><strong>Old phones for the cameras, one Pi 5 or a desktop as the head.</strong>
+       The phones detect and ship crops; the head makes the government call for all
+       of them. That is not a compromise — it is exactly how the code is already
+       split, so it is the path with the least new work in it.</p>
+  </div>
+
+  <h2>"I'll be the only camera in my city — won't police know exactly where I am?"</h2>
+  <p>This is the right question to ask and it deserves a straight answer rather
+     than a reassurance.</p>
+
+  <p><strong>The street is published on purpose. The house is not.</strong> Those
+     are different things and SparrowMap separates them deliberately, at different
+     resolutions:</p>
+
+  <ul>
+    <li>The camera's <strong>true coordinates never leave your machine.</strong>
+        The database keeps them in an operator-only column; what is published is a
+        separate jittered point, blurred by up to <strong>60 metres</strong>.</li>
+    <li>What is published accurately is the <strong>watched span</strong> — the
+        stretch of public road your lens covers, snapped to the road centreline.
+        People are entitled to know where they are being recorded; that is the
+        entire civic argument for the project.</li>
+    <li>The span is padded to a <strong>minimum of 80 metres</strong>, and the hub
+        serves the span <em>instead of</em> a precise heading and reach. Both of
+        those exist so nobody can back-project from the midpoint onto one or two
+        houses.</li>
+    <li>Even the road lookup is coarse. The map query is snapped to a ~400 m grid
+        before it leaves the machine, so the public API that resolves your street
+        learns a neighbourhood, not an address. It runs once at enrolment and is
+        cached.</li>
+    <li><strong>Video never leaves at all.</strong> Recognition happens on your
+        machine and only a small detection event is sent.</li>
+  </ul>
+
+  <div class="call warn">
+    <h3>The part that is genuinely true, and is not solved by any of that</h3>
+    <p>If you are the <strong>only</strong> node in a city, the published span is
+       your street, give or take its minimum length. Jitter protects the house.
+       Nothing in the system pretends to hide the road, because hiding the road
+       would defeat the point of publishing at all.</p>
+    <p>So the honest framing is: <strong>a volunteer is choosing to publish that a
+       camera watches a stretch of public road, and is protected from publishing
+       which building it sits in.</strong> The thing that dilutes street-level
+       attention is other cameras, which is a chicken-and-egg problem and worth
+       saying out loud rather than engineering around.</p>
+  </div>
+
+  <p>One piece of history that should raise rather than lower confidence here: the
+     jitter was <strong>defeated once, in this codebase.</strong> Node positions
+     were published blurred while sightings were stored at the camera's true
+     coordinates and served to anyone — so reading a single sighting handed you the
+     exact camera. It was caught because the camera marker and its own sightings sat
+     57 m apart on the map and looked wrong. The first fix was also wrong. The
+     current watched-span model is the third answer, and the reasoning is written
+     out in full in <code>road.py</code> where it can be argued with.</p>
+
+  <h2>Landmines worth knowing before you buy</h2>
+  <ul>
+    <li><strong>Power supply first.</strong> A Pi 5 wants the 27 W USB-C supply. An
+        under-voltage latch is the most common cause of mysterious slowness, and the
+        benchmark reads that flag for exactly this reason.</li>
+    <li><strong>Active cooling, not a bare board.</strong> Sustained CPU inference is
+        the workload that throttles a Pi hardest. Run the soak before you believe a
+        burst number.</li>
+    <li><strong>Not a cheap SD card.</strong> A node writes crops continuously. NVMe
+        if the board supports it, a decent A2 card otherwise.</li>
+    <li><strong>Camera choice is decided by protocol, not brand.</strong> USB UVC, or
+        an IP camera that genuinely speaks RTSP or ONVIF. Cloud-first cameras — the
+        rebadged consumer ones especially — are unusable no matter how good the
+        sensor is, because the stream never leaves the vendor.</li>
+    <li><strong>A camera "works" only when it hands over a real frame.</strong> An
+        open port and a plausible URL prove nothing; cameras answer on 554 and then
+        refuse to stream, or return HTTP 200 with an HTML error page.</li>
+    <li><strong>On Windows, use the MSMF backend, not DirectShow.</strong> Same camera,
+        same resolution, six times the frame rate — DirectShow stays in an
+        uncompressed mode and ignores the format request.</li>
+    <li><strong>Wired network if you can.</strong> Wi-Fi is fine for uploads and
+        flakier for something that must sit unattended for months.</li>
+    <li><strong>Night without infrared is the wrong tool, not a hard problem.</strong>
+        Plates are retroreflective, which is why every commercial reader has an IR
+        illuminator. Test in daylight first.</li>
+  </ul>
+
+  <div class="foot">
+    Benchmark: <code>tools/bench_node.py</code> · privacy model: <code>road.py</code>,
+    <code>nodes.py</code> · install guide: <code>docs/DESKTOP_NODE.md</code><br>
+    Measured figures are from one machine and are labelled as measured. Everything
+    about a Raspberry Pi on this page is an estimate until somebody posts a result.
+  </div>
+</div>
+</body>
+</html>

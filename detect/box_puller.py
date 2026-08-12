@@ -173,7 +173,29 @@ def run_once(vid: VehicleIdentifier, args) -> dict:
         hc = call["conf"] if call.get("source") == "head" else None
         marked = (r["vclass"] in MARKED_CLASSES
                   and r["conf"] >= MIN_CONF and r["margin"] >= MIN_MARGIN)
-        candidate = r["vclass"] in MARKED_CLASSES or head_pos
+
+        # 🚨 WHEN THE HEAD HAS RULED, THE HEAD DECIDES.
+        # This was `r["vclass"] in MARKED_CLASSES or head_pos`, and the `or`
+        # let CLIP's bare argmax overrule a head REJECTION. The head still ran,
+        # its number was still written into the `why` string a human reads -
+        # it just was not allowed to say no. 477 of the 485 items sitting in the
+        # live review pen came in that way, from one browser contributor, with
+        # CLIP at ~0.50 and the head at ~0.00: the queue filled with cars the
+        # model had already dismissed, which reads to a human as the classifier
+        # calling civilians police.
+        #
+        # CLIP's argmax alone calls a large fraction of ordinary traffic police;
+        # rejecting those is the entire job the trained head exists to do. So
+        # honour it whenever it spoke, and fall back to the zero-shot gate only
+        # when it did not. Same rule hub's own review queue already applies.
+        #
+        # Nothing is lost by declining: every pulled crop is banked as training
+        # data above, BEFORE this decision, and the ones a head rejects are the
+        # hard negatives that improve it most.
+        if call.get("source") == "head":
+            candidate = bool(head_pos)
+        else:
+            candidate = r["vclass"] in MARKED_CLASSES
 
         # Store EVERY pulled crop as training data for the head. It is already
         # plate-illegible (sub-resolution), and banking it with the CLIP/head
@@ -210,6 +232,13 @@ def run_once(vid: VehicleIdentifier, args) -> dict:
             vclass = "police" if r["vclass"] == "police" else "gov"
             review.append({
                 "id": sid, "vclass": vclass, "head_conf": hc,
+                # Carry the operating point the score was judged against, so a
+                # pen item is self-describing. The public box cannot load the
+                # head at all (no numpy there), so it can never work this out
+                # for itself - and a threshold it has to guess is a threshold
+                # that drifts away from the model that set it.
+                "head_threshold": call.get("threshold")
+                if call.get("source") == "head" else None,
                 "node_name": meta.get("node_name"),
                 "why": (f"contributor ({meta.get('node_name') or 'a phone'}); "
                         f"{r['vclass']} conf {r['conf']:.2f}"
