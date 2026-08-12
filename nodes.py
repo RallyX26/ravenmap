@@ -164,10 +164,21 @@ def enroll(name: str, lat: float, lon: float, pubkey: Optional[str] = None,
     # aim gets no span until its owner points it on the placement page.
     #
     # Publishing nothing is recoverable. Publishing a fabricated road is not.
+    #
+    # 🔁 REVISED: "no span" turned out not to mean "publish nothing" - it meant
+    # fall through to pushing a point out along heading 0, i.e. due north of the
+    # camera, which put contributors' sightings on buildings. That is a
+    # fabricated position with no road attached, which is the worse half of both
+    # options. So an unaimed FIXED camera now snaps to the nearest real road
+    # (road.span_nearest), which claims less than an aimed span and is true.
+    #
+    # A phone still gets nothing: it is carried, so there is no stretch of road
+    # it watches, and its sightings carry their own GPS instead.
     span = None
-    if kind == "fixed" and heading is not None and float(heading) != 0.0:
+    if kind == "fixed":
         import road
-        span = road.resolve(lat, lon, heading, fov, reach_m, online=snap_road)
+        span = road.resolve(lat, lon, heading or 0.0, fov, reach_m,
+                            online=snap_road)
 
     # ⚠️ EVERY node gets a token, not just phones.
     #

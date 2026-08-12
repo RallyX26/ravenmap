@@ -33,16 +33,30 @@ from pathlib import Path
 
 CAMCTL = "http://localhost:8160"
 
-# The usable range on the reference camera (a C920-class UVC device). More
-# negative is a SHORTER exposure and a darker frame - the opposite of what the
-# sign suggests, and worth stating because it cost an experiment to find out.
-EXP_MIN, EXP_MAX = -7, -2
-# Median grey we aim for. Low enough to keep some highlight headroom for
-# headlights, high enough that a dark car has a shape.
-TARGET_LO, TARGET_HI = 45, 110
-# Never chase highlights: if this much of the frame is blown out, step down even
-# if the median still looks dark.
-BLOWN_LIMIT_PCT = 4.0
+# The camera's OWN advertised range, read from its spec rather than guessed:
+# min -11, max -2. More negative is a shorter exposure and a darker frame.
+#
+# 🚨 THIS WAS -7 AND IT COST A DAY OF DETECTION. The floor was set from a
+# night-time sweep where every value looked equally dark, so the difference
+# between them was unreadable and the range was clamped far too high. Come
+# daylight the camera sat pinned at pure white - median 255, 100% of the frame
+# blown - and the detector posted nothing for hours while the loop reported
+# itself fine. At the true floor the same scene is plainly legible.
+EXP_MIN, EXP_MAX = -11, -2
+# Underexposure is judged on the median: below this, a dark car has no shape.
+TARGET_LO = 45
+# Overexposure is judged on BLOWN HIGHLIGHTS, not on the median. A sunlit road
+# legitimately sits bright, so a median ceiling would chase the pavement down
+# into darkness; what actually destroys a vehicle is clipping.
+#
+# Measured on the reference camera on a sunny afternoon: at the darkest setting
+# the frame reads median 214 with 43% clipped - and the detector finds cars at
+# 0.86-0.92 in it. Pinned white it read median 255 with 100% clipped and found
+# nothing. So a large fraction of a bright scene clips normally, and the limit
+# has to sit near total loss rather than near neatness.
+BLOWN_LIMIT_PCT = 70.0
+# A median this high means the whole frame has clipped, not just the sky.
+MEDIAN_BROKEN = 245
 
 
 def api(path: str, body: dict | None = None, timeout: float = 8.0):
@@ -118,7 +132,7 @@ def step() -> str:
         return "could not read the current exposure"
 
     want = exp
-    if blown > BLOWN_LIMIT_PCT or median > TARGET_HI:
+    if blown > BLOWN_LIMIT_PCT or median >= MEDIAN_BROKEN:
         want = exp - 1          # shorter exposure, darker
     elif median < TARGET_LO:
         want = exp + 1          # longer exposure, brighter
@@ -126,6 +140,14 @@ def step() -> str:
 
     where = f"median {median:.0f}, blown {blown:.1f}%, exposure {exp:.0f}"
     if want == exp:
+        # 🚨 CLAMPED IS NOT OK. Reporting "ok" while pinned at a limit and still
+        # out of range is how a blown-white camera looked healthy for hours.
+        if exp <= EXP_MIN and (blown > BLOWN_LIMIT_PCT or median >= MEDIAN_BROKEN):
+            return (f"AT THE DARKEST SETTING AND STILL BLOWN ({where}) - the "
+                    f"scene is brighter than this camera can stop down for")
+        if exp >= EXP_MAX and median < TARGET_LO:
+            return (f"AT THE BRIGHTEST SETTING AND STILL DARK ({where}) - needs "
+                    f"a lens or light, not an exposure")
         return f"ok ({where})"
     try:
         api("/api/set", {"name": "exposure", "value": want})

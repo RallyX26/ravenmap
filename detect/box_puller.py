@@ -58,7 +58,20 @@ REMOTE_PUBLISH = "/opt/sparrowmap/tools/box_publish.py"
 # specific (see vehicle_id.CLASSES); the thresholds are measured to sit above
 # every unmarked false positive in the ground-truth set. Deliberately strict:
 # this publishes with no human review.
-MARKED_CLASSES = {"police", "gov_dot"}
+# 🚨 POLICE ONLY. `gov_dot` USED TO BE HERE AND IT PUBLISHED BIN LORRIES.
+#
+# The zero-shot prompts behind gov_dot are "a municipal works truck with warning
+# lights", "a government utility vehicle with high visibility markings", "a snow
+# plow or road maintenance truck". A yellow commercial refuse truck matches every
+# one of those on sight, and three of them published at 0.97-0.98 with margins
+# above 0.94 - the strict gate did not help, because the model was not uncertain,
+# it was confident and wrong about WHOSE truck it was.
+#
+# Municipal and commercial heavy vehicles are not visually separable without
+# reading the door, which is exactly the judgement a person makes and a
+# zero-shot prompt cannot. So gov_dot now goes to review like everything else,
+# and nothing publishes unattended except a clearly-marked patrol car.
+MARKED_CLASSES = {"police"}
 MIN_CONF, MIN_MARGIN = 0.96, 0.90
 
 

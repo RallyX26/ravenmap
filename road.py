@@ -232,6 +232,54 @@ def span_from_aim(lat: float, lon: float, heading: float,
             "source": "aim"}
 
 
+def span_nearest(lat: float, lon: float, ways: list) -> Optional[dict]:
+    """The nearest driveable road, when nothing is known about where the camera
+    is aimed.
+
+    🚨 MOST CONTRIBUTORS NEVER PROVIDE A HEADING, AND THEIR DOTS LANDED ON
+    BUILDINGS. A browser only reports a heading while the device is MOVING, so a
+    camera enrolled from a window has none, and `span_from_ways` - which picks
+    the road by counting hits inside the aim cone - has no cone to work with. The
+    old fallback pushed a point out along heading 0, i.e. due north, and put
+    every sighting from that node on whatever happened to be north of it.
+
+    A camera watching a street is, in practice, near that street. So with no aim
+    to reason about, take the closest road and publish a span centred on the
+    nearest point of it. It says less than an aimed span - it does not claim to
+    know which stretch is watched - but it is true, and it puts the dot on a
+    road instead of somebody's living room.
+    """
+    px, py = 0.0, 0.0
+    best, bestd, bestname = None, 1e9, ""
+    for name, geom in ways:
+        for i in range(len(geom) - 1):
+            a = _to_xy(geom[i][0], geom[i][1], lat, lon)
+            b = _to_xy(geom[i + 1][0], geom[i + 1][1], lat, lon)
+            for qx, qy in _seg_points(a, b):
+                d = math.hypot(qx - px, qy - py)
+                if d < bestd:
+                    bestd, best, bestname = d, (qx, qy), name
+    if best is None or bestd > 120.0:
+        return None            # nothing driveable close enough to be honest about
+    # A span, not a point: a bare point would re-publish the camera's own spot.
+    half = SPAN_MIN_M / 2.0
+    # Orient along the road that won, so the span lies on it.
+    ax = (best[0] + 1.0, best[1])
+    for name, geom in ways:
+        if name == bestname and len(geom) > 1:
+            a = _to_xy(geom[0][0], geom[0][1], lat, lon)
+            b = _to_xy(geom[1][0], geom[1][1], lat, lon)
+            n = math.hypot(b[0] - a[0], b[1] - a[1]) or 1.0
+            ax = ((b[0] - a[0]) / n, (b[1] - a[1]) / n)
+            break
+    else:
+        ax = (1.0, 0.0)
+    p1 = _to_ll(best[0] - ax[0] * half, best[1] - ax[1] * half, lat, lon)
+    p2 = _to_ll(best[0] + ax[0] * half, best[1] + ax[1] * half, lat, lon)
+    return {"road_name": bestname or "", "span": [list(p1), list(p2)],
+            "watched_m": SPAN_MIN_M, "source": "nearest"}
+
+
 def resolve(lat: float, lon: float, heading: float, fov: float,
             reach_m: float, online: bool = True) -> dict:
     """Best available watched span for a camera. Never raises.
@@ -244,6 +292,12 @@ def resolve(lat: float, lon: float, heading: float, fov: float,
         try:
             ways = fetch_ways(lat, lon)
             got = span_from_ways(lat, lon, heading, fov, reach_m, ways)
+            if got:
+                return got
+            # No aim to work with (a window enrolment reports no heading), so
+            # fall back to the road itself rather than to a compass direction
+            # nobody supplied.
+            got = span_nearest(lat, lon, ways)
             if got:
                 return got
         except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
