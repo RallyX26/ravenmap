@@ -126,6 +126,43 @@ def crop_bytes(sid: int) -> Optional[bytes]:
     return None
 
 
+def contributed(reviewer: dict) -> dict:
+    """What this reviewer's camera(s) have actually contributed.
+
+    🚨 AN EMPTY QUEUE HAS TO READ AS SUCCESS, NOT AS A BROKEN PAGE.
+    A volunteer opens their review link and, most of the time, correctly sees
+    nothing: the head rejected everything their camera caught, which is the
+    normal and desirable outcome. "Nothing waiting for review" next to a blank
+    screen reads as "this doesn't work", and the person who just installed a
+    camera concludes their camera is not working either.
+
+    So the empty state gets to say what the camera HAS done. These are counts,
+    never rows - no plate, no image, nothing about any individual vehicle. A
+    contributor is told the size of their contribution, not shown the traffic.
+    """
+    allowed = reviewer.get("nodes")          # None = pool scope = the whole network
+    conn = db.connect()
+    if allowed is None:
+        where, args = "1=1", ()
+    else:
+        nodes = [n for n in allowed if n]
+        if not nodes:
+            return {"scope": "own", "cameras": 0, "sightings": 0, "published": 0}
+        where = "node_id IN (%s)" % ",".join("?" * len(nodes))
+        args = tuple(nodes)
+    row = conn.execute(
+        f"SELECT COUNT(*) AS n, "
+        f"SUM(CASE WHEN tier='public' THEN 1 ELSE 0 END) AS pub, "
+        f"COUNT(DISTINCT node_id) AS cams "
+        f"FROM sightings WHERE {where}", args).fetchone()
+    return {
+        "scope": "pool" if allowed is None else "own",
+        "cameras": int(row["cams"] or 0),
+        "sightings": int(row["n"] or 0),
+        "published": int(row["pub"] or 0),
+    }
+
+
 def is_trusted(reviewer: dict) -> bool:
     """May this reviewer see the retracted-photo shelf?
 

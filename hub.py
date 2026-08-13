@@ -542,6 +542,15 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(401, "not signed in")
                 scope = (q.get("scope") or ["pool"])[0]
                 return self._json(review_api.queue(r, scope))
+            if p == "/api/rv/contributed":
+                # Counts only - never rows. It exists so an empty review queue
+                # can say what the camera HAS done instead of reading like a
+                # broken page to someone who just installed one.
+                r = review_auth.identify(self.headers)
+                if not r:
+                    return self._err(401, "not signed in")
+                return self._json(review_api.contributed(r))
+
             # --- retracted-photo shelf (pool-scope reviewer only) ------------
             # A retraction demotes the row and drops the plate, but never
             # touched the picture, and /snap/<name> serves any file by name -

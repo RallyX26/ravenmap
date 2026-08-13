@@ -505,6 +505,33 @@
     $("#empty").classList.remove("hidden");
     $("#empty-msg").textContent = "Nothing waiting for review right now.";
     updateCounts();
+    // 🚨 SAY WHAT THE CAMERA HAS DONE.
+    // Most of the time a volunteer's queue is legitimately empty - the trained
+    // head rejected everything their camera caught, which is the correct and
+    // desirable outcome. But "nothing waiting" on a blank screen reads as "this
+    // is broken" to someone who installed a camera an hour ago, and the next
+    // conclusion is that the camera is broken too. Counts only; no rows, no
+    // plates, no images - the size of their contribution, not the traffic.
+    var entries = activeEntries();
+    if(entries.length){
+      api("/api/rv/contributed", entries[0].token)
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(d){
+          if(!d || !d.sightings) return;
+          var n = d.sightings.toLocaleString();
+          var msg = d.scope === "pool"
+            ? ("Nothing waiting. The network has logged " + n + " passes across "
+               + d.cameras + (d.cameras === 1 ? " camera" : " cameras") + ".")
+            : ("Nothing needs your review — your camera has contributed " + n
+               + (d.sightings === 1 ? " pass" : " passes") + " so far.");
+          if(d.published){
+            msg += " " + d.published.toLocaleString() +
+                   (d.published === 1 ? " is on the map." : " are on the map.");
+          }
+          $("#empty-msg").textContent = msg;
+        })
+        .catch(function(){ /* keep the plain message */ });
+    }
     idleTimer = setTimeout(function(){ loadQueue(true); }, 30000);
   }
 
