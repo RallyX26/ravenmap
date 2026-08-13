@@ -388,10 +388,12 @@
     if(!entries.length){ show("add"); return; }
     if(loading) return;
     loading = true;
+    hiddenCount = 0;          // recount per fetch, or a 30s poll inflates it
     Promise.all(entries.map(function(e){
       return api("/api/rv/queue?scope=pool", e.token).then(function(r){
         if(r.status === 401){ dropToken(e.token, "a token was removed (no longer valid)"); return []; }
         return r.json().then(function(d){
+          noteHidden(d);
           return (d.items || []).map(function(it){ it._token = e.token; return it; });
         });
       }).catch(function(){ return []; });
@@ -487,9 +489,10 @@
     var entries = activeEntries();
     if(!entries.length){ show("add"); return; }
     loading = true;
+    hiddenCount = 0;          // recount per fetch, or a 30s poll inflates it
     Promise.all(entries.map(function(e){
       return api("/api/rv/queue?scope=pool", e.token)
-        .then(function(r){ return r.status===401 ? [] : r.json().then(function(d){ return (d.items||[]).map(function(it){ it._token=e.token; return it; }); }); })
+        .then(function(r){ return r.status===401 ? [] : r.json().then(function(d){ noteHidden(d); return (d.items||[]).map(function(it){ it._token=e.token; return it; }); }); })
         .catch(function(){ return []; });
     })).then(function(lists){
       loading = false;
@@ -500,10 +503,32 @@
       if(added){ render(); } else { showEmpty(); }
     }).catch(function(){ loading = false; showEmpty(); });
   }
+  /* 🚨 "ALL CLEAR" WHILE 437 CROPS ARE WITHHELD IS NOT ALL CLEAR.
+   * queue() filters out everything the trained head rejected and returns the
+   * number it removed, precisely so that a filter which can drop 95% of a
+   * queue cannot look like an empty queue. This page fetched that number and
+   * threw it away, so the reviewer was shown "Nothing waiting for review right
+   * now" over a 437-item backlog - and the crops most likely to contain a
+   * missed patrol car are exactly the ones the head was wrong about.
+   * Reported as "it says all clear, can't be true can it?" - and it wasn't.
+   * The server did its half. This is the half that reaches a person. */
+  var hiddenCount = 0;
+  function noteHidden(d){
+    if(d && typeof d.hidden === "number") hiddenCount += d.hidden;
+  }
+  function hiddenLine(){
+    if(!hiddenCount) return "";
+    return " " + hiddenCount.toLocaleString() + " more " +
+           (hiddenCount === 1 ? "crop is" : "crops are") +
+           " held back because the trained classifier already rejected " +
+           (hiddenCount === 1 ? "it" : "them") + ".";
+  }
+
   function showEmpty(){
     $("#deck").classList.add("hidden");
     $("#empty").classList.remove("hidden");
-    $("#empty-msg").textContent = "Nothing waiting for review right now.";
+    $("#empty-msg").textContent =
+      "Nothing waiting for review right now." + hiddenLine();
     updateCounts();
     // 🚨 SAY WHAT THE CAMERA HAS DONE.
     // Most of the time a volunteer's queue is legitimately empty - the trained
@@ -528,7 +553,10 @@
             msg += " " + d.published.toLocaleString() +
                    (d.published === 1 ? " is on the map." : " are on the map.");
           }
-          $("#empty-msg").textContent = msg;
+          // This arrives AFTER showEmpty() has written the honest line, and
+          // replaces the whole string - so without re-appending it, the fix
+          // above would be silently undone by a stats callback.
+          $("#empty-msg").textContent = msg + hiddenLine();
         })
         .catch(function(){ /* keep the plain message */ });
     }
