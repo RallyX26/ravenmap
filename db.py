@@ -605,8 +605,20 @@ def public_decision_counts() -> dict:
         return {}
     by = {r["d"]: int(r["n"]) for r in rows}
     total = sum(by.values())
+    # 🚨 "_all_time" IS NOT PADDING, IT IS THE WHOLE POINT.
+    # This was published as `public_sightings`, and the map header shows a
+    # figure with the same name counting the last 24 HOURS - so the site said 8
+    # while this said 69 and both were right. On a transparency endpoint, two
+    # true numbers wearing one name read as one of them lying, and the reader
+    # has no way to tell which. app.js already carries a scar from the same
+    # mistake, where the header counted 24h and the panel counted the selected
+    # window and they contradicted each other on screen.
+    #
+    # These counts are ALL-TIME by necessity: the claim is that no sighting has
+    # EVER reached the public tier without a person, which a 24-hour window
+    # could never support.
     return {
-        "public_sightings": total,
+        "public_sightings_all_time": total,
         "public_decided_by_human": by.get("human", 0),
         "public_decided_automatically": by.get("auto", 0),
         "public_decided_before_this_was_recorded": by.get("unknown", 0),
