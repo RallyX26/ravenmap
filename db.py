@@ -16,7 +16,7 @@ import sqlite3
 import threading
 from typing import Any, Optional
 
-from core import DB_PATH, now
+from core import CONFIG, DB_PATH, now
 
 _local = threading.local()
 
@@ -742,12 +742,47 @@ def gov_heat() -> list[dict]:
 
 def add_driver_report(lat: float, lon: float, kind: str = "police",
                       ttl_s: float = 2700) -> int:
-    """Record a live driver report of a patrol at a point. Expires by itself."""
+    """Record a live driver report of a patrol at a point. Expires by itself.
+
+    🚨 THE POINT IS PUT ON A ROAD BEFORE IT IS STORED, AND IT IS STORED HERE.
+    This used to write the phone's raw GPS - fifteen decimal places of it - and
+    serve that to anyone. Every other position on this map is protected: node
+    positions are jittered 60 m, sightings are placed along an 80 m road span.
+    This one was not, and the schema's own defence ("only the point they tapped,
+    which is about the patrol, not them") holds ONLY while the reporter is
+    driving past. Somebody tapped it from inside their house, and the map
+    published their house.
+
+    A patrol is on a road. Snapping to the nearest one makes the claim MORE
+    accurate and removes the problem entirely - the same trade road.py already
+    made for cameras. If the road lookup is unavailable the point is jittered by
+    the node budget instead, so the fallback is still not a raw position.
+
+    Enforced at this choke point rather than in the handler, for the reason the
+    tier gate lives in insert_sighting: a rule each caller has to remember is a
+    rule that will be forgotten by the second caller.
+    """
+    lat, lon = float(lat), float(lon)
+    try:
+        import road
+        snapped = road.snap_point(lat, lon, f"drive:{now()}:{lat:.4f},{lon:.4f}")
+        if snapped:
+            lat, lon = snapped
+        else:
+            import nodes as _nodes
+            lat, lon = _nodes.jitter_position(
+                lat, lon, float(CONFIG.get("node_position_jitter_m", 60)))
+    except Exception:
+        # Never let a positioning failure store a raw coordinate. Rounding to
+        # 4 places is ~11 m and is the floor, not the plan.
+        lat, lon = round(lat, 4), round(lon, 4)
+    lat, lon = round(lat, 6), round(lon, 6)
+
     conn = connect()
     t = now()
     cur = conn.execute(
         "INSERT INTO driver_reports(ts,lat,lon,kind,expires) VALUES(?,?,?,?,?)",
-        (t, float(lat), float(lon), kind, t + float(ttl_s)))
+        (t, lat, lon, kind, t + float(ttl_s)))
     conn.commit()
     return int(cur.lastrowid)
 
