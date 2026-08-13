@@ -37,6 +37,37 @@ BEAT_STALE_S = 300
 PEN_BACKLOG_WARN = 40
 
 
+def setup_output() -> dict:
+    """Make printing survive a Windows console / redirected log.
+
+    This watch ran for 67 event-runs writing nothing but a traceback: the
+    scheduled task redirects into a file, Python picked cp1252, and the green
+    dot on the first node line raised UnicodeEncodeError - BEFORE the events
+    and problems were printed. The one thing it exists to say was the part
+    that got thrown away.
+
+    Two defences, because the marks are not the only risk: camera names come
+    from volunteers, so any name can carry a character the stream cannot take.
+      1. ask for UTF-8, and 2. never die on a character either way.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            try:
+                stream.reconfigure(errors="replace")
+            except Exception:
+                pass
+    enc = getattr(sys.stdout, "encoding", None) or "ascii"
+    fancy = {"on": "🟢", "off": "  ", "event": "✨", "problem": "⚠️ ", "sep": "·"}
+    try:
+        "".join(fancy.values()).encode(enc)
+        return fancy
+    except (UnicodeEncodeError, LookupError):
+        # Degrade to something every codepage can write rather than lose the report.
+        return {"on": "*", "off": " ", "event": "+", "problem": "!", "sep": "|"}
+
+
 def get(url: str, timeout: float = 20.0):
     req = urllib.request.Request(url, headers={"User-Agent": "SparrowMap/health"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -157,6 +188,7 @@ def main() -> None:
                     help="print only when something changed or broke")
     args = ap.parse_args()
 
+    mark = setup_output()
     r = check()
     if args.json:
         print(json.dumps(r, indent=1))
@@ -168,18 +200,22 @@ def main() -> None:
 
     stamp = time.strftime("%Y-%m-%d %H:%M:%S")
     s = r.get("stats") or {}
+    sep = mark["sep"]
     print(f"[{stamp}] {s.get('nodes_online', '?')}/{s.get('nodes_active', '?')} "
-          f"cameras online · {s.get('sightings_24h', '?')} sightings/24h · "
+          f"cameras online {sep} {s.get('sightings_24h', '?')} sightings/24h {sep} "
           f"{s.get('public_24h', '?')} public")
-    for n in r["nodes"]:
-        mark = "🟢" if n["online"] else "  "
-        age = f"{n['beat_age']}s" if n["beat_age"] is not None else "never"
-        print(f"  {mark} {n['name'][:26]:26} {n['kind'] or '?':6} "
-              f"beat {age:>8}  sightings {n['sightings']}")
+    # Events and problems FIRST. They are the reason this runs, and the node
+    # roll-call underneath them is context - so the report reads correctly even
+    # if something below it ever fails again.
     for e in r["events"]:
-        print(f"  ✨ {e}")
+        print(f"  {mark['event']} {e}")
     for p in r["problems"]:
-        print(f"  ⚠️  {p}")
+        print(f"  {mark['problem']} {p}")
+    for n in r["nodes"]:
+        dot = mark["on"] if n["online"] else mark["off"]
+        age = f"{n['beat_age']}s" if n["beat_age"] is not None else "never"
+        print(f"  {dot} {n['name'][:26]:26} {n['kind'] or '?':6} "
+              f"beat {age:>8}  sightings {n['sightings']}")
     if r["ok"] and not interesting:
         print("  all good")
     sys.exit(0 if r["ok"] else 1)
