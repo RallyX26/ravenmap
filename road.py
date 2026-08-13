@@ -305,6 +305,69 @@ def span_nearest(lat: float, lon: float, ways: list) -> Optional[dict]:
             "watched_m": SPAN_MIN_M, "source": "nearest"}
 
 
+def span_from_travel(lat: float, lon: float, ways: list, axis_deg: float,
+                     max_off_axis: float = 25.0,
+                     max_dist_m: float = 120.0) -> Optional[dict]:
+    """Pick the road the camera actually watches, from how its traffic MOVES.
+
+    🚨 PROXIMITY IS THE WRONG QUESTION AND IT PICKS THE WRONG ROAD.
+    span_nearest takes the closest driveable way. On a corner plot the closest
+    way can be the cross street, or the alley behind, and "closest" then loses
+    by half a metre to a road running at ninety degrees to the traffic. Measured
+    on the operator's own camera: vehicles travel on a 93 degree axis with 0.97
+    concentration over 49 passes, and the nearest road was North Bridge Street
+    at 178 degrees - PERPENDICULAR - winning by 0.7 m over Hamrick Street at
+    88.8 degrees, which matches the traffic to within 4 degrees.
+
+    A camera pointed at a street sees vehicles travelling ALONG that street. So
+    the road is identifiable from the sightings themselves, with no compass, no
+    heading at enrolment, and nothing for a volunteer to get wrong - a browser
+    in a window cannot report a bearing anyway, which is why 25 of 28 nodes
+    have heading 0 and fall through to proximity in the first place.
+
+    `axis_deg` is the dominant direction of travel folded to 0-180: a road
+    carries traffic both ways, so a heading and its reverse are the same axis.
+    Candidates are scored on angular agreement first and distance only as a
+    tie-break, which is the inversion this function exists to make.
+
+    Returns None when nothing agrees within `max_off_axis`. That matters: the
+    caller must fall back rather than be handed a confident wrong answer, which
+    is exactly what proximity did.
+    """
+    px, py = 0.0, 0.0
+    best = None
+    for name, geom in ways:
+        for i in range(len(geom) - 1):
+            a = _to_xy(geom[i][0], geom[i][1], lat, lon)
+            b = _to_xy(geom[i + 1][0], geom[i + 1][1], lat, lon)
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            seg = math.hypot(dx, dy)
+            if seg < 1e-6:
+                continue
+            # Bearing of this segment, folded the same way as the travel axis.
+            brg = math.degrees(math.atan2(dx, dy)) % 180.0
+            off = abs(((brg - axis_deg + 90.0) % 180.0) - 90.0)
+            # Closest point on the segment to the camera.
+            t = max(0.0, min(1.0, ((px - a[0]) * dx + (py - a[1]) * dy) / (seg * seg)))
+            qx, qy = a[0] + dx * t, a[1] + dy * t
+            d = math.hypot(qx - px, qy - py)
+            if d > max_dist_m or off > max_off_axis:
+                continue
+            # Angle first, distance only to separate roads that agree equally.
+            key = (round(off, 1), d)
+            if best is None or key < best[0]:
+                best = (key, (qx, qy), (dx / seg, dy / seg), name, d, off)
+    if best is None:
+        return None
+    _, point, unit, name, dist, off = best
+    half = SPAN_MIN_M / 2.0
+    p1 = _to_ll(point[0] - unit[0] * half, point[1] - unit[1] * half, lat, lon)
+    p2 = _to_ll(point[0] + unit[0] * half, point[1] + unit[1] * half, lat, lon)
+    return {"road_name": name or "", "span": [list(p1), list(p2)],
+            "watched_m": SPAN_MIN_M, "source": "traffic",
+            "off_axis_deg": round(off, 1), "camera_dist_m": round(dist, 1)}
+
+
 # A grid cell's road geometry, kept so a MOBILE contributor does not hit
 # Overpass once per vehicle. The key is the same ~400 m cell the query is
 # already snapped to, so the cache cannot be finer-grained than the request
