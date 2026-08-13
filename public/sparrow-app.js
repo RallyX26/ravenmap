@@ -158,6 +158,7 @@ $('#btnEnroll').onclick = async () => {
   if (r.review_token) node.review_token = r.review_token;
   localStorage.setItem(KEY, JSON.stringify(node));
   say($('#setupMsg'), `Registered as ${r.id}. Watch and Key are open now.`, true);
+  stage('registered');
   showReviewBanner(node.review_token);
   refreshChrome();
 };
@@ -521,16 +522,57 @@ async function loop() {
   requestAnimationFrame(loop);
 }
 
+/* 🚨 WHERE SETUP DIES. 20 of the first 36 cameras registered and never sent a
+ * single heartbeat, and nothing recorded why - a denied camera permission, a
+ * 38 MB model download that gave up on mobile data, and a closed tab all
+ * looked identical from the server. They need completely different fixes, so
+ * the biggest number in the project was the least actionable.
+ *
+ * A stage name from a fixed list and a four-way platform bucket. No user
+ * agent, no screen size, nothing that identifies a device - and it is
+ * fire-and-forget: a camera must never treat a telemetry failure as a setup
+ * failure, so nothing here is awaited and nothing here can throw. */
+function platformBucket() {
+  var u = navigator.userAgent || '';
+  if (/iPhone|iPad|iPod/i.test(u)) return 'ios';
+  if (/Android/i.test(u)) return 'android';
+  if (/Mobi/i.test(u)) return 'other';
+  return 'desktop';
+}
+function stage(name) {
+  try {
+    if (!(node && node.id && node.token)) return;
+    fetch('/api/node/progress', {
+      method: 'POST',
+      // ⚠️ THE TOKEN GOES IN THE HEADER, exactly as sendBeat() sends it.
+      // _token_ok() reads the Authorization header and nothing else; only
+      // /api/enroll also accepts it in the body. Sending it in the body here
+      // returned 401 for every call, which - because this is fire-and-forget -
+      // would have recorded absolutely nothing while looking like it worked.
+      headers: { 'Content-Type': 'application/json',
+                 'Authorization': 'Bearer ' + node.token },
+      body: JSON.stringify({ node_id: node.id, stage: name,
+                             platform: platformBucket() }),
+      keepalive: true,        // survives the tab closing, which is the case
+    }).catch(function () {});  // we most want to hear about
+  } catch (e) { /* never let reporting break setting up */ }
+}
+
 async function start() {
+  stage('starting');
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints(), audio: false });
   } catch (e) { return say($('#watchMsg'), camError(e), false); }
+  stage('camera_granted');
   $('#video').srcObject = stream;
   listCameras();
+  stage('preview');
   if (!session) {
+    stage('model_loading');
     try { await loadModel(); }
     catch (e) { return say($('#watchMsg'), 'Could not load the detector: ' + e.message, false); }
   }
+  stage('model_ready');
   try { wakeLock = await navigator.wakeLock.request('screen');
         $('#pWake').className = 'pill on'; $('#pWake').textContent = 'screen kept on'; }
   catch (e) { $('#pWake').className = 'pill warn'; $('#pWake').textContent = 'screen may sleep'; }
@@ -545,6 +587,7 @@ async function start() {
   // watching - so beat on its own, or the map shows it offline within the
   // 90-second window. A sighting also beats; this covers the gaps between.
   lastWork = Date.now();          // the stream is open; the loop starts next
+  stage('detecting');
   sendBeat();
   beatTimer = setInterval(sendBeat, 30000);
   requestAnimationFrame(loop);

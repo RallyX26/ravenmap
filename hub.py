@@ -1090,6 +1090,26 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(429, "posting too fast")
                 return self._ingest(self._body())
 
+            if p == "/api/node/progress":
+                # How far setup got, so "never started" stops being one bucket.
+                # Same token as the heartbeat: this says nothing a heartbeat
+                # does not already say about who is talking, and it is refused
+                # outright without it.
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                plat = str(b.get("platform") or "")[:12].lower()
+                if plat not in ("ios", "android", "desktop", "other", ""):
+                    plat = "other"
+                db.set_setup_stage(nd["id"], str(b.get("stage") or "")[:24],
+                                   plat or None)
+                # Always 200: a camera must never treat a telemetry failure as
+                # a setup failure, and there is nothing useful to tell it.
+                return self._json({"ok": True})
+
             if p == "/api/heartbeat":
                 # "I am awake and watching." Deliberately separate from a
                 # sighting: a camera pointed at an empty street at 4am is

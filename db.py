@@ -201,7 +201,28 @@ MIGRATIONS = [
     ("nodes", "span_lon2", "REAL"),
     ("nodes", "road_name", "TEXT"),
     ("nodes", "span_source", "TEXT"),
+    # 🚨 HOW FAR SETUP GOT. 20 of the first 36 cameras registered and never
+    # sent a single heartbeat, and "never started" was one undifferentiated
+    # bucket - it could equally be a denied camera permission, a 38 MB model
+    # download that timed out on mobile data, or someone who closed the tab.
+    # Those need completely different fixes and the data could not tell them
+    # apart, so the largest number in the project was unactionable.
+    #
+    # Deliberately three columns and no more. A stage name from a fixed list,
+    # when it happened, and a four-way platform bucket. No user agent, no
+    # screen size, no IP, nothing that identifies a device or a person - this
+    # project's whole argument is that it collects the minimum, and setup
+    # telemetry is exactly where that gets quietly abandoned.
+    ("nodes", "setup_stage", "TEXT"),
+    ("nodes", "setup_stage_ts", "REAL"),
+    ("nodes", "setup_platform", "TEXT"),
 ]
+
+# The setup funnel, in order. Progress only ever moves FORWARD through this
+# list: a reload that reports an earlier stage must not erase how far someone
+# actually got, or the numbers describe the last attempt rather than the best.
+SETUP_STAGES = ("registered", "starting", "camera_granted", "preview",
+                "model_loading", "model_ready", "detecting", "posted")
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -297,6 +318,32 @@ def upsert_node(n: dict) -> None:
              "span_lat1": None, "span_lon1": None, "span_lat2": None,
              "span_lon2": None, "road_name": None, "span_source": None}, **n})
     conn.commit()
+
+
+def set_setup_stage(node_id: str, stage: str,
+                    platform: Optional[str] = None) -> bool:
+    """Record how far this camera's setup got. Forward-only.
+
+    Returns True if it advanced. A page reload replays earlier stages, and
+    accepting those would rewrite a camera that reached 'detecting' back down
+    to 'starting' - so the furthest point reached is kept, not the latest one
+    reported.
+    """
+    if stage not in SETUP_STAGES:
+        return False
+    conn = connect()
+    row = conn.execute("SELECT setup_stage FROM nodes WHERE id = ?",
+                       (node_id,)).fetchone()
+    if row is None:
+        return False
+    have = row["setup_stage"]
+    if have in SETUP_STAGES and SETUP_STAGES.index(have) >= SETUP_STAGES.index(stage):
+        return False
+    conn.execute("UPDATE nodes SET setup_stage = ?, setup_stage_ts = ?, "
+                 "setup_platform = COALESCE(?, setup_platform) WHERE id = ?",
+                 (stage, now(), platform, node_id))
+    conn.commit()
+    return True
 
 
 def heartbeat(node_id: str, ts: Optional[float] = None) -> None:
