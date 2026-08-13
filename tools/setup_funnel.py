@@ -41,6 +41,50 @@ WHAT_IT_MEANS = {
 }
 
 
+def collapse_duplicates(rows: list, window: float = 120.0) -> tuple[list, int]:
+    """One row per PERSON, not per registration.
+
+    🚨 THIS FUNNEL LIED BECAUSE A BUTTON WAS NOT DEBOUNCED. Registering takes a
+    second or two and said nothing while it worked, so people tapped again -
+    and every tap minted a whole camera. "3162" exists five times inside 26
+    seconds; "Driving 2026-08-12" four times in the same instant.
+
+    The extra rows sit at 'registered' for ever, because nobody goes on to
+    press Watch on a camera they did not know they made. Counting rows, half
+    of all volunteers appeared to abandon setup at the first step. Counting
+    PEOPLE, it was 1 in 11, and the start rate was 64% rather than 41%.
+
+    The button is fixed, but this stays: it makes the measurement robust to the
+    next thing that creates a row a human did not mean to create, and it keeps
+    the historical numbers comparable across the fix.
+
+    Same name registered inside `window` seconds = one person, and the furthest
+    stage any of those rows reached is what that person actually achieved.
+    """
+    groups: dict = {}
+    for r in rows:
+        groups.setdefault((r.get("name") or "").strip(), []).append(r)
+    out, dupes = [], 0
+    for _, rs in groups.items():
+        rs.sort(key=lambda x: x.get("created") or 0)
+        run = [rs[0]]
+        for r in rs[1:]:
+            if (r.get("created") or 0) - (run[-1].get("created") or 0) < window:
+                run.append(r)
+            else:
+                out.append(run)
+                run = [r]
+        out.append(run)
+    best = []
+    for run in out:
+        dupes += len(run) - 1
+        # The furthest point ANY of the duplicate rows reached is the person's.
+        winner = max(run, key=lambda r: STAGES.index(r["setup_stage"])
+                     if r.get("setup_stage") in STAGES else -1)
+        best.append(winner)
+    return best, dupes
+
+
 def ssh(args, cmd: str) -> str:
     return subprocess.run(
         ["ssh", "-i", args.key, "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
@@ -78,6 +122,7 @@ def main() -> None:
 
     unmeasured = [r for r in rows if not r.get("setup_stage")]
     measured = [r for r in rows if r.get("setup_stage")]
+    measured, dupes = collapse_duplicates(measured)
 
     print(f"{len(rows)} camera(s) enrolled in the last {a.days:.0f} days")
     if unmeasured:
@@ -88,6 +133,9 @@ def main() -> None:
               "first.")
         return
 
+    if dupes:
+        print(f"  {dupes} duplicate registration(s) collapsed - the same name "
+              f"registered twice within 2 min is one person, not two")
     print(f"\nof the {len(measured)} measured, furthest point reached:\n")
     counts = {s: 0 for s in STAGES}
     for r in measured:

@@ -130,11 +130,31 @@ $('#btnGeo').onclick = () => {
     { enableHighAccuracy: true, timeout: 15000 });
 };
 
+/* 🚨 EVERY TAP MINTED A WHOLE CAMERA.
+ * Registering takes a second or two - it does a road lookup - and nothing said
+ * so, so people tapped again. Each tap was a fresh POST with no node_id, and
+ * enroll() treats that as a NEW camera: "3162" five times in 26 seconds,
+ * "Driving 2026-08-12" four times in the same instant, six names duplicated
+ * inside two minutes.
+ *
+ * The damage was not cosmetic. Those duplicates inflated the camera count,
+ * consumed the network-wide enrol limit in one burst (which is what locked him
+ * out of registering a real camera), and poisoned the setup funnel: the extra
+ * rows sit at 'registered' for ever, and I read that as "half of all
+ * volunteers never press Watch". Collapsing duplicates, the real figure was 1
+ * in 11, and the start rate was 64% rather than 41%. A metric can be broken by
+ * a button.
+ */
+let enrolling = false;
 $('#btnEnroll').onclick = async () => {
+  if (enrolling) return;
   const name = $('#nname').value.trim();
   if (!name || (!pos && !node)) {
     return say($('#setupMsg'), 'Need a name and a position.', false);
   }
+  enrolling = true;
+  $('#btnEnroll').disabled = true;
+  $('#btnEnroll').textContent = 'Registering…';
   // What KIND of camera this is changes what the map draws. A fixed camera in
   // a window watches a stretch of road and that stretch is published; a phone
   // you carry watches wherever it happens to be pointing and must never have a
@@ -152,7 +172,16 @@ $('#btnEnroll').onclick = async () => {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   }).then((x) => x.json()).catch((e) => ({ error: String(e) }));
-  if (r.error) return say($('#setupMsg'), r.error, false);
+
+  // Re-enable on FAILURE only. On success the button is gone from the flow -
+  // leaving it live is how a second camera gets made by someone checking their
+  // work.
+  enrolling = false;
+  $('#btnEnroll').textContent = 'Register this camera';
+  if (r.error) {
+    $('#btnEnroll').disabled = false;
+    return say($('#setupMsg'), r.error, false);
+  }
 
   node = { id: r.id, token: r.token, name };
   if (r.review_token) node.review_token = r.review_token;

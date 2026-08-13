@@ -736,12 +736,19 @@
       requestAnimationFrame(dloop);
     }).catch(function(){ requestAnimationFrame(dloop); });
   }
+  // 🚨 SAME BUG, WORSE: this is called from the loop, not a button, so nothing
+  // stopped two calls racing before the first returned - "Driving 2026-08-12"
+  // exists FOUR times with identical timestamps. One in-flight enrolment at a
+  // time, and everyone waiting gets the same node.
+  var driveEnrolling = false, driveWaiting = [];
   function getDriveNode(cb){
     var n=null; try{n=JSON.parse(localStorage.getItem('sparrow.node')||'null');}catch(e){}
     if(n&&n.id&&n.token)return cb(n);
     try{n=JSON.parse(localStorage.getItem('sparrow.drive.node')||'null');}catch(e){}
     if(n&&n.id&&n.token)return cb(n);
     if(!me)return cb(null);
+    if(driveEnrolling){ driveWaiting.push(cb); return; }   // one at a time
+    driveEnrolling = true;
     var name='Driving '+new Date().toISOString().slice(0,10);
     fetch('/api/enroll',{method:'POST',headers:{'Content-Type':'application/json'},
       // kind 'mobile', not 'phone': this camera is CARRIED. A phone in a
@@ -751,10 +758,22 @@
       // ended up drawn on the map as watched roads.
       body:JSON.stringify({name:name,kind:'mobile',lat:me[0],lon:me[1]})})
       .then(function(r){return r.json();}).then(function(r){
-        if(r&&r.id&&r.token){var nn={id:r.id,token:r.token,name:name};
-          try{localStorage.setItem('sparrow.drive.node',JSON.stringify(nn));}catch(e){}
-          cb(nn);} else cb(null);
-      }).catch(function(){cb(null);});
+        var nn=null;
+        if(r&&r.id&&r.token){nn={id:r.id,token:r.token,name:name};
+          try{localStorage.setItem('sparrow.drive.node',JSON.stringify(nn));}catch(e){}}
+        driveEnrolling=false;
+        // Everyone who asked while this was in flight gets the SAME node -
+        // without draining them they would wait for ever, which is the other
+        // way to break a queue you added to stop duplicates.
+        cb(nn);
+        var w=driveWaiting; driveWaiting=[];
+        w.forEach(function(f){ try{ f(nn); }catch(e){} });
+      }).catch(function(){
+        driveEnrolling=false;
+        cb(null);
+        var w=driveWaiting; driveWaiting=[];
+        w.forEach(function(f){ try{ f(null); }catch(e){} });
+      });
   }
   function camStart(){
     $('#camBtn').className='rbtn warn';
