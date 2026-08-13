@@ -45,13 +45,17 @@
      endpoint and diff it. A promise you cannot check is not a promise.</p>
   <table id="policy"></table>
 
-  <h2>What the operators have done</h2>
-  <p class="note">Every decision made about the map is logged and shown here:
-     each government-vehicle confirmation, each retraction, each public flag. If
-     we are going to build a network that watches, the first thing it watches
-     should be its own decisions. Searches are deliberately NOT here: looking up
-     a public record is nobody's business but the reader's.</p>
-  <table id="audit"></table>
+  <!-- 🚨 THE DECISIONS LOG WAS REMOVED ON PURPOSE (2026-08-13, his call).
+       It published each reviewer decision with a truncated IP, and his read
+       was that a visible log of who-did-what makes people less willing to
+       point a camera at a police car - which is the entire activity this
+       project depends on. Less tracking, and less DISPLAY of tracking, is
+       worth more here than the accountability the table was buying.
+
+       It was also dead: /api/audit is 404'd on a mirror by design and the box
+       IS a mirror, so every visitor fetched it, got an error, and saw an empty
+       table under a heading promising a log. A transparency page whose most
+       audit-flavoured section is permanently blank argues against itself. -->
 </div>
 
 <script src="/static/transparency.js"></script>

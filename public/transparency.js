@@ -1,5 +1,6 @@
-/* The transparency panel: live policy, counters and the decisions log (the
- * operator's confirms and retractions, and any public flags - NOT who searched).
+/* The transparency panel: live policy and counters.
+ *
+ * The decisions log was deliberately removed - see transparency.html.
  *
  * Extracted from transparency.html so the standalone page and the unified
  * shell on the map render it from ONE implementation. This codebase has been
@@ -29,10 +30,12 @@ window.sparrowTransparency = async function () {
   };
 
   // body
-    const [p, s, a] = await Promise.all([
+    // The decisions log is gone (see transparency.html). /api/audit is no
+    // longer fetched at all: it 404s on a mirror, and a request that can only
+    // fail is not worth making on every page view.
+    const [p, s] = await Promise.all([
       fetch('/api/policy').then(r => r.json()),
       fetch('/api/stats').then(r => r.json()),
-      fetch('/api/audit').then(r => r.json()),
     ]);
 
     $('#cards').innerHTML = [
@@ -51,13 +54,5 @@ window.sparrowTransparency = async function () {
           ? (String(val).startsWith('no') ? 'yes' : 'no') : '';
         return `<tr><td class="n">${esc(lab)}</td><td class="v ${cls}">${esc(val)}</td></tr>`;
       }).join('');
-
-    $('#audit').innerHTML = '<tr><th>When</th><th>Action</th><th>Vehicle</th><th>From</th></tr>' +
-      (a.length ? a.map(r => `<tr>
-          <td class="n">${new Date(r.ts * 1000).toLocaleString()}</td>
-          <td class="v">${esc(r.action)}</td>
-          <td class="v">${esc(r.target)}</td>
-          <td class="n">${esc(r.who)}</td></tr>`).join('')
-        : '<tr><td class="n" colspan="4">No decisions recorded yet.</td></tr>');
 
 };
