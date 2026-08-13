@@ -37,6 +37,14 @@ for _d in (DATA, SNAPS):
 
 DEFAULTS = {
     "site_name": "SparrowMap",
+
+    # 🧪 STAGED, OFF BY DEFAULT. The aircraft page (/planes) reads live ADS-B
+    # and the FAA registry to show government aircraft and ones that are
+    # circling. It is off in every deployment that does not explicitly enable
+    # it, which is how a feature can live in the repo - so local, repo and box
+    # all match - without appearing on a public map before it has earned it.
+    # Turn on locally with "aircraft_preview": true in config.json.
+    "aircraft_preview": False,
     "http_port": 8150,
     "https_port": 8151,
 

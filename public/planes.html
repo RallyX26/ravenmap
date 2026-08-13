@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Aircraft — SparrowMap (staged)</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<meta name="theme-color" content="#0B0E13">
+<link rel="stylesheet" href="/vendor/leaflet.css">
+<style>
+:root{--bg:#0B0E13;--panel:#131822;--line:#1e2634;--ink:#e8edf5;--dim:#8794a8;
+      --gov:#ffb547;--le:#ff3b47;--orbit:#3ddc97;--plain:#55637a}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+  font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:10px;padding:10px 14px;flex:0 0 auto;
+  border-bottom:1px solid var(--line);background:var(--panel)}
+header b{letter-spacing:.06em;font-size:14px}
+header .tag{color:var(--dim);font-size:12px}
+header .staged{margin-left:auto;font:600 10px ui-monospace,monospace;
+  color:#ffb547;border:1px solid #6b4a17;border-radius:6px;padding:4px 8px}
+.back{color:var(--dim);text-decoration:none;font-weight:600;border:1px solid var(--line);
+  border-radius:8px;padding:6px 10px;font-size:13px}
+main{flex:1 1 auto;min-height:0;display:flex}
+#map{flex:1 1 auto;background:#0d1117}
+aside{flex:0 0 340px;max-width:44vw;overflow-y:auto;background:var(--panel);
+  border-left:1px solid var(--line);padding:12px}
+.counts{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
+.c{background:#0f141d;border:1px solid var(--line);border-radius:9px;padding:9px;text-align:center}
+.c b{display:block;font:700 18px ui-monospace,monospace}
+.c span{font-size:10px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase}
+.row{border:1px solid var(--line);border-radius:9px;padding:9px 11px;margin-bottom:8px;
+  background:#0f141d;cursor:pointer}
+.row:hover{border-color:#2a3547}
+.row b{font:13px ui-monospace,monospace}
+.row .who{display:block;font-size:12px;color:var(--dim);margin-top:3px}
+.row .flags{margin-top:6px;display:flex;gap:5px;flex-wrap:wrap}
+.f{font:600 10px ui-monospace,monospace;border-radius:99px;padding:2px 7px;
+  border:1px solid currentColor}
+.f.gov{color:var(--gov)} .f.le{color:var(--le)} .f.orbit{color:var(--orbit)}
+.note{color:var(--dim);font-size:12px;line-height:1.6;margin:10px 0 0;
+  border-top:1px solid var(--line);padding-top:10px}
+.note b{color:var(--ink)}
+.err{color:#ff6b6b;font-size:13px}
+@media (max-width:820px){ main{flex-direction:column} aside{flex:0 0 46vh;max-width:none;
+  border-left:0;border-top:1px solid var(--line)} }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="back" href="/">&larr; Map</a>
+  <div><b>AIRCRAFT</b> <span class="tag" id="when">loading…</span></div>
+  <span class="staged">STAGED · NOT PUBLIC</span>
+</header>
+
+<main>
+  <div id="map"></div>
+  <aside>
+    <div class="counts" id="counts"></div>
+    <div id="list"></div>
+    <div class="note">
+      <b>What this shows.</b> Live ADS-B from OpenSky, joined to the FAA's public
+      aircraft registry. <b>Government</b> means the FAA records the registrant
+      as a government entity. <b>Circling</b> means the track flew a long way,
+      ended where it started, turned through at least one and a half full
+      circles and stayed low.
+      <br><br>
+      <b>What it does not show.</b> Neither signal identifies police on its own.
+      Most government aircraft are universities and agricultural agencies, and
+      federal surveillance is widely registered to front companies, so it does
+      not appear as government at all. Crop dusters, traffic helicopters, news
+      crews and training circuits all circle. This is a list of aircraft worth
+      looking at, not a claim about who they are.
+    </div>
+  </aside>
+</main>
+
+<script src="/vendor/leaflet.js"></script>
+<script>
+(function(){
+'use strict';
+var $ = function(s){ return document.querySelector(s); };
+var map = L.map('map', { zoomControl:true }).setView([42.6,-83.9], 9);
+L.tileLayer('/api/tile/{z}/{x}/{y}.png', { maxZoom:20,
+  attribution:'&copy; OpenStreetMap contributors &copy; CARTO &middot; SparrowMap'
+}).addTo(map);
+
+var layer = L.layerGroup().addTo(map);
+var markers = {};
+var esc = function(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+
+/* Colour says what is KNOWN, and nothing more.
+ *   red    the FAA records a law-enforcement registrant
+ *   amber  government, but not law enforcement (mostly universities)
+ *   green  circling, whoever it belongs to
+ *   grey   an ordinary aircraft passing through
+ * An aircraft that is both government and circling shows red or amber with a
+ * green ring, because those are two separate facts and merging them into one
+ * colour would invent a third claim neither of them makes. */
+function colourFor(a){
+  if (a.law_enforcement) return '#ff3b47';
+  if (a.gov) return '#ffb547';
+  if (a.orbit) return '#3ddc97';
+  return '#55637a';
+}
+
+function draw(d){
+  layer.clearLayers(); markers = {};
+  (d.aircraft || []).forEach(function(a){
+    var interesting = a.gov || a.orbit;
+    var m = L.circleMarker([a.lat, a.lon], {
+      radius: interesting ? 7 : 3.5,
+      color: a.orbit ? '#3ddc97' : colourFor(a),
+      weight: a.orbit ? 3 : 1.5,
+      fillColor: colourFor(a),
+      fillOpacity: interesting ? 0.85 : 0.35,
+    }).addTo(layer);
+    m.bindTooltip(
+      '<b>' + esc(a.call || a.icao) + '</b>'
+      + (a.owner ? '<br>' + esc(a.owner) : '')
+      + (a.n_number ? '<br>N' + esc(a.n_number) : '')
+      + '<br>' + (a.alt_m != null ? a.alt_m + ' m' : 'altitude unknown')
+      + (a.orbit_detail ? '<br>circling: ' + a.orbit_detail.turn + '° over '
+         + a.orbit_detail.minutes + ' min' : ''),
+      { sticky:true });
+    markers[a.icao] = m;
+  });
+
+  var c = d.counts || {};
+  $('#counts').innerHTML =
+      tile(c.total, 'in view') + tile(c.government, 'government')
+    + tile(c.law_enforcement, 'law enforcement') + tile(c.circling, 'circling');
+
+  // Only the ones worth reading about. A list of every airliner overhead is a
+  // list nobody scrolls.
+  var rows = (d.aircraft || []).filter(function(a){ return a.gov || a.orbit; })
+    .sort(function(x,y){ return (y.law_enforcement?2:0)+(y.orbit?1:0)
+                              - (x.law_enforcement?2:0)-(x.orbit?1:0); });
+  $('#list').innerHTML = rows.length ? rows.map(function(a){
+    return '<div class="row" data-icao="'+esc(a.icao)+'">'
+      + '<b>' + esc(a.call || a.icao) + (a.n_number ? '  N'+esc(a.n_number) : '') + '</b>'
+      + '<span class="who">' + esc(a.owner || 'owner not in the FAA government set') + '</span>'
+      + '<div class="flags">'
+      + (a.law_enforcement ? '<span class="f le">LAW ENFORCEMENT</span>' : '')
+      + (a.gov && !a.law_enforcement ? '<span class="f gov">GOVERNMENT</span>' : '')
+      + (a.orbit ? '<span class="f orbit">CIRCLING '+a.orbit_detail.turn+'°</span>' : '')
+      + '</div></div>';
+  }).join('') : '<div class="note" style="border:0;padding:0">Nothing government '
+      + 'or circling in view right now. Ordinary traffic is still on the map in grey.</div>';
+
+  $('#when').textContent = 'updated ' + new Date().toLocaleTimeString()
+    + (d.registry_loaded ? '' : ' · FAA registry not loaded, owners unavailable');
+}
+
+function tile(n, label){
+  return '<div class="c"><b>' + (n||0) + '</b><span>' + label + '</span></div>';
+}
+
+$('#list').addEventListener('click', function(e){
+  var row = e.target.closest('.row'); if(!row) return;
+  var m = markers[row.dataset.icao];
+  if (m) map.setView(m.getLatLng(), Math.max(map.getZoom(), 11));
+});
+
+function boxOf(){
+  var b = map.getBounds();
+  return [b.getSouth().toFixed(3), b.getWest().toFixed(3),
+          b.getNorth().toFixed(3), b.getEast().toFixed(3)].join(',');
+}
+
+var busy = false;
+function refresh(){
+  if (busy) return; busy = true;
+  fetch('/api/aircraft?box=' + encodeURIComponent(boxOf()))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      busy = false;
+      if (d.error){ $('#when').innerHTML = '<span class="err">'+esc(d.error)+'</span>'; return; }
+      draw(d);
+    })
+    .catch(function(err){ busy = false;
+      $('#when').innerHTML = '<span class="err">'+esc(err.message)+'</span>'; });
+}
+
+refresh();
+// An orbit needs history, so the page keeps asking - the server accumulates the
+// track. Twenty seconds is well inside ADS-B's update rate and gentle on a free
+// service that nobody is paying for.
+setInterval(refresh, 20000);
+map.on('moveend', refresh);
+})();
+</script>
+</body>
+</html>

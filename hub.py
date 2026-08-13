@@ -612,6 +612,27 @@ class Handler(BaseHTTPRequestHandler):
                 _GEO_CACHE[term.lower()] = (now(), out)
                 return self._json({"results": out})
 
+            if p in ("/planes", "/api/aircraft"):
+                # 🧪 STAGED. Off unless a deployment opts in, so this can live
+                # in the repo - local, repo and box identical - without showing
+                # on a public map before it has earned a place there.
+                if not CONFIG.get("aircraft_preview"):
+                    return self._err(404, "not found")
+                if p == "/planes":
+                    return self._file(PUBLIC / "planes.html")
+                try:
+                    import aircraft
+                except Exception as exc:
+                    return self._json({"error": f"aircraft module: {exc}"})
+                try:
+                    box = [float(x) for x in
+                           (q.get("box") or ["42.3,-84.4,43.3,-83.2"])[0].split(",")]
+                except ValueError:
+                    return self._err(400, "box wants lamin,lomin,lamax,lomax")
+                if not rate_ok("/api/geocode", self.client_ip):
+                    return self._err(429, "too many lookups right now")
+                return self._json(aircraft.live(box))
+
             if p == "/api/scanner":
                 # Where to LISTEN to public-safety radio for a place.
                 #

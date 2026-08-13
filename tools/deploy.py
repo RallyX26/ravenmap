@@ -82,10 +82,92 @@ def ssh(cmd: str, timeout: int = 180) -> subprocess.CompletedProcess:
         capture_output=True, text=True, timeout=timeout)
 
 
+
+# What runs HERE, and how to start it again. The box is not the only place that
+# can drift: the local hub, the detector and camctl all import modules at
+# startup, so editing core.py leaves three processes running yesterday's rules
+# while the repo says otherwise.
+LOCAL = {
+    "hub.py":      {"match": "*hub.py*", "args": "hub.py", "camera": False},
+    "run_live.py": {"match": r"*detect\run_live.py*", "args": None, "camera": True},
+    "camctl.py":   {"match": r"*camctl\camctl.py*", "args": r"camctl\camctl.py",
+                    "camera": True},
+}
+
+
+def _ps(cmd: str) -> str:
+    return subprocess.run(["powershell", "-NoProfile", "-Command", cmd],
+                          capture_output=True, text=True).stdout.strip()
+
+
+def sync_local(a) -> None:
+    """Restart anything here that is running code older than the repo.
+
+    🚨 "IT ALL SHOULD MATCH REPO" INCLUDES THIS MACHINE. Deploying to the box
+    and leaving the local hub on last night's core.py is the same drift in a
+    different place, and harder to notice because nothing serves the public
+    from here.
+
+    ⚠️ THE CAMERA STACK IS OPT-IN. run_live and camctl own the USB capture
+    graph, and restarting them can wedge the C920 into needing a physical
+    replug. Doing that automatically, from a deploy, while nobody is standing
+    at the camera, would turn a routine push into a dead camera. So they are
+    REPORTED by default and restarted only with --restart-camera - not skipped
+    quietly, which is the failure this rule exists to prevent.
+    """
+    r = subprocess.run([sys.executable, str(ROOT / "tools" / "check_running_code.py")],
+                       cwd=ROOT, capture_output=True, text=True)
+    stale = [ln.split()[0] for ln in r.stdout.splitlines()
+             if "STALE" in ln]
+    if not stale:
+        say(" ok ", "everything here already runs the current code")
+        return
+    for name in stale:
+        spec = LOCAL.get(name)
+        if not spec:
+            say("info", f"{name} is stale (not managed here - restart it yourself)")
+            continue
+        if spec["camera"] and not a.restart_camera:
+            say("warn", f"{name} is STALE - owns the camera, so it needs "
+                        f"--restart-camera (do it when you can reach the camera)")
+            continue
+        args = spec["args"]
+        if args is None:      # the detector carries its node token in argv
+            cmd = _ps(f"(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+                      f"Where-Object {{ $_.CommandLine -like '{spec['match']}' -and "
+                      f"$_.CommandLine -notlike '*Get-CimInstance*' }} | "
+                      f"Select-Object -First 1).CommandLine")
+            if not cmd:
+                say("info", f"{name} not running")
+                continue
+            args = cmd.split(".exe", 1)[1].strip()
+        # STOP FIRST. The launcher refuses a second detector for the same node,
+        # so start-then-stop leaves the OLD one running and looks like success.
+        _ps(f"Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+            f"Where-Object {{ $_.CommandLine -like '{spec['match']}' -and "
+            f"$_.CommandLine -notlike '*Get-CimInstance*' }} | "
+            f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}")
+        _ps("Start-Sleep -Seconds 3; Start-Process -FilePath "
+            f"'{sys.executable}' -ArgumentList '{args}' "
+            f"-WorkingDirectory '{ROOT}' -WindowStyle Minimized")
+        say(" ok ", f"restarted {name}")
+
+    check = subprocess.run([sys.executable, str(ROOT / "tools" / "check_running_code.py")],
+                           cwd=ROOT, capture_output=True, text=True)
+    if "up to date" in check.stdout:
+        say(" ok ", "verified: everything here matches the source")
+    else:
+        left = [ln.split()[0] for ln in check.stdout.splitlines() if "STALE" in ln]
+        say("info", "still stale: " + ", ".join(left))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-restart", action="store_true")
+    ap.add_argument("--restart-camera", action="store_true",
+                    help="also restart run_live/camctl here (they own the "
+                         "camera; do it when you can reach it)")
     ap.add_argument("--skip-preflight", action="store_true",
                     help="only for deploying a revert in an emergency")
     a = ap.parse_args()
@@ -185,6 +267,9 @@ def main() -> None:
                                 f"cameras online, {s.get('sightings_24h')} sightings/24h")
         except Exception as exc:
             say("fail", f"{path} -> {exc}")
+
+    print("\n8. this machine")
+    sync_local(a)
 
     print()
     print("  ✅ deployed" if ok else "  ⛔ DEPLOY FINISHED WITH FAILURES - check above")
