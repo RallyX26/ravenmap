@@ -133,6 +133,16 @@ L.tileLayer('/api/tile/{z}/{x}/{y}.png', {
 }).addTo(map);
 
 state.camLayer.addTo(map);
+// The camera layer is the only one whose SHAPE depends on the zoom - a span
+// that is a corridor at z17 is a dot at z10 (see drawSpans). Redraw it on
+// zoom, not on every move: panning cannot change which side of the legibility
+// floor a span falls on, and redrawing on move would rebuild 30 layers per
+// frame while dragging.
+// showCams is checked here too: without it, zooming would put the cameras back
+// on a map the visitor had switched them off on.
+map.on('zoomend', () => {
+  if (state.showCams && state.spans) drawSpans(state.spans);
+});
 state.trafficLayer.addTo(map);
 state.trailLayer.addTo(map);
 state.pingLayer.addTo(map);
@@ -557,6 +567,7 @@ async function loadCameras() {
   // Spans only now - a span-less node contributes no geometry to fit to, and
   // that is correct: it has no published location to open on.
   const spans = cams.filter((c) => c.span && c.span.length);
+  state.spans = spans;          // kept so zoomend can redraw without refetching
   if (spans.length) _spanBounds = L.latLngBounds(spans.flatMap((c) => c.span));
   // chooseView() decides between the watched roads and the visitor's own city.
   // maxZoom in there matters: a single node's span is ~80 m across, and fitting
@@ -574,6 +585,34 @@ async function loadCameras() {
   // camera Overpass could not snap to a way, contributes NOTHING to this
   // layer - it has no published geometry. It still appears in the count above,
   // and its sightings still appear as dots wherever they were taken.
+  drawSpans(spans);
+}
+
+/* 🚨 THE SPAN IS DRAWN TO SCALE, SO ZOOMING OUT DELETES IT.
+ * An 80 m span is 91 px at zoom 17, 5.7 px at 13, and 0.7 px at zoom 10. The
+ * previous rendering only survived down there BY ACCIDENT: `lineCap: 'round'`
+ * draws a half-disc at each end however short the line gets, so a collapsed
+ * span still left a ~5 px dot at 0.75 opacity. That dot WAS the "pin" the
+ * corridor was built to remove - and removing it removed the zoomed-out map
+ * with it. Reported as "I can't see the watched roads anymore when zoomed out".
+ * The two were never separate properties, which is why the corridor change
+ * could not have been tested at one zoom and called done.
+ *
+ * It bites now because the network went national after the video: the zoom
+ * that shows every camera at once is exactly the zoom where every span is
+ * sub-pixel.
+ *
+ * A mark at the span's MIDPOINT is safe here and nowhere else. Below the
+ * legibility floor a single pixel covers more ground than the entire span, so
+ * the dot cannot localise anything the span was not already publishing. The
+ * argument against a centre point is a HIGH-zoom argument - at zoom 12 one
+ * pixel is 28 m, already wider than the padding SPAN_MIN_M adds to hide the
+ * midpoint. So: the corridor whenever it is legible, a plain dot when it is
+ * not, and never both at once. */
+const SPAN_LEGIBLE_PX = 14;
+
+function drawSpans(spans) {
+  state.camLayer.clearLayers();
   spans.forEach((c) => {
     const live = c.online;
     const G = '#3ddc97';
@@ -606,18 +645,41 @@ async function loadCameras() {
     // thin brighter line on the road itself. Uniform end to end, no hotspot to
     // read a position out of, and square ends (lineCap 'butt') because round
     // caps are what made it look like a pin in the first place.
+    const tip = `${esc(c.name)}${c.road_name ? ' &middot; ' + esc(c.road_name) : ''}
+       <br>${status}<br>${c.sightings} sightings
+       <br><i style="opacity:.6">this stretch of road is watched; the camera's
+       own position is not published</i>`;
+
+    // How long is this span ON SCREEN right now? Measured per span, not by a
+    // zoom cutoff: a 28 m stretch of Hamrick and an 80 m stretch of a highway
+    // stop being legible at different zooms, and the honest test is whether
+    // THIS line can still be seen as a line.
+    const a = map.latLngToLayerPoint(L.latLng(c.span[0]));
+    const b = map.latLngToLayerPoint(L.latLng(c.span[1]));
+    if (a.distanceTo(b) < SPAN_LEGIBLE_PX) {
+      // The dot carries more opacity than the corridor because it has far
+      // less area to carry it: the band is 18 px wide and can read at 0.14,
+      // while a 4 px dot covering roughly a fortieth of that cannot. Offline
+      // still reads quieter than live - 1-3 of 31 cameras are online at any
+      // moment, so most of this layer is the offline state and it has to be
+      // legible without pretending those cameras are live.
+      // Verified at z11 on the real basemap; both this and a fainter version
+      // render, so this is a legibility margin, not a fix for a blank map.
+      L.circleMarker(L.latLng((c.span[0][0] + c.span[1][0]) / 2,
+                              (c.span[0][1] + c.span[1][1]) / 2), {
+        radius: 4, color: G, weight: 1.5, fillColor: G,
+        opacity: live ? 0.95 : 0.7, fillOpacity: live ? 0.75 : 0.35,
+      }).bindTooltip(tip, { sticky: true }).addTo(state.camLayer);
+      return;
+    }
+
     L.polyline(c.span, {
       color: G, weight: 18, opacity: live ? 0.14 : 0.06,
       lineCap: 'butt', interactive: false,
     }).addTo(state.camLayer);
     L.polyline(c.span, {
       color: G, weight: 2.5, opacity: live ? 0.65 : 0.28, lineCap: 'butt',
-    }).bindTooltip(
-      `${esc(c.name)}${c.road_name ? ' &middot; ' + esc(c.road_name) : ''}
-       <br>${status}<br>${c.sightings} sightings
-       <br><i style="opacity:.6">this stretch of road is watched; the camera's
-       own position is not published</i>`,
-      { sticky: true }).addTo(state.camLayer);
+    }).bindTooltip(tip, { sticky: true }).addTo(state.camLayer);
   });
 }
 
