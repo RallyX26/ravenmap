@@ -197,6 +197,39 @@ def bank_pass(vp, evidence: dict, verdict: dict,
         return None
 
 
+def note_not_posted(stem: str, reason: str) -> None:
+    """Record WHY this crop never became a sighting.
+
+    🚨 66% OF THE BANK (21,079 of 31,881 crops) HAS NO `sighting_id`, AND
+    NOTHING SAID WHY. Three completely different things produce that same
+    silence in post_one():
+        * the gate declined it  - working exactly as designed, a civilian car
+        * there was no frame to encode - rare, and silent
+        * THE POST FAILED - a network blip, and a patrol car the head scored
+          0.871 is simply gone, with no retry and no queue
+    Those are indistinguishable after the fact, so "a head-positive crop that
+    reached nobody" could not be triaged - it might be the system working or
+    the system losing evidence, and there was no way to tell which. The same
+    shape as every other bug in this project: the decision gets made and the
+    artifact a human reads does not record it.
+
+    Additive and best-effort: a failure to annotate must never affect
+    detection, so everything here is swallowed.
+    """
+    if not stem:
+        return
+    for j in BANK.rglob(f"{stem}.json"):
+        try:
+            d = json.loads(j.read_text(encoding="utf-8"))
+            if d.get("sighting_id"):
+                return                      # it did post; nothing to explain
+            d["not_posted"] = str(reason)[:80]
+            j.write_text(json.dumps(d, indent=1, default=str), encoding="utf-8")
+        except Exception:
+            pass
+        return
+
+
 def link_sighting(stem: str, sighting_id: int) -> None:
     """Record which published sighting this crop became.
 

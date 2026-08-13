@@ -682,13 +682,21 @@ def post_one(vp, args, vid, ev=None, verdict=None, plate=None, agree=None,
         ev, verdict, plate, agree = evaluate(vp, vid)
     # Only send something the hub can do anything with: either a publishable
     # sighting, or a plate good enough to clear the gate.
+    # Each of these returns leaves a crop banked with no sighting_id, and they
+    # mean completely different things - a declined gate is the system working,
+    # a failed post is the system losing a patrol car. Say which. See
+    # bank.note_not_posted.
     if not (verdict["sightable"] or verdict["tierable"] or agree >= 0.55):
+        bank.note_not_posted(stem, "gate: not sightable/tierable and plate "
+                                   f"agreement {agree:.2f} < 0.55")
         return
     if vp.best_frame is None:
+        bank.note_not_posted(stem, "no best_frame to encode")
         return
 
     ok, buf = cv2.imencode(".jpg", vp.best_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
     if not ok:
+        bank.note_not_posted(stem, "jpeg encode failed")
         return
     body = {
         "node_id": args.node,
@@ -733,7 +741,14 @@ def post_one(vp, args, vid, ev=None, verdict=None, plate=None, agree=None,
             POSTED[0] += 1
             return out.get("id")
     except Exception as exc:
+        # 🚨 THE EXPENSIVE ONE. There is no retry and no queue behind this, so
+        # a transient network error permanently loses a pass the detector had
+        # already decided was worth reporting. Recording it on the crop is the
+        # minimum: it makes the loss COUNTABLE, and a lost patrol car becomes
+        # something that can be found later instead of a gap nobody can see.
+        # A real retry/dead-letter is the follow-up; this is the diagnosis.
         print("    post failed:", exc)
+        bank.note_not_posted(stem, f"POST FAILED: {exc}")
         POSTED[1] += 1
     return None
 
