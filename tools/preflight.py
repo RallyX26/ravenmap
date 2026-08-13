@@ -169,8 +169,17 @@ def check_drift() -> None:
         return
     files = subprocess.run(["git", "ls-files"], cwd=ROOT,
                            capture_output=True, text=True).stdout.split()
+    # 🚨 ONLY FILES THAT ACTUALLY RUN ON THE BOX.
+    # camctl and detect/ are node-side and live on the machine with the
+    # camera; landing/ is served by Cloudflare; train/ and tools/ are not
+    # part of the running service. Listing them made the drift check report
+    # 14 differences on a perfectly synced box - and a warning that is
+    # always noisy is a warning nobody reads, which is worse than none.
+    NOT_ON_BOX = ("camctl/", "detect/", "landing/", "train/", "tools/",
+                  "sources/", "docs/")
     watch = [f for f in files
-             if f.endswith((".py", ".js", ".html")) and not f.startswith("train/")]
+             if f.endswith((".py", ".js", ".html"))
+             and not f.startswith(NOT_ON_BOX)]
     remote = subprocess.run(
         ["ssh", "-i", KEY, "-o", "BatchMode=yes", BOX,
          "cd /opt/sparrowmap && md5sum " + " ".join(watch) + " 2>/dev/null"],
@@ -186,7 +195,12 @@ def check_drift() -> None:
         p = ROOT / f
         if not p.exists() or f not in theirs:
             continue
-        mine = hashlib.md5(p.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+        # RAW bytes, not newline-normalised. Deployment is scp of this exact
+        # file, so the box holds these bytes including any CRLF. Normalising one
+        # side and not the other reported 7 files as drifted that had been
+        # deployed an hour earlier and verified identical by md5 at the time -
+        # a drift check that cries wolf is one nobody reads.
+        mine = hashlib.md5(p.read_bytes()).hexdigest()
         if mine != theirs[f]:
             drifted.append(f)
     if drifted:
