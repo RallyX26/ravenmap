@@ -398,7 +398,7 @@
     reviewingRejected = false;   // this function IS the normal queue
     if(loading) return;
     loading = true;
-    hiddenCount = 0;          // recount per fetch, or a 30s poll inflates it
+    hiddenCount = 0; poolTotal = 0;   // recount per fetch, or a poll inflates them
     Promise.all(entries.map(function(e){
       return api("/api/rv/queue?scope=pool", e.token).then(function(r){
         if(r.status === 401){ dropToken(e.token, "a token was removed (no longer valid)"); return []; }
@@ -470,7 +470,22 @@
     }
   }
   function updateCounts(){
-    $("#count").textContent = Math.max(0, items.length - cursor) + " left";
+    /* 🚨 "60 left" WAS THE WHOLE PAGE, NOT THE WHOLE PILE.
+     * The server hands back 60 items at a time out of a few hundred, so after
+     * clearing a page and reloading you get the NEXT 60 - different crops, but
+     * from the same camera on the same street, and the counter said "60 left"
+     * again every time. Reported as "I have to do it all over again for
+     * nothing", and the crops really were being deleted: 0 of 127 reviewed
+     * items were still on the server. Nothing was broken except the only
+     * number that could have shown it.
+     * So say how many are left in the PILE when there are more than are
+     * loaded. Progress you cannot see is indistinguishable from no progress. */
+    var onPage = Math.max(0, items.length - cursor);
+    var done = items.length - onPage;          // cleared from this page
+    var pile = poolTotal ? Math.max(0, poolTotal - done) : 0;
+    $("#count").textContent = (pile > items.length)
+      ? onPage + " here · " + pile + " left"
+      : onPage + " left";
     $("#session").textContent = "reviewed " + reviewed + " this session";
     drawProgress();
     $("#undo").disabled = undoStack.length === 0;
@@ -503,7 +518,7 @@
     var entries = activeEntries();
     if(!entries.length){ show("add"); return; }
     loading = true;
-    hiddenCount = 0;          // recount per fetch, or a 30s poll inflates it
+    hiddenCount = 0; poolTotal = 0;   // recount per fetch, or a poll inflates them
     Promise.all(entries.map(function(e){
       return api("/api/rv/queue?scope=pool", e.token)
         .then(function(r){ return r.status===401 ? [] : r.json().then(function(d){ noteHidden(d); return (d.items||[]).map(function(it){ it._token=e.token; return it; }); }); })
@@ -527,7 +542,10 @@
    * Reported as "it says all clear, can't be true can it?" - and it wasn't.
    * The server did its half. This is the half that reaches a person. */
   var hiddenCount = 0;
+  // How many the SERVER has matching, not how many were shipped in this page.
+  var poolTotal = 0;
   function noteHidden(d){
+    if(d && typeof d.count === "number") poolTotal += d.count;
     if(d && typeof d.hidden === "number") hiddenCount += d.hidden;
   }
   function hiddenLine(){
@@ -547,9 +565,11 @@
     if(!entries.length) return;
     reviewingRejected = true;
     loading = true;
+    hiddenCount = 0; poolTotal = 0;
     Promise.all(entries.map(function(e){
       return api("/api/rv/queue?scope=pool&rejected=1", e.token)
         .then(function(r){ return r.status===401 ? [] : r.json().then(function(d){
+          noteHidden(d);
           return (d.items||[]).map(function(it){ it._token = e.token; return it; }); }); })
         .catch(function(){ return []; });
     })).then(function(lists){
