@@ -61,6 +61,13 @@ def main() -> None:
         span = road.resolve(n["lat"], n["lon"], n["heading"] or 0,
                             n["fov"] or 60, n["reach_m"] or 45,
                             online=not args.offline)
+        # resolve() now returns None when no ROAD could be determined, rather
+        # than inventing a compass line. Skip: a node keeps whatever it had,
+        # and a later run with a working Overpass can snap it properly.
+        if not span:
+            print(f"{n['id']}  no road could be resolved (lookup unavailable) "
+                  f"- left alone")
+            continue
         (a_lat, a_lon), (b_lat, b_lon) = span["span"]
         length = road.span_length_m(span["span"])
 

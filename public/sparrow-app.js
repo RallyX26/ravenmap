@@ -470,7 +470,11 @@ function drawOverlay(hits, vw, vh) {
   for (const h of hits) {
     const [x0, y0, x1, y1] = h.box;
     g.strokeRect(x0*s+ox, y0*s+oy, (x1-x0)*s, (y1-y0)*s);
-    g.fillText(h.cls, x0*s+ox, Math.max(10, y0*s+oy - 3));
+    // The detector's own class (car/truck/bus/motorcycle) is a claim this
+    // project never publishes - the map has two public categories, a vehicle
+    // or a government vehicle. The body type still travels with the sighting;
+    // it is simply not asserted on screen. See camctl VEHICLE_LABEL.
+    g.fillText('vehicle', x0*s+ox, Math.max(10, y0*s+oy - 3));
   }
 }
 

@@ -438,12 +438,29 @@ def snap_point(lat: float, lon: float, seed: str,
 
 
 def resolve(lat: float, lon: float, heading: float, fov: float,
-            reach_m: float, online: bool = True) -> dict:
-    """Best available watched span for a camera. Never raises.
+            reach_m: float, online: bool = True) -> Optional[dict]:
+    """Best available watched span for a camera, or None if there isn't one.
 
-    A failure here must never block enrolment - a node with a fallback span is
-    a working node, and a node that failed to enrol because a third-party API
-    was down is not.
+    A failure here must never block enrolment - a node that failed to enrol
+    because a third-party API was down is not a working node.
+
+    🚨 BUT "DID NOT BLOCK ENROLMENT" IS NOT "INVENTED A ROAD".
+    This used to end at span_from_aim, which pushes a line out along the
+    heading and knows nothing about streets - so when Overpass was down or
+    rate-limiting (which it does; a sweep of 18 nodes earned a 429 in under two
+    minutes), a camera was given a compass line instead of a road. With the
+    usual heading of 0 that is a line pointing DUE NORTH, drawn on the public
+    map as a watched road, with an empty road_name because there is no road.
+
+    10 of 52 live spans were made this way, one of them carrying 58 real
+    sightings plotted along a street that does not exist. Reported as "the
+    green marker is vertical and should be horizontal" - it should have been
+    neither, because nothing was ever known about it.
+
+    nodes.py already states the rule this restores: "Publishing nothing is
+    recoverable. Publishing a fabricated road is not." An unknown road is now
+    None, and the caller stores no span at all - the same treatment a carried
+    phone gets, and for the same reason.
     """
     if online:
         try:
@@ -458,9 +475,12 @@ def resolve(lat: float, lon: float, heading: float, fov: float,
             if got:
                 return got
         except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
-            print(f"[road] snap unavailable ({exc.__class__.__name__}), "
-                  f"falling back to the aim axis")
-    return span_from_aim(lat, lon, heading, reach_m)
+            # Worth saying loudly: this is recoverable (re-snap later) but only
+            # if somebody knows it happened.
+            print(f"[road] snap unavailable ({exc.__class__.__name__}: {exc}) - "
+                  f"NO span will be stored; re-snap this node later")
+            return None
+    return None
 
 
 # --------------------------------------------------------------------------

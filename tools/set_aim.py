@@ -102,6 +102,12 @@ def main() -> None:
     # road that actually falls inside the cone, and only falls back to nearest
     # if the cone catches nothing.
     got = road.resolve(nd["lat"], nd["lon"], heading, fov, reach, online=True)
+    if not got:
+        # Better to say so than to write a heading that resolves to nothing:
+        # the whole point of this tool is printing the road before writing.
+        sys.exit(f"{nd['name']} ({nd['id']}): no road could be resolved at that "
+                 f"aim - the lookup may be rate-limited. Nothing written; try "
+                 f"again shortly.")
 
     print(f"{nd['name']}  ({nd['id']})")
     print(f"   heading   {float(nd.get('heading') or 0):.0f} ({compass(float(nd.get('heading') or 0))})"

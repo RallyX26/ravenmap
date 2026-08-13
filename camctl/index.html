@@ -323,6 +323,16 @@ const BOXCOLOR = { car:'#3ddc97', truck:'#ffb547', bus:'#ffb547', motorcycle:'#b
 const GOV_COLOR = '#ff3b47';
 const GOV_LABEL = 'GOVERNMENT VEHICLE';
 
+/* 🚨 THE BOX SAYS WHAT THE PROJECT CLAIMS, NOT WHAT YOLO GUESSED.
+ * It used to print the detector's own class - car, truck, motorcycle, bus -
+ * which is a claim SparrowMap never makes and never publishes. The map has
+ * exactly two public categories: a vehicle, or a government vehicle. Printing
+ * "truck 87%" over a car invites the obvious question of what else the
+ * classifier is wrong about, on the one screen where a person is deciding
+ * whether to trust it. The body type is still recorded on the sighting; it is
+ * just not shouted in the viewfinder. */
+const VEHICLE_LABEL = 'VEHICLE';
+
 /* "3 plate reads" was the wrong thing to say, and he was right to flag it.
  *
  * It described an ACTION - as though three plates had been taken and kept -
@@ -471,7 +481,7 @@ function drawBoxes(){
 
     const label = gov
       ? `${GOV_LABEL} ${Math.round((b.gov_conf || 0)*100)}%`
-      : `${b.cls} ${Math.round(b.conf*100)}%`
+      : `${VEHICLE_LABEL} ${Math.round(b.conf*100)}%`
         + (b.plates ? '  plate legible' : '');
     const tw = g.measureText(label).width + 10;
     g.font = gov ? '700 12px ui-monospace,Consolas,monospace'
