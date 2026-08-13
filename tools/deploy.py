@@ -70,16 +70,30 @@ def say(tag: str, msg: str) -> None:
     print(f"  [{tag:^4}] {msg}")
 
 
+# 🚨 ALWAYS NAME THE ENCODING WHEN CAPTURING OUTPUT ON WINDOWS.
+# text=True decodes with the ANSI codepage (cp1252 here), so one emoji in a
+# child process's output raises UnicodeDecodeError inside subprocess's reader
+# thread and .stdout comes back as None - not an error you can see, just a
+# value that is suddenly nothing. check_running_code.py prints a warning sign,
+# and that alone crashed this tool.
+#
+# Same bug family as the health watch at midnight, arriving from the other
+# direction: that one could not ENCODE an emoji to a redirected log, this one
+# could not DECODE one from a pipe.
+def _run(cmd: list, cwd: Path = ROOT) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, cwd=cwd, capture_output=True,
+                          encoding="utf-8", errors="replace")
+
+
 def git(*args: str, cwd: Path = ROOT) -> str:
-    return subprocess.run(["git", *args], cwd=cwd, capture_output=True,
-                          text=True).stdout.strip()
+    return _run(["git", *args], cwd=cwd).stdout.strip()
 
 
 def ssh(cmd: str, timeout: int = 180) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["ssh", "-i", KEY, "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
          "-o", "StrictHostKeyChecking=accept-new", BOX, cmd],
-        capture_output=True, text=True, timeout=timeout)
+        capture_output=True, encoding="utf-8", errors="replace", timeout=timeout)
 
 
 
@@ -97,7 +111,8 @@ LOCAL = {
 
 def _ps(cmd: str) -> str:
     return subprocess.run(["powershell", "-NoProfile", "-Command", cmd],
-                          capture_output=True, text=True).stdout.strip()
+                          capture_output=True, encoding="utf-8",
+                          errors="replace").stdout.strip()
 
 
 def sync_local(a) -> None:
@@ -115,9 +130,8 @@ def sync_local(a) -> None:
     REPORTED by default and restarted only with --restart-camera - not skipped
     quietly, which is the failure this rule exists to prevent.
     """
-    r = subprocess.run([sys.executable, str(ROOT / "tools" / "check_running_code.py")],
-                       cwd=ROOT, capture_output=True, text=True)
-    stale = [ln.split()[0] for ln in r.stdout.splitlines()
+    r = _run([sys.executable, str(ROOT / "tools" / "check_running_code.py")])
+    stale = [ln.split()[0] for ln in (r.stdout or "").splitlines()
              if "STALE" in ln]
     if not stale:
         say(" ok ", "everything here already runs the current code")
@@ -152,12 +166,12 @@ def sync_local(a) -> None:
             f"-WorkingDirectory '{ROOT}' -WindowStyle Minimized")
         say(" ok ", f"restarted {name}")
 
-    check = subprocess.run([sys.executable, str(ROOT / "tools" / "check_running_code.py")],
-                           cwd=ROOT, capture_output=True, text=True)
-    if "up to date" in check.stdout:
+    check = _run([sys.executable, str(ROOT / "tools" / "check_running_code.py")])
+    if "up to date" in (check.stdout or ""):
         say(" ok ", "verified: everything here matches the source")
     else:
-        left = [ln.split()[0] for ln in check.stdout.splitlines() if "STALE" in ln]
+        left = [ln.split()[0] for ln in (check.stdout or "").splitlines()
+                if "STALE" in ln]
         say("info", "still stale: " + ", ".join(left))
 
 
@@ -197,8 +211,7 @@ def main() -> None:
 
     if not a.skip_preflight:
         print("\n2. preflight")
-        r = subprocess.run([sys.executable, str(ROOT / "tools" / "preflight.py")],
-                           cwd=ROOT, capture_output=True, text=True)
+        r = _run([sys.executable, str(ROOT / "tools" / "preflight.py")])
         if r.returncode == 0:
             say(" ok ", "preflight passed")
         else:
