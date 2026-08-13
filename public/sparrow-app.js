@@ -363,9 +363,14 @@ async function loadModel() {
         chunks.push(value); got += value.length;
         const pct = Math.min(99, Math.round((got / total) * 100));
         $('#loadbar').style.width = pct + '%';
-        say($('#watchMsg'), `Downloading the detector… ${pct}%  `
-          + `(${(got / 1048576).toFixed(0)} of ${(total / 1048576).toFixed(0)} MB, `
-          + `first time only)`);
+        // Name the thing being downloaded, every time it repaints. This line
+        // is what someone stares at while deciding whether to kill it, and
+        // "Downloading the detector" alone does not say that the detector is
+        // a model file running ON THIS PHONE - which is the answer to the
+        // question actually being asked.
+        say($('#watchMsg'), `Downloading the vehicle detector — `
+          + `${(got / 1048576).toFixed(0)} of ${(total / 1048576).toFixed(0)} MB `
+          + `(${pct}%). Runs on this phone; first time only.`);
       }
       bytes = new Uint8Array(got); let at = 0;
       for (const c of chunks) { bytes.set(c, at); at += c.length; }
@@ -378,11 +383,11 @@ async function loadModel() {
     bytes = null;
   }
 
-  say($('#watchMsg'), 'Starting the detector…');
+  say($('#watchMsg'), 'Detector downloaded. Starting it on this phone…');
   session = await ort.InferenceSession.create(bytes || '/vendor/yolo11s.onnx',
     { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
   $('#loadbar').style.width = '100%';
-  say($('#watchMsg'), 'Detector ready — cached now, instant next time.', true);
+  say($('#watchMsg'), 'Detector ready and cached — instant next time.', true);
 }
 
 /* 🚨 LETTERBOX, NEVER STRETCH. Squashing the frame into the square distorts
