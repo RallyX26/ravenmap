@@ -10,7 +10,14 @@
     "    visitor reading the map should almost never be interrupted at all.",
     "  * 'id' must never be reused or renumbered. It is what a device remembers",
     "    as seen, so changing one re-shows the popup to everybody.",
-    "  * Newest first."
+    "  * Newest first.",
+    "",
+    "  🚨 SAY WHAT THE MAP ACTUALLY SHOWS. The first version of the entry below",
+    "  said cameras were 'drawn on the street next to the one they watch'.",
+    "  Cameras are NEVER drawn on the map - only the watched stretch of road is,",
+    "  and a camera's own position is never published at all. Wrong copy in a",
+    "  transparency project is a bug, and this one would have been read by the",
+    "  exact people who need to trust the privacy claim."
   ],
   "updates": [
     {
@@ -18,7 +25,7 @@
       "date": "2026-08-13",
       "audience": "owner",
       "title": "Point your camera at the right road",
-      "body": "Until now nobody was ever asked which way their camera faces, so the map guessed by pointing it due north. That is why some cameras are drawn on the street next to the one they actually watch. You can now set it yourself in about ten seconds, and the page tells you which road it landed on.",
+      "body": "Until now nobody was ever asked which way their camera faces, so the map guessed by pointing it due north. That is why some cameras have the wrong stretch of road marked as watched, and their sightings land on a street they never saw. Your camera's own position is never published either way - the map only ever shows the road. Setting the direction takes about ten seconds, and the page tells you which road it landed on.",
       "action": "Aim my camera",
       "href": "/aim"
     }
