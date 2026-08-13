@@ -148,7 +148,10 @@ _HIT_LOCK = threading.Lock()
 # caps a scraper walking the whole tile pyramid.
 RATE = {"/api/enroll": (5, 3600), "/api/sightings": (600, 3600),
         "/api/drive/report": (40, 3600), "/api/drive/vote": (120, 3600),
-        "/api/tile": (600, 300), "/api/report": (20, 3600)}
+        "/api/tile": (600, 300), "/api/report": (20, 3600),
+        # Reading back your own placement. Not brute-forceable (the token is
+        # 24 random bytes), but a wrong-token loop should still cost something.
+        "/api/node/me": (120, 3600)}
 
 
 def rate_ok(path: str, ip: str) -> bool:
@@ -522,6 +525,44 @@ class Handler(BaseHTTPRequestHandler):
                 cells = db.gov_heat()
                 return self._json({"cells": cells,
                                    "total": sum(c["n"] for c in cells)})
+
+            if p == "/api/node/me":
+                # A camera's owner reading back their OWN placement, to change
+                # it. Gated by the node's own token - the same secret that lets
+                # that camera post sightings, so this grants nothing new.
+                #
+                # 🚨 THIS IS THE ONE ENDPOINT THAT RETURNS A TRUE lat/lon.
+                # Everything else publishes the span and the jittered point,
+                # because a camera position identifies a house. The owner
+                # already knows where their own camera is, and cannot aim it
+                # without seeing it on a map - but that makes the token check
+                # the whole of the protection here, so it is checked before
+                # anything is read, and a node id alone (they are printed on
+                # the public map) gets nothing.
+                nd = db.node((q.get("id") or [""])[0])
+                if not nd:
+                    return self._err(404, "unknown camera")
+                if not nd.get("token") or not self._token_ok(nd):
+                    return self._err(401, "this camera's token is required")
+                return self._json({
+                    "id": nd["id"], "name": nd.get("name") or nd["id"],
+                    "kind": nd.get("kind") or "fixed",
+                    "lat": nd["lat"], "lon": nd["lon"],
+                    "heading": nd.get("heading") or 0,
+                    "fov": nd.get("fov") or 60,
+                    "reach_m": nd.get("reach_m") or 45,
+                    "road_name": nd.get("road_name"),
+                    "span_source": nd.get("span_source"),
+                    "span": node_mod.span_of(nd),
+                    "sightings": nd.get("sightings") or 0,
+                    "last_seen": nd.get("last_seen"),
+                })
+
+            if p == "/aim":
+                # Aiming a camera from the device that owns it. The capability
+                # is in the fragment or in this device's localStorage, so the
+                # page is served to anyone and shows nothing without one.
+                return self._file(PUBLIC / "aim.html")
 
             if p == "/rv":
                 return self._file(PUBLIC / "rv.html")
@@ -961,10 +1002,21 @@ class Handler(BaseHTTPRequestHandler):
                                           "application/json")
 
             if p == "/api/enroll":
-                if not rate_ok(p, self.client_ip):
-                    return self._err(429, "too many cameras registered from "
-                                          "this address; try later")
                 b = self._body()
+                # 🚨 THE LIMIT IS ON CREATING CAMERAS, NOT ON CORRECTING ONE.
+                # 5/hour is right for a stranger minting nodes and wrong for
+                # the owner of an existing camera, who nudges a heading, looks
+                # at which road it resolved to, and nudges again - the /aim
+                # page is built on exactly that loop, and at 5/hour it would
+                # lock them out mid-adjustment with their camera pointing at
+                # the wrong street. A re-save carries a node_id whose token is
+                # verified inside enroll(), so it is not anonymous traffic.
+                # The body is read first so the two cases can be told apart;
+                # _body() is already capped at MAX_BODY.
+                if not str(b.get("node_id") or "").strip():
+                    if not rate_ok(p, self.client_ip):
+                        return self._err(429, "too many cameras registered "
+                                              "from this address; try later")
                 for k in ("name", "lat", "lon"):
                     if k not in b:
                         return self._err(400, f"missing {k}")

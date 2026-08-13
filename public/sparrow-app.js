@@ -167,7 +167,11 @@ $('#btnEnroll').onclick = async () => {
  * once, proving ownership with its node token. Built with DOM calls (no inline
  * style/script) so it survives the strict CSP. */
 function showReviewBanner(tok) {
-  if (!tok) return;
+  // ⚠️ The aim link must NOT be hostage to the review token.
+  // This returned early whenever there was no review token, and the aim link
+  // hung off the end of it - so the cameras least likely to have been set up
+  // carefully would have been the ones never offered the chance to aim.
+  if (!tok) { showAimBanner(); return; }
   let el = document.getElementById('reviewBanner');
   if (!el) {
     el = document.createElement('div');
@@ -209,6 +213,49 @@ function showReviewBanner(tok) {
   lbl.appendChild(code);
 
   el.appendChild(line); el.appendChild(hint); el.appendChild(lbl);
+  showAimLink(el);
+}
+
+/* 🧭 THE AIM LINK, BECAUSE UNTIL NOW THERE WAS NOWHERE TO AIM FROM.
+ * The placement screen only ever existed inside camctl, the DESKTOP tool - so
+ * no volunteer has ever been asked which way their camera points, and 28 of 31
+ * cameras sit at heading 0. The server then treats that 0 as a real aim and
+ * points the cone due north, which is how a camera watching one street ends up
+ * drawn on the one perpendicular to it.
+ *
+ * The key rides in the SAME #k=<id>.<token> fragment the camera app already
+ * uses, so it is never in a request line, and /aim strips it from the address
+ * bar as soon as it is read. */
+function showAimBanner() {
+  if (!node || !node.id || !node.token) return;
+  // The review banner already carries the aim link, so never show both.
+  if (document.getElementById('aimBanner') ||
+      document.getElementById('reviewBanner')) return;
+  const el = document.createElement('div');
+  el.id = 'aimBanner';
+  Object.assign(el.style, {
+    margin: '10px 0', padding: '10px 12px', borderRadius: '10px',
+    border: '1px solid #244', background: '#0f1621', color: '#bfe3d0',
+    font: '13px/1.5 system-ui, sans-serif' });
+  const host = document.querySelector('main') || document.body;
+  host.insertBefore(el, host.firstChild);
+  showAimLink(el);
+}
+
+function showAimLink(host) {
+  if (!node || !node.id || !node.token) return;
+  const wrap = document.createElement('div');
+  Object.assign(wrap.style, { marginTop: '8px' });
+  const a = document.createElement('a');
+  a.href = location.origin + '/aim#k=' + encodeURIComponent(node.id) +
+           '.' + encodeURIComponent(node.token);
+  a.textContent = 'Point this camera at the right road →';
+  Object.assign(a.style, { color: '#3ddc97', fontWeight: '600' });
+  const why = document.createElement('div');
+  why.textContent = 'Do this when you set it up, and again any time you move it.';
+  Object.assign(why.style, { opacity: '.7', marginTop: '4px', fontSize: '12px' });
+  wrap.appendChild(a); wrap.appendChild(why);
+  host.appendChild(wrap);
 }
 function lbl_label(node, text) { node.appendChild(document.createTextNode(text)); }
 
@@ -226,8 +273,10 @@ async function ensureReviewToken() {
       node.review_token = r.review_token;
       localStorage.setItem(KEY, JSON.stringify(node));
       showReviewBanner(node.review_token);
+    } else {
+      showAimBanner();          // no review token to mint, but aiming still applies
     }
-  } catch (e) { /* offline is fine; they can review later */ }
+  } catch (e) { showAimBanner(); /* offline review is fine; aiming is local */ }
 }
 
 /* ---- 2 · watch (the detector) ---------------------------------------- */

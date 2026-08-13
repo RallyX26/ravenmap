@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Aim your camera — SparrowMap</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<meta name="theme-color" content="#0B0E13">
+<link rel="stylesheet" href="/vendor/leaflet.css">
+<style>
+/* Deliberately self-contained: style.css pins html,body{height:100%;overflow:hidden}
+   for the map app, and a page with a scrolling panel under a map has to undo
+   BOTH or it silently refuses to scroll on a phone. */
+:root{--bg:#0B0E13;--panel:#131822;--line:#1e2634;--ink:#e8edf5;--dim:#8794a8;--go:#3ddc97;--bad:#ff6b6b}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+  font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:10px;padding:10px 14px;
+  border-bottom:1px solid var(--line);background:var(--panel);flex:0 0 auto}
+header b{letter-spacing:.06em;font-size:14px}
+header .tag{color:var(--dim);font-size:12px}
+#map{flex:1 1 auto;min-height:38vh;background:#0d1117}
+.sheet{flex:0 0 auto;max-height:56vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  background:var(--panel);border-top:1px solid var(--line);padding:14px}
+.row{display:flex;align-items:center;gap:10px;margin:10px 0}
+.row label{flex:0 0 78px;color:var(--dim);font-size:13px}
+input[type=range]{flex:1 1 auto;accent-color:var(--go)}
+.val{flex:0 0 62px;text-align:right;font-variant-numeric:tabular-nums}
+button{font:inherit;border-radius:9px;border:1px solid var(--line);
+  background:#1b2231;color:var(--ink);padding:11px 14px;cursor:pointer}
+button.primary{background:var(--go);color:#07120d;border-color:transparent;font-weight:600}
+button:disabled{opacity:.5}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.btns button{flex:1 1 auto;min-width:132px}
+.msg{margin-top:12px;padding:10px 12px;border-radius:9px;background:#0f141d;
+  border:1px solid var(--line);font-size:14px}
+.msg.ok{border-color:#1f6f4d;background:#0d1a14}
+.msg.bad{border-color:#7a3030;background:#1a0f0f}
+.road{font-size:17px;font-weight:600;color:var(--go)}
+.hint{color:var(--dim);font-size:13px;margin:8px 0 0}
+.gate{padding:22px 16px;max-width:520px;margin:0 auto}
+input[type=password],input[type=text]{width:100%;padding:11px;border-radius:9px;
+  border:1px solid var(--line);background:#0f141d;color:var(--ink);font:inherit}
+.hidden{display:none!important}
+.warn{border-color:#7a5b20;background:#1a1509}
+</style>
+</head>
+<body>
+
+<header>
+  <b>AIM YOUR CAMERA</b>
+  <span class="tag" id="who"></span>
+</header>
+
+<!-- Nothing is shown until a token proves which camera this is. -->
+<div class="gate" id="gate">
+  <p>This page points a camera at the road it actually watches.</p>
+  <p class="hint">Open it from the device that registered the camera and it finds
+     the key by itself. Otherwise paste the camera token you were given when you
+     registered it.</p>
+  <p><input id="tok" type="password" autocomplete="off" autocapitalize="off"
+            spellcheck="false" placeholder="camera token"></p>
+  <p><input id="nid" type="text" autocomplete="off" autocapitalize="off"
+            spellcheck="false" placeholder="camera id (n_…)"></p>
+  <div class="btns"><button class="primary" id="gatego">Open my camera</button></div>
+  <div class="msg bad hidden" id="gatemsg"></div>
+</div>
+
+<div id="map" class="hidden"></div>
+
+<div class="sheet hidden" id="sheet">
+  <div id="mobilewarn" class="msg warn hidden">
+    This camera is registered as <b>carried</b> (driving mode). A carried camera
+    has no watched road, so there is nothing to aim — its sightings carry their
+    own position.
+  </div>
+
+  <div id="controls">
+    <p class="hint" id="step">
+      <b>Drag from the camera toward the road it watches.</b> That sets the
+      direction and how far it can see, in one movement.
+    </p>
+
+    <div class="row">
+      <label>Direction</label>
+      <input type="range" id="c_h" min="0" max="359" step="1">
+      <span class="val" id="v_h">0°</span>
+    </div>
+    <div class="row">
+      <label>Distance</label>
+      <input type="range" id="c_r" min="5" max="150" step="1">
+      <span class="val" id="v_r">30 m</span>
+    </div>
+
+    <div class="btns">
+      <button id="here">Camera is here (use GPS)</button>
+      <button id="movemode">Move the camera</button>
+    </div>
+    <div class="btns">
+      <button class="primary" id="save">Save and check the road</button>
+    </div>
+
+    <div class="msg" id="msg">
+      <div id="msgtext">Current: <span id="curroad">not yet snapped to a road</span></div>
+    </div>
+
+    <p class="hint">
+      Your camera's own position is never published. Only the stretch of road
+      it covers is, and only that stretch is what other people see.
+    </p>
+  </div>
+</div>
+
+<script src="/vendor/leaflet.js"></script>
+<script>
+(function(){
+'use strict';
+var $ = function(s){ return document.querySelector(s); };
+var KEY = 'sparrow.node';          // the camera app's own store, same device
+
+/* ---- who is this? ----------------------------------------------------
+ * 🚨 THE TOKEN NEVER TRAVELS IN A URL PATH OR QUERY.
+ * It arrives as #k=<id>.<token> - the same fragment the camera app and the
+ * review page use - so no request line, proxy log or Referer header ever
+ * contained it. Stripped from history immediately so it cannot be read off
+ * the address bar afterwards.
+ */
+var node = null;
+try { node = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch(e){ node = null; }
+
+var m = (location.hash || '').match(/^#k=([A-Za-z0-9_]+)\.([A-Za-z0-9_\-]+)$/);
+if (m) {
+  node = { id: m[1], token: m[2] };
+  try { localStorage.setItem(KEY, JSON.stringify(node)); } catch(e){}
+  history.replaceState(null, '', location.pathname);
+}
+
+/* A key arriving while this page is ALREADY OPEN changes only the fragment, so
+ * the browser does not reload and none of the above would run again - which is
+ * exactly what happens when someone pastes a key link into the address bar of
+ * the tab they already have open, or follows one from the camera app. Caught
+ * doing precisely that while testing. sparrow-app.js already learned this. */
+window.addEventListener('hashchange', function(){
+  if (/^#k=/.test(location.hash || '')) location.reload();
+});
+
+var map = null, marker = null, cone = null, span = null, place = null;
+var pos = null, heading = 0, fov = 60, reach = 30, moveMode = false;
+
+function say(text, cls){
+  var box = $('#msg');
+  box.className = 'msg' + (cls ? ' ' + cls : '');
+  $('#msgtext').innerHTML = text;
+}
+
+/* ---- geometry, drawn the way the server will read it ------------------
+ * The cone here is a PREVIEW of the question the server asks: which road
+ * falls inside this camera's view. It is not the answer - road.py walks the
+ * real geometry - so the page never claims a road name it has not been told.
+ */
+function mToLat(m){ return m / 110540; }
+function mToLon(m, lat){ return m / (111320 * Math.cos(lat * Math.PI / 180)); }
+
+function draw(){
+  if (!pos) return;
+  if (marker) marker.setLatLng(pos); else {
+    marker = L.circleMarker(pos, { radius:7, color:'#e8edf5', weight:2,
+      fillColor:'#e8edf5', fillOpacity:.85 }).addTo(map);
+  }
+  var pts = [pos];
+  for (var a = -fov/2; a <= fov/2; a += 4){
+    var t = (heading + a) * Math.PI / 180;
+    pts.push([pos.lat + mToLat(reach) * Math.cos(t),
+              pos.lng + mToLon(reach, pos.lat) * Math.sin(t)]);
+  }
+  pts.push(pos);
+  if (cone) cone.setLatLngs(pts); else {
+    cone = L.polygon(pts, { color:'#3ddc97', weight:1, opacity:.8,
+      fillColor:'#3ddc97', fillOpacity:.18, interactive:false }).addTo(map);
+  }
+  $('#c_h').value = Math.round(heading); $('#v_h').textContent = Math.round(heading) + '°';
+  $('#c_r').value = Math.round(reach);   $('#v_r').textContent = Math.round(reach) + ' m';
+}
+
+/* Dragging from the camera toward the road sets direction AND distance at
+ * once, which is how a person actually describes it: "it looks that way, about
+ * that far". Two sliders alone made people set a direction and leave the
+ * distance at whatever it was, and the distance is what decides whether the
+ * road is inside the cone at all. */
+function pointAt(latlng){
+  if (!pos) return;
+  var dy = latlng.lat - pos.lat;
+  var dx = (latlng.lng - pos.lng) * Math.cos(pos.lat * Math.PI / 180);
+  heading = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+  reach = Math.max(5, Math.min(150, Math.round(map.distance(pos, latlng))));
+  draw();
+}
+
+function boot(p){
+  place = p;
+  pos = L.latLng(p.lat, p.lon);
+  heading = p.heading || 0; fov = p.fov || 60; reach = p.reach_m || 30;
+
+  $('#gate').classList.add('hidden');
+  $('#map').classList.remove('hidden');
+  $('#sheet').classList.remove('hidden');
+  $('#who').textContent = p.name + ' · ' + p.id;
+
+  map = L.map('map', { zoomControl:true }).setView(pos, 18);
+  L.tileLayer('/api/tile/{z}/{x}/{y}.png', { maxZoom:20,
+    attribution:'&copy; OpenStreetMap contributors &copy; CARTO &middot; SparrowMap'
+  }).addTo(map);
+
+  if (p.span && p.span.length){
+    span = L.polyline(p.span, { color:'#3ddc97', weight:4, opacity:.55 }).addTo(map);
+  }
+
+  if (p.kind === 'mobile'){
+    $('#mobilewarn').classList.remove('hidden');
+    $('#controls').classList.add('hidden');
+    return;
+  }
+
+  draw();
+  say(p.road_name
+      ? 'Right now the map says this camera watches <span class="road">' +
+        esc(p.road_name) + '</span>.' +
+        (p.heading ? '' : ' <b>No direction has ever been set</b>, so that road ' +
+                          'was picked by pointing it due north — which is a guess.') +
+        (p.span_source && p.span_source !== 'osm'
+          ? ' <b>Nothing is inside its view</b>, so that is only the nearest road.'
+          : '')
+      : 'This camera has no road yet.');
+
+  map.on('click', function(e){
+    if (moveMode){
+      pos = e.latlng; moveMode = false;
+      $('#movemode').textContent = 'Move the camera';
+      $('#step').innerHTML = '<b>Drag from the camera toward the road it watches.</b>';
+      draw();
+    } else {
+      pointAt(e.latlng);
+    }
+  });
+}
+
+function esc(s){ return String(s).replace(/[&<>"]/g, function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+['c_h','c_r'].forEach(function(id){
+  document.getElementById(id).addEventListener('input', function(){
+    if (id === 'c_h') heading = +this.value; else reach = +this.value;
+    draw();
+  });
+});
+
+$('#movemode').onclick = function(){
+  moveMode = !moveMode;
+  this.textContent = moveMode ? 'Tap the map where it is…' : 'Move the camera';
+  $('#step').innerHTML = moveMode
+    ? '<b>Tap where the camera actually is.</b>'
+    : '<b>Drag from the camera toward the road it watches.</b>';
+};
+
+$('#here').onclick = function(){
+  if (!navigator.geolocation) return say('This device has no location service.', 'bad');
+  say('Asking for your location…');
+  navigator.geolocation.getCurrentPosition(function(g){
+    pos = L.latLng(g.coords.latitude, g.coords.longitude);
+    map.setView(pos, 18); draw();
+    say('Moved to your location. Now drag toward the road it watches.');
+  }, function(err){ say('Location refused: ' + err.message, 'bad'); },
+     { enableHighAccuracy:true, timeout:15000 });
+};
+
+/* ---- save -------------------------------------------------------------
+ * Re-enrolment with the node id and its token: the server recomputes the
+ * span from the TRUE position and the aim, exactly as it does at first
+ * registration, so there is no second code path that could disagree.
+ *
+ * Then it reads the placement back and shows the ROAD NAME. That read-back is
+ * the whole point of the screen: "which road did that give me" is the only
+ * check that matters, and until now it could only be answered from a laptop.
+ */
+$('#save').onclick = async function(){
+  if (!pos) return say('Place the camera first.', 'bad');
+  var btn = this; btn.disabled = true;
+  say('Saving and asking which road that is…');
+  try {
+    var body = { name: place.name, node_id: place.id, token: node.token,
+                 kind: place.kind, lat: pos.lat, lon: pos.lng,
+                 heading: Math.round(heading), fov: Math.round(fov),
+                 reach_m: Math.round(reach) };
+    var r = await fetch('/api/enroll', { method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    var j = await r.json();
+    if (j.error){ say(esc(j.error), 'bad'); btn.disabled = false; return; }
+
+    var p = await (await fetch('/api/node/me?id=' + encodeURIComponent(place.id),
+      { headers:{ 'Authorization':'Bearer ' + node.token } })).json();
+    place = p;
+    if (span) { map.removeLayer(span); span = null; }
+    if (p.span && p.span.length){
+      span = L.polyline(p.span, { color:'#3ddc97', weight:4, opacity:.55 }).addTo(map);
+    }
+    if (p.road_name && p.span_source === 'osm'){
+      // 'osm' is the AIM path (road.span_from_ways): a road really did fall
+      // inside the cone and won on how much of it did.
+      say('Saved. Your aim picked <span class="road">' + esc(p.road_name) +
+          '</span>.<br><span class="hint">If that is not the road you are looking ' +
+          'at, adjust the direction or distance and save again — the road is ' +
+          'chosen from what falls inside the view.</span>', 'ok');
+    } else if (p.road_name){
+      /* 🚨 NAMING THE ROAD WITHOUT SAYING WHERE THE NAME CAME FROM IS THE BUG
+       * THIS PAGE EXISTS TO FIX. When nothing falls inside the cone the server
+       * falls back to the NEAREST road, which is how cameras ended up pointed
+       * at streets perpendicular to their own traffic. If the page reported
+       * that the same way as a real hit, the owner would read "watches X",
+       * believe their aim took, and stop - with the aim still doing nothing.
+       * Caught in testing: heading 180 at 60 m came back 'nearest', not 'osm'. */
+      say('Saved, but <b>your aim did not choose this</b>. No road fell inside ' +
+          'the view, so the map fell back to the nearest one: <span class="road">' +
+          esc(p.road_name) + '</span>.<br><span class="hint">If that is not the ' +
+          'road you watch, increase the distance until the road you are looking ' +
+          'at is inside the cone, then save again.</span>', 'warn');
+    } else {
+      say('Saved, but no road fell inside the view. Try a longer distance — ' +
+          'if the road is further away than the distance you set, nothing can ' +
+          'match it.', 'bad');
+    }
+  } catch(e){ say('Save failed: ' + esc(e.message), 'bad'); }
+  btn.disabled = false;
+};
+
+/* ---- open -------------------------------------------------------------- */
+async function openCamera(id, token){
+  var r = await fetch('/api/node/me?id=' + encodeURIComponent(id),
+                      { headers:{ 'Authorization':'Bearer ' + token } });
+  if (!r.ok){
+    var e = $('#gatemsg');
+    e.textContent = r.status === 401
+      ? 'That token does not open this camera.'
+      : (r.status === 404 ? 'No camera with that id.' : 'Could not load it (' + r.status + ').');
+    e.classList.remove('hidden');
+    return;
+  }
+  node = { id: id, token: token };
+  try { localStorage.setItem(KEY, JSON.stringify(node)); } catch(err){}
+  boot(await r.json());
+}
+
+$('#gatego').onclick = function(){
+  var t = $('#tok').value.trim(), i = $('#nid').value.trim();
+  if (!t || !i){
+    $('#gatemsg').textContent = 'Both the camera id and its token are needed.';
+    $('#gatemsg').classList.remove('hidden');
+    return;
+  }
+  openCamera(i, t);
+};
+
+if (node && node.id && node.token) openCamera(node.id, node.token);
+})();
+</script>
+</body>
+</html>
