@@ -1809,7 +1809,19 @@ class Handler(BaseHTTPRequestHandler):
         # online while they are actually working.
         db.heartbeat(nid, ts)
         FEED.publish(rec)
-        out = {"id": rec["id"], "tier": tier, "vclass": c["vclass"], "why": c["why"]}
+        # 🚨 TELL THE CAMERA ITS CROP IS WAITING ON A HUMAN.
+        # A phone detects VEHICLES; the government call happens here, after the
+        # post. So the phone has never known it caught a patrol car - the
+        # judgement was in this response all along and the client read only the
+        # error field. A desktop node has had push_confirm since the start
+        # ("ask the owner to confirm, NOW, while the vehicle is still in
+        # sight"), and a phone volunteer got nothing until they opened /rv
+        # hours later to a still image of a car they no longer remember.
+        # `parked` is the honest signal: not "this is a cop", but "a person is
+        # being asked about this one", which is exactly when it is worth asking
+        # the person who is standing there.
+        out = {"id": rec["id"], "tier": tier, "vclass": c["vclass"],
+               "why": c["why"], "parked": review_crop is not None}
         if dropped_image:
             out["image_dropped"] = dropped_image
         return self._json(out)

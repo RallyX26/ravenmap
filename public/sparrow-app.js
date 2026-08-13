@@ -475,7 +475,61 @@ async function submit(tr) {
     if (r.error) { net('busy', 'hub: ' + r.error); return; }
     sent++; $('#sSent').textContent = sent;
     net('on', 'sending');
+    // The hub has just told us a human is being asked about this crop. Ask the
+    // one who is standing here, while the vehicle may still be in sight.
+    if (r.parked && r.id) askNow(r.id, tr.best, r.vclass);
   } catch (e) { net('busy', 'hub unreachable'); }
+}
+
+/* ---- "is that one a cop?", asked while it is still in sight ------------
+ * The desktop node has had this since the start (run_live.push_confirm); a
+ * phone volunteer had nothing until they opened /rv hours later and judged a
+ * still image of a car they no longer remember. The person holding the phone
+ * saw the actual vehicle - markings, light bar, the lot - and that judgement
+ * is strictly better than the one they can make later from a crop.
+ *
+ * Deliberately narrow:
+ *   * only when the hub says the crop was PARKED for review. Prompting on
+ *     civilian traffic would train people to dismiss without looking, and the
+ *     next prompt is the one that mattered.
+ *   * one at a time, newest wins. A queue of these on a phone propped in a
+ *     window is just a wall to swipe through.
+ *   * it never blocks the detector. Answering is optional and the crop is in
+ *     /rv either way, so ignoring it costs nothing.
+ *   * needs the camera's own reviewer token, which is 'own' scope - a
+ *     volunteer can only ever rule on their own camera this way.
+ */
+var askTimer = null;
+function askNow(sid, cropDataUrl, vclass) {
+  if (!(node && node.review_token)) return;   // no token, nothing to post with
+  var box = $('#askNow');
+  if (!box) return;
+  clearTimeout(askTimer);
+  $('#askImg').src = cropDataUrl || '';
+  $('#askWhy').textContent = vclass ? ('classifier says: ' + vclass) : '';
+  box.dataset.sid = String(sid);
+  box.classList.remove('hidden');
+  // Not a modal and not permanent: if nobody is holding the phone it clears
+  // itself rather than covering the preview until someone comes back.
+  askTimer = setTimeout(function () { box.classList.add('hidden'); }, 45000);
+}
+
+async function answerNow(call) {
+  var box = $('#askNow');
+  var sid = box && box.dataset.sid;
+  if (!sid) return;
+  box.classList.add('hidden');
+  clearTimeout(askTimer);
+  try {
+    await fetch('/api/rv/verdict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json',
+                 'Authorization': 'Bearer ' + node.review_token },
+      body: JSON.stringify({ id: +sid, verdict: call }),
+    });
+    say($('#watchMsg'), call === 'not' ? 'Marked as not a government vehicle.'
+                                       : 'Confirmed — it will appear on the map.', true);
+  } catch (e) { /* it stays in /rv; nothing is lost */ }
 }
 
 function reap(now) {
@@ -613,6 +667,11 @@ function stop() {
   say($('#watchMsg'), 'Stopped.');
 }
 $('#btnStart').onclick = start;
+// 'cop' / 'gov' / 'not' are the verdict names review_api.verdict already uses,
+// so the phone answer and a /rv answer are literally the same call.
+$('#askCop').onclick = function () { answerNow('cop'); };
+$('#askGov').onclick = function () { answerNow('gov'); };
+$('#askNot').onclick = function () { answerNow('not'); };
 $('#btnStop').onclick = stop;
 
 async function batteryWatch() {

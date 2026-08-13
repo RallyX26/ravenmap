@@ -122,6 +122,20 @@ button.big:disabled{opacity:.4;cursor:default}
 .warnbox{background:#231015;border:1px solid #4a2029;border-radius:10px;padding:12px 14px;
   font-size:12.5px;line-height:1.6;color:#ffb3bd;margin-top:12px}
 .warnbox b{color:#ff9aa6}
+.asknow{display:flex;gap:10px;margin-top:10px;padding:10px;border-radius:10px;
+  background:#101a26;border:1px solid #2a4459}
+.asknow img{width:84px;height:64px;object-fit:cover;border-radius:7px;
+  background:#000;flex:0 0 auto}
+.askbody{flex:1 1 auto;min-width:0}
+.askbody b{font-size:13.5px;display:block}
+.askwhy{display:block;font:10.5px var(--mono);color:var(--dim2);margin-top:2px}
+.askbtns{display:flex;gap:6px;margin-top:8px}
+.askbtns .ask{flex:1;border:0;border-radius:8px;padding:9px 6px;cursor:pointer;
+  font:700 11.5px ui-sans-serif,system-ui;color:#04101f;
+  -webkit-tap-highlight-color:transparent}
+.askbtns .cop{background:var(--good)}
+.askbtns .gov{background:var(--warn)}
+.askbtns .not{background:#2a3547;color:var(--ink)}
 .modelnote{margin-top:10px;background:#0a0e15;border:1px solid var(--line);
   border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.6;color:var(--dim)}
 .modelnote b{color:var(--ink)}
@@ -213,6 +227,24 @@ a{color:var(--blue)}
         </div>
         <button class="big" id="btnStart">Start watching</button>
         <button class="big stop hidden" id="btnStop">Stop</button>
+
+        <!-- Asked the moment the hub parks a crop for review, so the person
+             who actually SAW the vehicle answers instead of judging a still
+             image hours later. Sits under the preview rather than over it:
+             covering the camera view to ask about the camera view is its own
+             kind of wrong. -->
+        <div class="asknow hidden" id="askNow">
+          <img id="askImg" alt="">
+          <div class="askbody">
+            <b>Is that a government vehicle?</b>
+            <span class="askwhy" id="askWhy"></span>
+            <div class="askbtns">
+              <button type="button" class="ask cop" id="askCop">Police</button>
+              <button type="button" class="ask gov" id="askGov">Gov</button>
+              <button type="button" class="ask not" id="askNot">No</button>
+            </div>
+          </div>
+        </div>
         <div class="grid3">
           <div class="stat"><b id="sFps">&mdash;</b><span>fps</span></div>
           <div class="stat"><b id="sSeen">0</b><span>vehicles</span></div>
@@ -278,7 +310,7 @@ a{color:var(--blue)}
 </nav>
 
 <script src="/vendor/ort.wasm.min.js"></script>
-<script src="/static/sparrow-app.js?v=25"></script>
+<script src="/static/sparrow-app.js?v=26"></script>
 <!-- The camera app is where owners live, so this is where an 'owner' update
      actually reaches someone who can act on it. -->
 <script src="/static/updates.js?v=2"></script>
