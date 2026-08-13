@@ -413,16 +413,24 @@ def verdict(reviewer: dict, sid: int, call: str, ip: str = "") -> dict:
         db.audit("review:confirm", str(sid), actor=who, ip=ip)
         return {"ok": True, "id": sid, "verdict": "cop"}
     if call == "gov":
-        # Government but NOT police: a council truck, a state pickup, a fleet
-        # vehicle with a department decal. Same public tier - a publicly owned
-        # vehicle doing public work is a public record either way - but a
-        # different claim, and the reviewer is the one who can actually see
-        # which it is. Audited under its own action so the two calls can be
-        # counted separately when the classifier's confusion matrix is
-        # published.
-        _publish(sid, reviewer, force_vclass="gov")
+        # 🚨 NO LONGER A PUBLISH. public_tiers is police-only (see core.py), and
+        # _publish never consulted it - so this button was the one route that
+        # could still put a council truck on a police map. The verdict is still
+        # RECORDED, because "a human looked and said government-but-not-police"
+        # is exactly the label the classifier needs to learn the difference; it
+        # simply no longer reaches the public tier.
+        #
+        # What it used to say, and what is no longer true: "a publicly owned
+        # vehicle doing public work is a public record either way". It still
+        # is - it is just not what this map is FOR, and a council truck sitting
+        # beside a patrol car weakens the only claim the project makes.
+        _delete_pen(sid)
+        db.review_sighting(sid, "confirmed_gov")
         db.audit("review:confirm_gov", str(sid), actor=who, ip=ip)
-        return {"ok": True, "id": sid, "verdict": "gov"}
+        return {"ok": True, "id": sid, "verdict": "gov",
+                "note": "recorded as government but not published - the map "
+                        "shows police vehicles only"}
+
     if call == "not":
         # Never published, so nothing to retract: drop the crop, leave the row
         # private. The verdict is logged so the call is attributable and the crop

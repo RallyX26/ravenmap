@@ -227,7 +227,10 @@
              marked fleet vehicle. Same public tier, different claim - and the
              human looking at it is a better judge of which than the classifier
              that could not separate them. -->
-        <button class="btn gov" id="b-gov">🏛 Gov <small>G</small></button>
+        <!-- Kept, but it no longer publishes: the map is police-only now, and
+     "a human said government-but-not-police" is still the most useful
+     label the classifier can be given for the thing it confuses most. -->
+        <button class="btn gov" id="b-gov">🏛 Gov <small>not on map</small></button>
         <button class="btn cop" id="b-cop">🚔 Cop <small>C / →</small></button>
       </div>
       <button class="undo" id="undo" disabled>↩ undo last</button>

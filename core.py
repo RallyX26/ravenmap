@@ -50,7 +50,18 @@ DEFAULTS = {
     # stored. Government / police / fleet plates are stored readable, because a
     # publicly owned vehicle doing public work on a public road is a public
     # record. This is the single most important setting in the project.
-    "public_tiers": ["police", "gov"],
+    # 🚨 POLICE ONLY. His call, 2026-08-13: "just police type vehicles - no
+    # regular city work trucks, no ambulance, no firefighters."
+    #
+    # A council pickup on a public road is still a publicly owned vehicle, so
+    # publishing it was defensible - but it is not what anyone comes to this
+    # map for, and every bin lorry on it dilutes the one claim the project
+    # exists to make. gov_dot publishing bin lorries is already recorded
+    # history here. Narrowing the claim makes it easier to defend, not harder.
+    #
+    # Nothing is lost: the classification still happens and the row is still
+    # kept privately, so a decision to widen this later has the data to do it.
+    "public_tiers": ["police"],
 
     # ⚠️ MAY THIS DEPLOYMENT ASSERT "police" ABOUT A VEHICLE IN PUBLIC?
     #

@@ -24,10 +24,15 @@ const COLOR = {
    classify.py still decides police vs gov on its own evidence, and the detail
    panel still shows which - but the headline on a dot is the category that
    matters publicly. */
+/* 🚨 THE MAP IS POLICE-ONLY (core.py public_tiers). His call: "just police
+   type vehicles - no regular city work trucks, no ambulance, no firefighters."
+   So the headline says what it now means. `gov` and `emergency` keep their
+   labels because historical rows and the reviewer's own vocabulary still use
+   them - they simply cannot reach the public tier any more. */
 const CLASS_LABEL = {
-  police:    'Government vehicle',
+  police:    'Police vehicle',
   gov:       'Government vehicle',
-  emergency: 'Government vehicle',
+  emergency: 'Emergency vehicle',
   fleet:     'Fleet vehicle',
   civilian:  'Private vehicle',
   unknown:   'Unidentified',
