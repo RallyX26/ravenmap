@@ -590,8 +590,28 @@ async function loadCameras() {
     // layer now. The tooltip hangs off the span because there is no longer a
     // point to hang it off - and that is the honest place for it, since the
     // span is the only thing being claimed.
+    // 🚨 A CORRIDOR ALONG THE ROAD, NOT A BLOB, AND NOT A LOZENGE.
+    // A 5px round-capped stroke over an 80 m span draws a short fat pill with
+    // bulging ends, and that reads as a MARKER - a thing at a place. It is the
+    // opposite of what is being claimed: the camera's own position is jittered
+    // and deliberately unpublished, and the span is the only honest unit.
+    //
+    // The obvious alternative, a soft radial haze, would be WORSE. A blob has a
+    // visual centre and the eye finds it instantly - and that centre is the span
+    // midpoint, which is exactly what SPAN_MIN_M exists to make uninformative.
+    // road.py pads the span to a minimum length "so its midpoint no longer
+    // localises the camera"; a rendering with a bright middle hands that back.
+    //
+    // So: a wide, faint band of EVEN intensity along the whole stretch, with a
+    // thin brighter line on the road itself. Uniform end to end, no hotspot to
+    // read a position out of, and square ends (lineCap 'butt') because round
+    // caps are what made it look like a pin in the first place.
     L.polyline(c.span, {
-      color: G, weight: 5, opacity: live ? 0.75 : 0.3, lineCap: 'round',
+      color: G, weight: 18, opacity: live ? 0.14 : 0.06,
+      lineCap: 'butt', interactive: false,
+    }).addTo(state.camLayer);
+    L.polyline(c.span, {
+      color: G, weight: 2.5, opacity: live ? 0.65 : 0.28, lineCap: 'butt',
     }).bindTooltip(
       `${esc(c.name)}${c.road_name ? ' &middot; ' + esc(c.road_name) : ''}
        <br>${status}<br>${c.sightings} sightings
