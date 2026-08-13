@@ -66,6 +66,35 @@ def fetch_verdicts(args) -> list[dict]:
         return []
 
 
+def newest_per_target(verdicts: list[dict]) -> tuple[list[dict], int]:
+    """One verdict per sighting: the LATEST. Returns (kept, superseded_count).
+
+    🚨 WITHOUT THIS THE TOOL TELLS YOU TO CORRUPT YOUR OWN DATA.
+    People review the same vehicle twice, and 3 of the 7 repeats here changed
+    answer - #30921 and #30922 went reject -> confirm, #32681 went confirm ->
+    reject. The query returns newest first, so the loop applied the NEW verdict
+    and then met the OLD one, found the label already changed, and reported a
+    "conflict - use --relabel to overwrite". Following that advice would have
+    applied the STALE verdict on top of the fresh one and left the OLDEST
+    answer as the final label, on exactly the hard cases (unmarked SUVs, decal'd
+    fleet trucks) where the second look is the one worth having.
+
+    A person who rules on the same vehicle twice has changed their mind, not
+    voted twice. Latest wins, and the superseded ones never reach the loop, so
+    the only things left to report as conflicts are real disagreements between
+    a human's verdict and a human's existing label.
+    """
+    seen: set = set()
+    kept: list[dict] = []
+    for v in verdicts:                      # query is ORDER BY ts DESC
+        t = str(v.get("target"))
+        if t in seen:
+            continue
+        seen.add(t)
+        kept.append(v)
+    return kept, len(verdicts) - len(kept)
+
+
 def sidecars_by_sighting() -> dict:
     """{sighting_id: sidecar path} for every locally banked crop that carries one."""
     idx = {}
@@ -96,6 +125,10 @@ def main() -> None:
           f"{args.days:.0f} days")
     if not verdicts:
         return
+    verdicts, superseded = newest_per_target(verdicts)
+    if superseded:
+        print(f"{superseded} superseded verdict(s) ignored - a vehicle reviewed "
+              f"twice keeps the LATEST answer")
     idx = sidecars_by_sighting()
     print(f"{len(idx)} locally banked crop(s) carry a sighting id")
 
