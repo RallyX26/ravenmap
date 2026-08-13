@@ -49,6 +49,15 @@ def main() -> None:
             print(f"{n['id']}  mobile node, sightings carry their own GPS - skipped")
             continue
 
+        # 🚨 NEVER RE-SPAN A CARRIED CAMERA. Enrolment refuses to give
+        # kind='mobile' a span, and this tool overrode that by walking
+        # every node in the table - which is how driving sessions came to be
+        # drawn as watched roads. A tool that bypasses the rule its own
+        # module enforces is worse than no tool.
+        if (n.get("kind") or "") == "mobile":
+            print(f"{n['id']}  {n['name']}")
+            print("   SKIP  carried camera - no watched road")
+            continue
         span = road.resolve(n["lat"], n["lon"], n["heading"] or 0,
                             n["fov"] or 60, n["reach_m"] or 45,
                             online=not args.offline)

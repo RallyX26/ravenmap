@@ -736,7 +736,12 @@
     if(!me)return cb(null);
     var name='Driving '+new Date().toISOString().slice(0,10);
     fetch('/api/enroll',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name:name,kind:'phone',lat:me[0],lon:me[1]})})
+      // kind 'mobile', not 'phone': this camera is CARRIED. A phone in a
+      // window is stationary and needs a watched road; a dashcam must never
+      // be given one, because a stretch of street it drove past once is not a
+      // street it watches. Sending 'phone' here is how four driving sessions
+      // ended up drawn on the map as watched roads.
+      body:JSON.stringify({name:name,kind:'mobile',lat:me[0],lon:me[1]})})
       .then(function(r){return r.json();}).then(function(r){
         if(r&&r.id&&r.token){var nn={id:r.id,token:r.token,name:name};
           try{localStorage.setItem('sparrow.drive.node',JSON.stringify(nn));}catch(e){}

@@ -172,10 +172,22 @@ def enroll(name: str, lat: float, lon: float, pubkey: Optional[str] = None,
     # options. So an unaimed FIXED camera now snaps to the nearest real road
     # (road.span_nearest), which claims less than an aimed span and is true.
     #
-    # A phone still gets nothing: it is carried, so there is no stretch of road
-    # it watches, and its sightings carry their own GPS instead.
+    # 🚨 THE LINE IS CARRIED-vs-STATIONARY, NOT PHONE-vs-FIXED.
+    #
+    # This used to span only kind='fixed', on the reasoning that "a phone is
+    # carried, so there is no stretch of road it watches, and its sightings
+    # carry their own GPS instead". The first half is true of a phone in a
+    # POCKET. The second half is not true of the thing this project actually
+    # asks people to do: a phone propped in a window is stationary, watches one
+    # street, and sends no per-sighting GPS at all - so with no span its
+    # sightings fall back to a single invented point and stack there for ever.
+    # That was the "dot in the park with thousands of passes behind it".
+    #
+    # So everything gets a span EXCEPT kind='mobile', which is the one that is
+    # genuinely carried: driving mode, whose sightings do carry their own GPS
+    # and for which a fixed watched road is a false claim about a street.
     span = None
-    if kind == "fixed":
+    if kind != "mobile":
         import road
         span = road.resolve(lat, lon, heading or 0.0, fov, reach_m,
                             online=snap_road)
