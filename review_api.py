@@ -75,8 +75,24 @@ def head_rejected(meta: dict) -> bool:
         return False
 
 
-def queue(reviewer: dict, scope: str = "pool", limit: int = 60) -> dict:
-    """Pending pool items this reviewer may see, newest first."""
+def queue(reviewer: dict, scope: str = "pool", limit: int = 60,
+          rejected: bool = False) -> dict:
+    """Pending pool items this reviewer may see, newest first.
+
+    `rejected=True` returns ONLY the items the trained head threw out - the
+    pile the normal queue hides.
+
+    🚨 THIS IS WHERE A MISSED PATROL CAR WOULD BE. The filter is right: a
+    reviewer seeing an extra car costs seconds, and hiding a real patrol unit
+    defeats the project, so the default queue stays filtered. But held-out
+    recall is about 86%, so roughly one government vehicle in seven lands in
+    this pile - and until now there was no way to look at it. A filter nobody
+    can audit is a filter nobody should trust.
+
+    They are returned SEPARATELY rather than merged in. Mixing them would lose
+    the one fact that matters about them: the classifier already said no, and
+    the reviewer is second-guessing it deliberately rather than working a queue.
+    """
     allowed = reviewer.get("nodes")            # None = all nodes
     if not mirror.REVIEW.exists():
         return {"items": [], "count": 0, "hidden": 0}
@@ -88,9 +104,6 @@ def queue(reviewer: dict, scope: str = "pool", limit: int = 60) -> dict:
         except ValueError:
             continue
         meta = _pen_meta(sid)
-        if head_rejected(meta):
-            hidden += 1
-            continue
         row = db.sighting(sid) if hasattr(db, "sighting") else None
         node_id = meta.get("node_id") or (row or {}).get("node_id") or ""
         node_name = meta.get("node_name")
@@ -98,9 +111,20 @@ def queue(reviewer: dict, scope: str = "pool", limit: int = 60) -> dict:
             nd = db.node(node_id)
             node_name = (nd or {}).get("name")
         # 'own' scope, or a pool token that names specific nodes, filters here.
+        #
+        # ⚠️ SCOPE IS APPLIED BEFORE THE HEAD FILTER ON PURPOSE. It used to be
+        # counted after, so `hidden` included other people's cameras and a
+        # single-camera volunteer was told hundreds of their crops were held
+        # back when almost none of them were theirs. A number about someone
+        # else's cameras is worse than no number.
         if allowed is not None and node_id not in allowed:
             continue
         if scope == "mine" and allowed is not None and node_id not in allowed:
+            continue
+        was_rejected = head_rejected(meta)
+        if was_rejected:
+            hidden += 1
+        if was_rejected != bool(rejected):
             continue
         items.append({
             "id": sid, "node_id": node_id,
@@ -108,6 +132,7 @@ def queue(reviewer: dict, scope: str = "pool", limit: int = 60) -> dict:
             "score": _score(meta, row),
             "ts": meta.get("ts") or (row or {}).get("ts"),
             "crop": f"/api/rv/crop/{sid}",
+            "rejected": was_rejected,
         })
     items.sort(key=lambda x: x.get("ts") or 0, reverse=True)
     # `hidden` is reported rather than swallowed. A filter that silently shrinks

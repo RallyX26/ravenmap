@@ -582,7 +582,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not r:
                     return self._err(401, "not signed in")
                 scope = (q.get("scope") or ["pool"])[0]
-                return self._json(review_api.queue(r, scope))
+                # ?rejected=1 asks for the pile the head threw out, so the
+                # filter can be audited by the people it filters for.
+                rejected = (q.get("rejected") or ["0"])[0] in ("1", "true", "yes")
+                return self._json(review_api.queue(r, scope, rejected=rejected))
             if p == "/api/rv/contributed":
                 # Counts only - never rows. It exists so an empty review queue
                 # can say what the camera HAS done instead of reading like a

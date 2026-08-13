@@ -234,6 +234,10 @@
       <h2>All clear</h2>
       <p id="empty-msg">Nothing waiting for review right now.</p>
       <button class="primary" id="refresh">Refresh</button>
+      <!-- Only appears when there IS a rejected pile, so it never invites
+           someone to open an empty second queue. -->
+      <button class="iconbtn hidden" id="show-rejected"
+              style="padding:11px 16px">Show the rejected ones</button>
     </div>
   </main>
 </div>
@@ -386,6 +390,7 @@
   function loadQueue(reset){
     var entries = activeEntries();
     if(!entries.length){ show("add"); return; }
+    reviewingRejected = false;   // this function IS the normal queue
     if(loading) return;
     loading = true;
     hiddenCount = 0;          // recount per fetch, or a 30s poll inflates it
@@ -470,6 +475,10 @@
     cleanup(); updateCounts();
     if(cursor >= items.length){
       if(!loading){
+        // In the rejected pile, running out means finished - pulling the
+        // normal queue here would quietly turn a deliberate spot-check back
+        // into the default view, mid-session, without saying so.
+        if(reviewingRejected){ showEmpty(); return; }
         // pull once more, else all-clear
         loadQueueExhausted();
       }
@@ -524,11 +533,40 @@
            (hiddenCount === 1 ? "it" : "them") + ".";
   }
 
+  /* The rejected pile: what the trained head threw out. Opened deliberately,
+   * never merged into the normal queue - the point of looking is that the
+   * classifier already said no and you are checking whether it was right. */
+  var reviewingRejected = false;
+  function loadRejected(){
+    var entries = activeEntries();
+    if(!entries.length) return;
+    reviewingRejected = true;
+    loading = true;
+    Promise.all(entries.map(function(e){
+      return api("/api/rv/queue?scope=pool&rejected=1", e.token)
+        .then(function(r){ return r.status===401 ? [] : r.json().then(function(d){
+          return (d.items||[]).map(function(it){ it._token = e.token; return it; }); }); })
+        .catch(function(){ return []; });
+    })).then(function(lists){
+      loading = false;
+      items = []; cursor = 0; undoStack = [];
+      lists.forEach(function(list){ list.forEach(function(it){
+        if(!items.some(function(x){ return x.id === it.id; })) items.push(it);
+      }); });
+      if(items.length){ $("#empty").classList.add("hidden"); render(); }
+      else { showEmpty(); }
+    }).catch(function(){ loading = false; showEmpty(); });
+  }
+
   function showEmpty(){
     $("#deck").classList.add("hidden");
     $("#empty").classList.remove("hidden");
     $("#empty-msg").textContent =
-      "Nothing waiting for review right now." + hiddenLine();
+      (reviewingRejected
+        ? "You have been through every rejected crop."
+        : "Nothing waiting for review right now.") + hiddenLine();
+    $("#show-rejected").classList.toggle("hidden",
+                                         reviewingRejected || !hiddenCount);
     updateCounts();
     // 🚨 SAY WHAT THE CAMERA HAS DONE.
     // Most of the time a volunteer's queue is legitimately empty - the trained
@@ -633,7 +671,12 @@
   $("#b-not").addEventListener("click", function(){ act("not"); });
   $("#b-skip").addEventListener("click", function(){ act("skip"); });
   $("#undo").addEventListener("click", undo);
-  $("#refresh").addEventListener("click", function(){ loadQueue(true); });
+  // Refresh always returns to the NORMAL queue. Staying in the rejected pile
+  // after a refresh would silently turn a spot-check into the default view.
+  $("#refresh").addEventListener("click", function(){
+    reviewingRejected = false; loadQueue(true);
+  });
+  $("#show-rejected").addEventListener("click", loadRejected);
 
   document.addEventListener("keydown", function(e){
     if($("#view-app").classList.contains("hidden")) return;
