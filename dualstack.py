@@ -34,6 +34,26 @@ class DualStackServer(ThreadingHTTPServer):
     address_family = socket.AF_INET6
     daemon_threads = True
 
+    # 🚨 THE DEFAULT BACKLOG IS 5, AND IT SILENTLY DROPS CAMERAS.
+    #
+    # socketserver ships request_queue_size = 5, so once five connections are
+    # waiting to be accepted the kernel refuses the sixth. Behind Caddy that
+    # surfaces at the far end as "EOF occurred in violation of protocol" - a
+    # TLS error, on a machine whose TLS is fine.
+    #
+    # Measured on the live box while volunteers were testing: 14 of the last 40
+    # posts from a single camera failed that way, and ingest went 267 -> 241 ->
+    # 50 -> 0 sightings per ten minutes while every camera stayed ONLINE,
+    # because heartbeats are small and lucky and a sighting carries a JPEG.
+    # The hub was listening with a queue of 5 next to caddy's 4096 and uvicorn's
+    # 2048.
+    #
+    # A burst is exactly the normal shape of this traffic: cameras post when a
+    # vehicle LEAVES frame, so a busy road delivers clumps, and a wave of new
+    # volunteers testing at once delivers a much bigger one. Nothing here is
+    # slow - the connections were never accepted at all.
+    request_queue_size = 256
+
     # ⚠️ MUST BE FALSE ON WINDOWS.
     #
     # SO_REUSEADDR does NOT mean the same thing on Windows as it does on Unix.
@@ -75,8 +95,14 @@ def serve(handler, port: int, host: str = "::"):
     # An explicit IPv4 address gets an IPv4 socket. No dual-stack, no fallback,
     # no widening.
     if host and ":" not in host and host not in ("", "0.0.0.0"):
+        # ⚠️ THIS BRANCH IS THE DEPLOYED ONE. The box runs SPARROW_BIND=127.0.0.1
+        # behind Caddy, so it never touches DualStackServer - raising the
+        # backlog only on that class would have fixed everything except the
+        # server that was actually dropping cameras.
+        class _Queued(ThreadingHTTPServer):
+            request_queue_size = DualStackServer.request_queue_size
         try:
-            srv = ThreadingHTTPServer((host, port), handler)
+            srv = _Queued((host, port), handler)
         except OSError as exc:
             raise SystemExit(f"cannot bind {host}:{port}: {exc}")
         srv.daemon_threads = True
