@@ -146,7 +146,23 @@ _HIT_LOCK = threading.Lock()
 # worker thread up to 15s - an anonymous amplification lever. A human panning
 # the map pulls tens of tiles a minute; 600/5min is generous for that and still
 # caps a scraper walking the whole tile pyramid.
-RATE = {"/api/enroll": (5, 3600), "/api/sightings": (600, 3600),
+# 🚨 EVERY LIMIT HERE IS GLOBAL, NOT PER-VISITOR, AND THE NUMBERS MUST REFLECT
+# THAT. Caddy proxies this hub with `header_up -X-Forwarded-For` - the client
+# IP is stripped on purpose, and correctly, because a hub that never learns
+# visitor addresses cannot leak them. The consequence is that client_ip is
+# 127.0.0.1 for everyone on earth, so these buckets are shared by the whole
+# network.
+#
+# /api/enroll sat at 5/hour, written as a per-person guard. It behaved as a cap
+# of five new cameras per hour ACROSS THE ENTIRE PROJECT. During the wave that
+# followed the video, one person registering five cameras in a single minute
+# locked out every other volunteer for the rest of the hour - and the message
+# blamed their address, so nobody could tell. He hit it himself trying to place
+# the only camera in an area.
+#
+# Sized as what it actually is: a flood guard against a script, not a guard
+# against a person. A runaway loop still gets stopped; a viral hour does not.
+RATE = {"/api/enroll": (120, 3600), "/api/sightings": (600, 3600),
         "/api/drive/report": (40, 3600), "/api/drive/vote": (120, 3600),
         "/api/tile": (600, 300), "/api/report": (20, 3600),
         # Reading back your own placement. Not brute-forceable (the token is
@@ -1037,8 +1053,13 @@ class Handler(BaseHTTPRequestHandler):
                         _owner = _hmac.compare_digest(str(_tok),
                                                       str(_prior["token"]))
                 if not _owner and not rate_ok(p, self.client_ip):
-                    return self._err(429, "too many cameras registered "
-                                          "from this address; try later")
+                    # Do NOT say "from this address". The limit is network-wide
+                    # (see RATE), so blaming the visitor's address is both
+                    # false and unactionable - they change networks, retry, and
+                    # get the same refusal.
+                    return self._err(429, "the network is registering a lot of "
+                                          "cameras right now - please try "
+                                          "again in a few minutes")
                 for k in ("name", "lat", "lon"):
                     if k not in b:
                         return self._err(400, f"missing {k}")
