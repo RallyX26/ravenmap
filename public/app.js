@@ -724,7 +724,16 @@ This camera reads none, so the sightings above cannot be told apart.">&mdash;</b
   $('#stats').innerHTML = `
     <span><i>${s.nodes_online}</i>/<b>${s.nodes_active}</b> cameras online</span>
     <span><b>${(s.traffic_24h ?? 0).toLocaleString()}</b> passes 24h</span>
-    <span><i>${s.public_24h.toLocaleString()}</i> public sightings</span>
+    <!-- 🚨 THE WINDOW HAS TO BE ON EVERY FIGURE THAT HAS ONE.
+         "passes 24h" carried the qualifier and "public sightings" did not, so
+         the second number read as a running total. It is not: it is the last
+         24 hours, and /api/policy separately publishes the all-time count -
+         which is 69 against this 8. Two true numbers, one apparently
+         contradicting the other, and nothing on screen to reconcile them.
+         Same failure this file already fixed once between the header and the
+         panel. A number whose meaning depends on a window must say so where it
+         is read, not in an endpoint the reader is not looking at. -->
+    <span><i>${s.public_24h.toLocaleString()}</i> public sightings 24h</span>
     <span>${vehicles}</span>`;
 }
 
