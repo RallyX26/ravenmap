@@ -105,8 +105,16 @@ def main() -> None:
             skipped += 1
             continue
 
+        # A camera cannot watch a road it cannot see. Bound the search by its
+        # own stated reach rather than a flat constant - the first run chose a
+        # road 101 m from a camera with a 30 m reach because it was 0.9 degrees
+        # better aligned. The floor keeps a conservatively-set reach from
+        # excluding the street the camera is obviously on.
+        reach = float(nd.get("reach_m") or 40.0)
+        max_d = max(60.0, reach * 2.0)
         got = road.span_from_travel(nd["lat"], nd["lon"], ways, axis,
-                                    max_off_axis=a.max_off_axis)
+                                    max_off_axis=a.max_off_axis,
+                                    max_dist_m=max_d)
         if not got:
             print(f"  {name:<28} SKIP  no road within {a.max_off_axis:.0f} deg "
                   f"of the traffic axis {axis:.0f}")

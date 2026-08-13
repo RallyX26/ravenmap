@@ -353,8 +353,20 @@ def span_from_travel(lat: float, lon: float, ways: list, axis_deg: float,
             d = math.hypot(qx - px, qy - py)
             if d > max_dist_m or off > max_off_axis:
                 continue
-            # Angle first, distance only to separate roads that agree equally.
-            key = (round(off, 1), d)
+            # 🚨 ANGLE IN BUCKETS, THEN DISTANCE - not raw angle.
+            # Sorting on the exact angle first lets a road 101 m away beat one
+            # at 31 m by being 0.9 degrees better aligned, which is what this
+            # function did on its first run: it chose Mill Street over Hamrick
+            # Street for a camera with a 30 m reach. That is the original bug
+            # inverted - optimising one quantity so hard that the other stops
+            # mattering.
+            #
+            # A 5 degree bucket is well inside the noise of a tracker heading
+            # averaged over dozens of passes, so two roads in the same bucket
+            # are not meaningfully different in alignment and the nearer one
+            # wins. `max_dist_m` is the real guard: a camera cannot watch a
+            # road beyond its reach however perfectly aligned it is.
+            key = (round(off / 5.0), d)
             if best is None or key < best[0]:
                 best = (key, (qx, qy), (dx / seg, dy / seg), name, d, off)
     if best is None:
