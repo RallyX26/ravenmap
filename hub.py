@@ -167,7 +167,10 @@ RATE = {"/api/enroll": (120, 3600), "/api/sightings": (600, 3600),
         "/api/tile": (600, 300), "/api/report": (20, 3600),
         # Reading back your own placement. Not brute-forceable (the token is
         # 24 random bytes), but a wrong-token loop should still cost something.
-        "/api/node/me": (120, 3600)}
+        "/api/node/me": (120, 3600),
+        # Network-wide (see the note above RATE), and it protects a free
+        # third-party service as much as this one.
+        "/api/geocode": (300, 3600)}
 
 
 def rate_ok(path: str, ip: str) -> bool:
@@ -187,6 +190,12 @@ def rate_ok(path: str, ip: str) -> bool:
 # Anonymous viewers get a rolling daily alias instead of the real plate hash so
 # a track is followable on screen but not archivable across days. We keep the
 # reverse map in memory only, and it dies with the process.
+# Geocode results, keyed by the lowercased query. Nominatim's usage policy is
+# roughly one request a second and it is a free service run by volunteers, so a
+# viral hour must not be passed straight through to them. A day is plenty: a
+# town does not move.
+_GEO_CACHE: dict = {}
+
 _ALIAS: dict[str, str] = {}
 _ALIAS_DAY = [0]
 
@@ -535,6 +544,59 @@ class Handler(BaseHTTPRequestHandler):
                 # Live crowd reports for the driving radar. Public read, like the
                 # map. Ephemeral and unverified by construction.
                 return self._json({"reports": db.active_driver_reports()})
+            if p == "/api/geocode":
+                # 🚨 PROXIED, NEVER CALLED FROM THE BROWSER.
+                # Tiles already go through /api/tile and road lookups happen in
+                # road.py for the same reason: a visitor of this site never
+                # talks to a third party. A client-side geocode would hand
+                # someone else every visitor's IP together with the place they
+                # searched for - on a site about being watched, that is the one
+                # request you cannot afford to leak.
+                # `q` is already the parsed query dict in this handler; the
+                # search term needs its own name or it silently shadows it.
+                term = (q.get("q") or [""])[0].strip()[:120]
+                if len(term) < 3:
+                    return self._json({"results": []})
+                if not rate_ok("/api/geocode", self.client_ip):
+                    return self._err(429, "too many searches right now; "
+                                          "try again in a moment")
+                hit = _GEO_CACHE.get(term.lower())
+                if hit and now() - hit[0] < 86400:
+                    return self._json({"results": hit[1]})
+                # hub.py imports urllib.parse only, so urllib.request has to
+                # be imported here. The first version assumed it was module-
+                # level and raised NameError - which the broad `except` below
+                # then reported to the user as "search unavailable right now",
+                # blaming a third party for a typo. Catch only what a network
+                # call can actually do to us.
+                import urllib.error
+                import urllib.parse as _up
+                import urllib.request as _ur
+                try:
+                    req = _ur.Request(
+                        "https://nominatim.openstreetmap.org/search?"
+                        + _up.urlencode({"format": "json", "limit": "6",
+                                         "q": term}),
+                        # Nominatim's policy requires an identifying agent. A
+                        # generic one gets the whole project blocked, and the
+                        # block would look like "search is broken".
+                        headers={"User-Agent": "SparrowMap/1.0 "
+                                               "(https://sparrowmap.com)"})
+                    with _ur.urlopen(req, timeout=12) as r:
+                        raw = json.loads(r.read())
+                except (urllib.error.URLError, OSError, ValueError) as exc:
+                    print(f"[geocode] upstream failed: {exc}")
+                    return self._json({"results": [], "error": "search "
+                                       "unavailable right now"})
+                out = [{"name": str(x.get("display_name") or "")[:140],
+                        "lat": float(x["lat"]), "lon": float(x["lon"]),
+                        "kind": str(x.get("type") or "")}
+                       for x in raw if x.get("lat") and x.get("lon")]
+                if len(_GEO_CACHE) > 500:
+                    _GEO_CACHE.clear()
+                _GEO_CACHE[term.lower()] = (now(), out)
+                return self._json({"results": out})
+
             if p == "/api/heat":
                 # Cumulative "everywhere a patrol has ever been confirmed",
                 # aggregated to a grid. The published record, gridded.

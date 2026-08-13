@@ -1023,10 +1023,25 @@ window.sparrowRefresh = async () => {
 
   const close = () => { box.style.display = 'none'; box.innerHTML = ''; };
 
-  function render(q, rows) {
+  // A place result is deliberately a DIFFERENT shape from a sighting: no
+  // image, no plate, an arrow instead. Someone skimming must never mistake
+  // "here is that town" for "here is a vehicle we recorded".
+  const placesHtml = (places) => !places.length ? '' :
+    `<h4>${places.length} place${places.length === 1 ? '' : 's'}</h4>`
+    + places.map((p) => `
+        <div class="hit place" data-lat="${p.lat}" data-lon="${p.lon}" data-zoom="13">
+          <div>
+            <b>&rarr; ${esc(p.name.split(',')[0])}</b>
+            <div class="sub">${esc(p.name.split(',').slice(1).join(',').trim())}</div>
+          </div>
+        </div>`).join('');
+
+  function render(q, rows, places) {
+    places = places || [];
     if (!rows.length) {
-      box.innerHTML = `<h4>No match for ${esc(q)}</h4>
-        <div class="none"><b>This only finds government vehicles.</b><br>
+      box.innerHTML = placesHtml(places)
+        + `<h4>No plate matches ${esc(q)}</h4>
+        <div class="none"><b>Plate search only finds government vehicles.</b><br>
         A plate appears here only when a camera published the vehicle as
         a government vehicle <i>and</i> an operator confirmed it.
         Private vehicles are never searched &mdash; their plates are destroyed
@@ -1044,7 +1059,7 @@ window.sparrowRefresh = async () => {
             <div class="sub">${esc(r.vclass || '')} &middot; ${ago(r.ts)}</div>
             <div class="sub">${esc(r.node_id || '')}</div>
           </div>
-        </div>`).join('');
+        </div>`).join('') + placesHtml(places);
     box.style.display = '';
   }
 
@@ -1056,9 +1071,23 @@ window.sparrowRefresh = async () => {
       box.style.display = '';
       return;
     }
+    /* One box, two questions. People type a town into a search field on a map
+     * because that is what search fields on maps do, and getting back "no
+     * plates match Champaign" is the box telling them they used it wrong.
+     *
+     * Both are asked at once and both are shown, plates first: this box is
+     * labelled for plates, and a place result must never look like a sighting.
+     * The geocode is PROXIED (see /api/geocode) so a visitor of a site about
+     * being watched never hands a third party their IP and the name of the
+     * place they were curious about. */
     try {
-      const d = await fetch('/api/plate?q=' + encodeURIComponent(q)).then((x) => x.json());
-      render(q, d.results || []);
+      const [plates, places] = await Promise.all([
+        fetch('/api/plate?q=' + encodeURIComponent(q))
+          .then((x) => x.json()).catch(() => ({ results: [] })),
+        fetch('/api/geocode?q=' + encodeURIComponent(q))
+          .then((x) => x.json()).catch(() => ({ results: [] })),
+      ]);
+      render(q, plates.results || [], places.results || []);
     } catch (err) {
       box.innerHTML = `<div class="none">Search unavailable.</div>`;
       box.style.display = '';
@@ -1071,6 +1100,12 @@ window.sparrowRefresh = async () => {
     const hit = e.target.closest('.hit');
     if (!hit) return;
     const lat = parseFloat(hit.dataset.lat), lon = parseFloat(hit.dataset.lon);
+    if (hit.classList.contains('place')) {
+      // A town, not a vehicle: fly there and close, no marker and no claim.
+      map.setView([lat, lon], parseInt(hit.dataset.zoom, 10) || 13);
+      close();
+      return;
+    }
     // `map` is the module-level Leaflet instance declared above; this IIFE is
     // in the same file and the same scope, so no global is needed.
     if (!isNaN(lat) && !isNaN(lon)) map.setView([lat, lon], 17);
