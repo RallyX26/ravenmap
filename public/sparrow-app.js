@@ -514,6 +514,63 @@ async function submit(tr) {
   } catch (e) { net('busy', 'hub unreachable'); }
 }
 
+/* 🚨 ASK ABOUT THE AIM EVERY TIME THE CAMERA STARTS.
+ * A camera with heading 0 was never pointed at anything: the map guesses which
+ * road it watches, and the guess is wrong often enough to matter. One
+ * volunteer typed the answer into their camera's NAME - "Ross street
+ * eastbound" - while the map drew them on Ashford Street for a day, because
+ * nothing ever asked them.
+ *
+ * Checked on START rather than at registration, which is what makes it reach
+ * the cameras that already exist: 41 of 52 spans were drawn from an unset
+ * heading, and none of those owners will ever re-register. Every one of them
+ * presses Watch.
+ *
+ * It does NOT block watching. Stopping an unaimed camera from contributing
+ * would trade a wrong road for no sightings at all, and the road is the
+ * smaller error. It nags once per session and goes away for good the moment
+ * the aim is set.
+ */
+async function checkAim() {
+  if (!(node && node.id && node.token)) return;
+  try {
+    const r = await fetch('/api/node/me?id=' + encodeURIComponent(node.id),
+      { headers: { 'Authorization': 'Bearer ' + node.token } });
+    if (!r.ok) return;
+    const d = await r.json();
+    // A carried camera has no watched road, so there is nothing to aim.
+    if (d.kind === 'mobile') return;
+    if (d.heading) return;                    // already aimed: never ask again
+    showAimNag(d.road_name);
+  } catch (e) { /* never let this interfere with watching */ }
+}
+
+function showAimNag(guessedRoad) {
+  if (document.getElementById('aimNag')) return;
+  const el = document.createElement('div');
+  el.id = 'aimNag';
+  Object.assign(el.style, {
+    margin: '10px 0', padding: '12px 14px', borderRadius: '10px',
+    border: '1px solid #6b4a17', background: '#2a1a0a', color: '#ffd9a3',
+    font: '13px/1.6 system-ui, sans-serif' });
+  const road = guessedRoad
+    ? `The map currently shows you watching <b>${guessedRoad}</b>, which is a guess.`
+    : `The map cannot tell which road you watch.`;
+  el.innerHTML = `<b>Point this camera at the road</b><br>${road}
+    Nobody has told it which way this camera faces, so it picked the nearest
+    road it could find. It takes about ten seconds and the page tells you which
+    road it landed on.`;
+  const a = document.createElement('a');
+  a.href = location.origin + '/aim#k=' + encodeURIComponent(node.id) + '.'
+           + encodeURIComponent(node.token);
+  a.textContent = 'Set the aim →';
+  Object.assign(a.style, { display: 'inline-block', marginTop: '8px',
+    color: '#ffb547', fontWeight: '700', textDecoration: 'none' });
+  el.appendChild(a);
+  const host = document.querySelector('#m-watch .box') || document.querySelector('main');
+  if (host) host.insertBefore(el, host.firstChild);
+}
+
 /* ---- "is that one a cop?", asked while it is still in sight ------------
  * The desktop node has had this since the start (run_live.push_confirm); a
  * phone volunteer had nothing until they opened /rv hours later and judged a
@@ -680,6 +737,7 @@ async function start() {
   // 90-second window. A sighting also beats; this covers the gaps between.
   lastWork = Date.now();          // the stream is open; the loop starts next
   stage('detecting');
+  checkAim();                     // asked every start, until it is answered
   sendBeat();
   beatTimer = setInterval(sendBeat, 30000);
   requestAnimationFrame(loop);
