@@ -123,13 +123,31 @@ def check_syntax(changed: list[str]) -> None:
             # where the module's private helpers are invisible to them. That
             # cost a whole evening on rv.html: render() died on a ReferenceError
             # before it ever drew the queue.
+            #
+            # ⚠️ ONLY FOR THE WHOLE-FILE-WRAPPED PATTERN. The first version of
+            # this check flagged any code after the last `})();` and failed
+            # node.html, which has no wrapping IIFE at all - its `})();` closes
+            # something else and the 325 lines after it are ordinary top-level
+            # code. A check that fails a healthy file is a check that gets
+            # switched off, and then it is not there for the real one.
+            #
+            # The real failure needs BOTH halves: a script that opens with an
+            # IIFE (so its helpers are private) and has code appended after the
+            # matching close (so that code cannot see them).
             lines = js.splitlines()
+            body = [ln for ln in lines if ln.strip()
+                    and not ln.strip().startswith(("//", "/*", "*"))]
+            wrapped = bool(body) and re.match(r"^\(\s*(function|async|\(|\w+\s*=>)",
+                                              body[0].strip())
             closes = [n for n, ln in enumerate(lines) if ln.strip() == "})();"]
-            if closes:
+            if wrapped and closes:
                 after = [ln for ln in lines[closes[-1] + 1:] if ln.strip()]
                 if after:
-                    say("FAIL", f"{f}: {len(after)} lines of code AFTER the IIFE "
-                                f"closes - they cannot see its private helpers")
+                    say("FAIL", f"{f}: {len(after)} lines of code AFTER the "
+                                f"wrapping IIFE closes - they cannot see its "
+                                f"private helpers")
+                else:
+                    say("ok", f"{f}: wrapping IIFE encloses the whole script")
 
 
 def check_python(changed: list[str]) -> None:
