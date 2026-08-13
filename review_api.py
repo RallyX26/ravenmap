@@ -134,7 +134,24 @@ def queue(reviewer: dict, scope: str = "pool", limit: int = 60,
             "crop": f"/api/rv/crop/{sid}",
             "rejected": was_rejected,
         })
-    items.sort(key=lambda x: x.get("ts") or 0, reverse=True)
+    if rejected:
+        # 🚨 NEWEST-FIRST IS THE WRONG ORDER FOR AN AUDIT.
+        # 89% of this pile scores below 0.01 - the head was not hesitating, it
+        # was certain. Confirming a 0.0002 teaches nothing and changes no
+        # decision, so a reviewer working newest-first spends their attention
+        # on the least informative crops in the set. He did 60 that way and
+        # found nothing, which was the expected outcome and therefore weak
+        # evidence.
+        #
+        # The only crops where a miss can plausibly hide are the ones the head
+        # nearly accepted. Highest score first puts those on top: ten of them
+        # say more about whether the filter is safe than sixty from the floor,
+        # and they are also the labels worth having, because a confirmed
+        # negative next to the threshold moves the boundary and one at 0.0002
+        # does not.
+        items.sort(key=lambda x: x.get("score") or 0.0, reverse=True)
+    else:
+        items.sort(key=lambda x: x.get("ts") or 0, reverse=True)
     # `hidden` is reported rather than swallowed. A filter that silently shrinks
     # a queue is indistinguishable from a queue that is genuinely empty, and
     # this one is capable of hiding hundreds of items at once.
