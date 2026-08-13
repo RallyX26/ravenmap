@@ -1009,14 +1009,33 @@ class Handler(BaseHTTPRequestHandler):
                 # at which road it resolved to, and nudges again - the /aim
                 # page is built on exactly that loop, and at 5/hour it would
                 # lock them out mid-adjustment with their camera pointing at
-                # the wrong street. A re-save carries a node_id whose token is
-                # verified inside enroll(), so it is not anonymous traffic.
-                # The body is read first so the two cases can be told apart;
-                # _body() is already capped at MAX_BODY.
-                if not str(b.get("node_id") or "").strip():
-                    if not rate_ok(p, self.client_ip):
-                        return self._err(429, "too many cameras registered "
-                                              "from this address; try later")
+                # the wrong street. The body is read first so the two cases can
+                # be told apart; _body() is already capped at MAX_BODY.
+                #
+                # ⚠️ THE EXEMPTION IS FOR A PROVEN OWNER, NOT FOR ANY REQUEST
+                # CARRYING A node_id. Exempting on the mere PRESENCE of a
+                # node_id let anyone skip the limiter by inventing one: the
+                # token is checked inside enroll(), which is the right place
+                # for the AUTHORISATION, but by then the limiter had already
+                # been stepped around. Node ids are printed on the public map,
+                # so "has a node_id" is not a claim to anything. Ownership is
+                # therefore proved HERE, before the exemption is granted - and
+                # a wrong token now counts against the create limit, which is
+                # exactly what guessing at somebody else's token should cost.
+                _nid = str(b.get("node_id") or "").strip()
+                _owner = False
+                if _nid:
+                    _prior = db.node(_nid)
+                    _tok = (b.get("token")
+                            or (self.headers.get("Authorization") or ""
+                                ).replace("Bearer ", "").strip())
+                    if _prior and _prior.get("token") and _tok:
+                        import hmac as _hmac
+                        _owner = _hmac.compare_digest(str(_tok),
+                                                      str(_prior["token"]))
+                if not _owner and not rate_ok(p, self.client_ip):
+                    return self._err(429, "too many cameras registered "
+                                          "from this address; try later")
                 for k in ("name", "lat", "lon"):
                     if k not in b:
                         return self._err(400, f"missing {k}")
