@@ -98,9 +98,29 @@ def check_versions(changed: list[str]) -> None:
 def check_syntax(changed: list[str]) -> None:
     node = subprocess.run(["node", "--version"], capture_output=True, text=True)
     if node.returncode != 0:
-        say("skip", "node not available; inline scripts not syntax-checked")
+        say("skip", "node not available; scripts not syntax-checked")
         return
     import tempfile
+
+    # 🚨 STANDALONE .js FILES TOO, NOT JUST INLINE BLOCKS.
+    # This check was written the morning after an inline-script bug, so it only
+    # looked at <script> blocks in HTML - and that same night I shipped an
+    # app.js whose template literal was closed early by a backtick inside an
+    # HTML comment. The file did not parse, so NOTHING on the map ran: the page
+    # sat on "connecting", "everything quiet", no sightings, while the server
+    # was healthy. A checker shaped like the last bug is blind to the next one.
+    for f in changed:
+        if not f.endswith(".js"):
+            continue
+        p = ROOT / f
+        if not p.exists():
+            continue
+        r = subprocess.run(["node", "--check", str(p)], capture_output=True, text=True)
+        if r.returncode == 0:
+            say("ok", f"{f} parses")
+        else:
+            say("FAIL", f"{f}: {r.stderr.strip().splitlines()[0][:90]}")
+
     for f in changed:
         if not f.endswith(".html"):
             continue
