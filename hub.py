@@ -194,6 +194,21 @@ def rate_ok(path: str, ip: str) -> bool:
 # roughly one request a second and it is a free service run by volunteers, so a
 # viral hour must not be passed straight through to them. A day is plenty: a
 # town does not move.
+# FIPS state codes. Broadcastify's /listen/stid/<n> IS the FIPS code - checked
+# against Louisiana (22) and Michigan (26) rather than assumed, because the
+# county ids on the same site are opaque internal numbers and it would have
+# been easy to believe both were.
+US_STATE_FIPS = {
+    "AL": 1,  "AK": 2,  "AZ": 4,  "AR": 5,  "CA": 6,  "CO": 8,  "CT": 9,
+    "DE": 10, "DC": 11, "FL": 12, "GA": 13, "HI": 15, "ID": 16, "IL": 17,
+    "IN": 18, "IA": 19, "KS": 20, "KY": 21, "LA": 22, "ME": 23, "MD": 24,
+    "MA": 25, "MI": 26, "MN": 27, "MS": 28, "MO": 29, "MT": 30, "NE": 31,
+    "NV": 32, "NH": 33, "NJ": 34, "NM": 35, "NY": 36, "NC": 37, "ND": 38,
+    "OH": 39, "OK": 40, "OR": 41, "PA": 42, "RI": 44, "SC": 45, "SD": 46,
+    "TN": 47, "TX": 48, "UT": 49, "VT": 50, "VA": 51, "WA": 53, "WV": 54,
+    "WI": 55, "WY": 56, "PR": 72,
+}
+
 _GEO_CACHE: dict = {}
 
 _ALIAS: dict[str, str] = {}
@@ -596,6 +611,59 @@ class Handler(BaseHTTPRequestHandler):
                     _GEO_CACHE.clear()
                 _GEO_CACHE[term.lower()] = (now(), out)
                 return self._json({"results": out})
+
+            if p == "/api/scanner":
+                # Where to LISTEN to public-safety radio for a place.
+                #
+                # 🚨 A LINK, NEVER A STREAM. Broadcastify's terms allow a feed
+                # OWNER to embed their OWN feed with a domain key, and forbid
+                # becoming "a redistribution layer" - proxying their audio to
+                # visitors is exactly the banned case. Receiving unencrypted
+                # public-safety radio is legal; rebroadcasting someone else's
+                # infrastructure is a contract question, and the answer is no.
+                # So this resolves a place to their STATE page and stops.
+                #
+                # stid is the FIPS state code, verified against two states
+                # (Louisiana 22, Michigan 26) rather than assumed - county ids
+                # are opaque internal numbers, so this deliberately links one
+                # level up and lets the reader pick their own county. A link
+                # that is always right beats a deep link that is sometimes
+                # wrong about which county is watching them.
+                try:
+                    lat = float((q.get("lat") or [""])[0])
+                    lon = float((q.get("lon") or [""])[0])
+                except (TypeError, ValueError):
+                    return self._err(400, "lat and lon required")
+                key = f"{lat:.2f},{lon:.2f}"      # ~1 km, plenty for a state
+                hit = _GEO_CACHE.get("rev:" + key)
+                if hit and now() - hit[0] < 86400:
+                    return self._json(hit[1])
+                if not rate_ok("/api/geocode", self.client_ip):
+                    return self._err(429, "too many lookups right now")
+                import urllib.error
+                import urllib.parse as _up
+                import urllib.request as _ur
+                try:
+                    req = _ur.Request(
+                        "https://nominatim.openstreetmap.org/reverse?"
+                        + _up.urlencode({"format": "json", "zoom": "8",
+                                         "lat": lat, "lon": lon}),
+                        headers={"User-Agent": "SparrowMap/1.0 "
+                                               "(https://sparrowmap.com)"})
+                    with _ur.urlopen(req, timeout=12) as r:
+                        addr = (json.loads(r.read()) or {}).get("address") or {}
+                except (urllib.error.URLError, OSError, ValueError) as exc:
+                    print(f"[scanner] upstream failed: {exc}")
+                    return self._json({"ok": False})
+                iso = str(addr.get("ISO3166-2-lvl4") or "")   # e.g. "US-MI"
+                fips = US_STATE_FIPS.get(iso.split("-")[-1].upper())
+                out = {"ok": bool(fips),
+                       "state": addr.get("state"),
+                       "county": addr.get("county"),
+                       "url": (f"https://www.broadcastify.com/listen/stid/{fips}"
+                               if fips else None)}
+                _GEO_CACHE["rev:" + key] = (now(), out)
+                return self._json(out)
 
             if p == "/api/heat":
                 # Cumulative "everywhere a patrol has ever been confirmed",

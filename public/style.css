@@ -292,6 +292,9 @@ main{position:absolute; inset:52px 0 57px 0; display:flex}
    visibly different claim. */
 .plateresults .hit.place b{color:var(--ink);font:600 13px inherit}
 .plateresults .hit.place{border-left:2px solid #2a3547}
+.detail .why.scanner{border-left:2px solid #3d8cff}
+.detail .why.scanner a{color:#7fd1ff;font-weight:600}
+.detail .why.scanner .sub{display:block;margin-top:4px;opacity:.7;font-size:11px}
 .plateresults .none{padding:13px;font-size:12.5px;color:var(--dim);line-height:1.6}
 .plateresults .none b{color:var(--ink)}
 

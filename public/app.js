@@ -450,6 +450,9 @@ async function select(id) {
       hashed at the camera and never stored, so there is no plate to show and
       no way to search for it. The identifier above is a rolling alias that
       changes daily.</div>`}
+    <!-- Filled in async by the scanner lookup below; absent until it answers,
+         because a dead link is worse than no link. -->
+    <div class="why scanner hidden" id="scannerRow"></div>
     <div class="acts">
       <button class="btn" id="btnTrail">${pub ? 'Show trail' : 'Show today’s trail'}</button>
       <button class="btn alt" id="btnCenter">Centre</button>
@@ -460,6 +463,33 @@ async function select(id) {
   $('#detail').classList.remove('hidden');
 
   $('#btnCenter').onclick = () => map.setView([s.lat, s.lon], 17);
+
+  /* Where to LISTEN, for the place this sighting is in.
+   *
+   * 🚨 A LINK, NEVER A STREAM. Broadcastify allows a feed OWNER to embed their
+   * OWN feed and forbids becoming a redistribution layer, so we send people to
+   * their site rather than proxying their audio. Receiving unencrypted
+   * public-safety radio is legal; rebroadcasting someone else's stream is a
+   * contract question and the answer is no.
+   *
+   * State level on purpose: their county ids are opaque internal numbers, so a
+   * deep link would sometimes name the wrong county - and being wrong about
+   * which county is listening to whom is not a small error on this map.
+   * Rendered only once it resolves, so a lookup failure leaves no dead link. */
+  fetch(`/api/scanner?lat=${s.lat}&lon=${s.lon}`)
+    .then((r) => r.json())
+    .then((d) => {
+      const row = $('#scannerRow');
+      if (!row || !d || !d.ok || !d.url) return;
+      const where = d.county ? `${d.county}, ${d.state}` : d.state;
+      row.innerHTML = `<b>Listen:</b> public-safety radio for
+        ${esc(where)} is carried on
+        <a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">Broadcastify</a>.
+        <span class="sub">Someone else's service, not ours. Many agencies are
+        encrypted, so a feed may not exist.</span>`;
+      row.classList.remove('hidden');
+    })
+    .catch(() => { /* no link is fine; a broken one is not */ });
   $('#btnTrail').onclick = () => showTrail(s.plate_hash);
   if (pub) $('#btnReport').onclick = () => openReport(s.id);
   // There was no way out of the detail panel once it opened - it covered the
