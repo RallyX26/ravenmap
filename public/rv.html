@@ -623,8 +623,35 @@
         })
         .catch(function(){ /* keep the plain message */ });
     }
-    idleTimer = setTimeout(function(){ loadQueue(true); }, 30000);
+    scheduleIdlePoll();
   }
+
+  /* 🚨 THE SERVER WAS NEVER THE SLOW PART.
+   * mirror.review_write() runs inside the ingest itself, so a crop is in the
+   * pen the instant the camera's post lands. The wait was entirely here: this
+   * page looked once every 30 seconds, so a patrol car could sit reviewable
+   * for half a minute while somebody stared at "All clear".
+   *
+   * Deliberately NOT an EventSource. app.js dropped its persistent stream
+   * because on a threaded server that is one pinned thread per open tab, and
+   * that lesson does not stop applying just because there are fewer reviewers
+   * than viewers. Polling costs a request; a held socket costs a thread.
+   *
+   * So: poll fast while somebody is actually looking, and not at all when they
+   * are not. A backgrounded phone in a pocket has nobody to show a crop to,
+   * and waking it every few seconds only spends battery - so it stops, and
+   * catches up the moment the tab is looked at again. */
+  var IDLE_POLL_MS = 6000;
+  function scheduleIdlePoll(){
+    clearTimeout(idleTimer);
+    if (document.hidden) return;          // resumed by visibilitychange below
+    idleTimer = setTimeout(function(){ loadQueue(true); }, IDLE_POLL_MS);
+  }
+  document.addEventListener("visibilitychange", function(){
+    if (document.hidden) { clearTimeout(idleTimer); return; }
+    // Back on screen: look NOW, not in six seconds.
+    if (!items.length || cursor >= items.length) loadQueue(true);
+  });
 
   // ---- verdicts (optimistic, with the right token) ---------------------
   function sendVerdict(it, verdict, isRetry){
