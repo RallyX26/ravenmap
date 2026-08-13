@@ -139,16 +139,41 @@ def fetch_ways(lat: float, lon: float, timeout: float = 25.0) -> list[list[tuple
     with urllib.request.urlopen(req, timeout=timeout) as r:
         doc = json.loads(r.read().decode("utf-8"))
 
-    out = []
+    out: list = []
+    fallback: list = []          # service roads and alleys, used only if out is empty
     for el in doc.get("elements", []):
         if el.get("type") != "way":
             continue
-        if el.get("tags", {}).get("highway") not in DRIVEABLE:
+        tags = el.get("tags", {})
+        if tags.get("highway") not in DRIVEABLE:
+            continue
+        # 🚨 A DRIVEWAY IS NOT A STREET, AND IT IS USUALLY THE NEAREST THING.
+        # `service` covers driveways and parking aisles as well as alleys, and
+        # a camera in a window is nearly always closer to its own driveway than
+        # to the road it is pointed at. span_nearest takes the CLOSEST driveable
+        # way, so the watched span was being drawn down a driveway - which the
+        # basemap barely renders, so the span and its dots looked like they were
+        # floating in the gap between the streets. Reported as "roads aren't
+        # lining up"; the geometry was exact and the road was the wrong one.
+        #
+        # The sighting is a claim that a vehicle passed on a public road. A
+        # private driveway or a supermarket parking aisle cannot carry that
+        # claim, so they are excluded from the candidate set entirely rather
+        # than merely ranked lower.
+        if tags.get("service") in ("driveway", "parking_aisle", "drive-through"):
             continue
         geom = [(g["lat"], g["lon"]) for g in el.get("geometry") or []]
-        if len(geom) >= 2:
-            out.append((el.get("tags", {}).get("name") or "", geom))
-    return out
+        if len(geom) < 2:
+            continue
+        entry = (tags.get("name") or "", geom)
+        # An untagged `service` way is an alley or an access road. It is a real
+        # place a vehicle can drive, so it is not discarded - but it should
+        # never win against an actual street merely by being a few metres
+        # nearer, which is exactly what "closest driveable way" would do to a
+        # camera looking across its own back lane. Held back and used only if
+        # nothing better exists in the tile.
+        (fallback if tags.get("highway") == "service" else out).append(entry)
+    return out or fallback
 
 
 # --------------------------------------------------------------------------
