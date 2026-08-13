@@ -97,6 +97,22 @@ def jitter_position(lat: float, lon: float, metres: float) -> tuple[float, float
     return round(lat + dlat, 6), round(lon + dlon, 6)
 
 
+# How far a camera must move before it counts as a DIFFERENT camera.
+# Past GPS noise (5-20 m), past nudging a phone on a windowsill, inside one
+# block, and equal to the published position jitter - so a move big enough to
+# split a node is a move the map could already have shown.
+MOVED_THRESHOLD_M = 60.0
+
+
+def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    a = (math.sin(dp / 2) ** 2
+         + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2)
+    return 2 * R * math.asin(math.sqrt(a))
+
+
 class NodeAuthError(Exception):
     """Re-enrolling an existing node without proving you own it."""
 
@@ -124,6 +140,7 @@ def enroll(name: str, lat: float, lon: float, pubkey: Optional[str] = None,
     looked at it.
     """
     nid = node_id or ("n_" + secrets.token_hex(4))
+    moved_from = None
     if node_id:
         _prior = db.node(nid)
         if _prior and _prior.get("token"):
@@ -131,6 +148,37 @@ def enroll(name: str, lat: float, lon: float, pubkey: Optional[str] = None,
                                                        str(token)):
                 raise NodeAuthError(
                     "this camera already exists; updating it needs its token")
+
+        # 🚨 A CAMERA THAT MOVES IS A DIFFERENT CAMERA.
+        #
+        # Re-enrolling used to mutate the row in place, so carrying a phone to
+        # another street rewrote the watched road on a node that already had
+        # thousands of sightings attached. The sightings themselves kept their
+        # recorded positions - those are stored per row at ingest - but the
+        # SPAN jumped, so the map drew a line on the new street with the old
+        # dots stranded on the previous one, and the camera now asserted it had
+        # been watching a road it had never seen.
+        #
+        # He put it exactly right: moving a device should never move the
+        # sightings, it should create a new node for the stretch of road it can
+        # now see. The old node keeps its span, its history and its claim -
+        # true for the period it was there - and simply stops receiving new
+        # passes. It goes offline on its own, because it stops beating.
+        #
+        # ⚠️ THE THRESHOLD IS NOT ZERO ON PURPOSE. A phone re-registering from
+        # GPS reports a position that wanders by 5-20 m without anybody
+        # touching it, and splitting a node on jitter would litter the map with
+        # duplicate cameras - the exact failure the double-tap bug just caused.
+        # 60 m is past GPS noise, past nudging a phone on a windowsill, and
+        # still inside one block. It also matches the published position
+        # jitter, so a move that matters is a move the map could already show.
+        if (_prior and _prior.get("lat") is not None
+                and lat is not None and lon is not None):
+            moved_m = _distance_m(_prior["lat"], _prior["lon"], lat, lon)
+            if moved_m > MOVED_THRESHOLD_M:
+                moved_from = {"id": nid, "metres": round(moved_m)}
+                nid = "n_" + secrets.token_hex(4)   # a new camera, from here on
+                node_id = ""                        # ...so mint it a new token
     plat, plon = jitter_position(lat, lon,
                                  float(CONFIG.get("node_position_jitter_m", 60)))
 
@@ -229,6 +277,11 @@ def enroll(name: str, lat: float, lon: float, pubkey: Optional[str] = None,
                     "span_source": span["source"]})
     import mirror
     db.upsert_node(mirror.node_fields(rec))
+    if moved_from:
+        # The caller must tell the owner, and the client must adopt the new id
+        # and token - otherwise it keeps posting as a camera that is no longer
+        # where it says it is.
+        rec["moved_from"] = moved_from
     return rec
 
 

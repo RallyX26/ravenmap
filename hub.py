@@ -1218,6 +1218,14 @@ class Handler(BaseHTTPRequestHandler):
                 # The token is returned exactly once, at enrollment.
                 out = {"id": rec["id"], "status": rec["status"],
                        "token": rec.get("token")}
+                # A move past the threshold minted a NEW camera (see
+                # nodes.enroll). The client MUST hear about it: it has to adopt
+                # the new id and token, or it carries on posting as a camera
+                # that is no longer where it says it is. Dropping this field
+                # here would have made the split invisible and therefore worse
+                # than not splitting at all.
+                if rec.get("moved_from"):
+                    out["moved_from"] = rec["moved_from"]
                 # A brand-new camera (no node_id came in - a re-save carries one)
                 # also gets its own reviewer token, scoped to just this camera,
                 # so the volunteer can review their own camera's catches without

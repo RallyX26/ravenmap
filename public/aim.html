@@ -313,6 +313,19 @@ $('#save').onclick = async function(){
     var j = await r.json();
     if (j.error){ say(esc(j.error), 'bad'); btn.disabled = false; return; }
 
+    /* 🚨 THE SERVER MAY HAVE HANDED BACK A DIFFERENT CAMERA.
+     * Moving more than 60 m splits the node: the old one keeps its watched
+     * road and its sightings as history, and this position becomes a new
+     * camera with a new id and token. Continuing to talk to the old id would
+     * leave this device posting as a camera that is no longer where it says it
+     * is - so adopt what came back, exactly as the camera app does. */
+    var moved = j.moved_from && j.id && j.id !== place.id;
+    if (j.id && j.token) {
+      node = { id: j.id, token: j.token, review_token: node.review_token };
+      try { localStorage.setItem(KEY, JSON.stringify(node)); } catch(e){}
+      place.id = j.id;
+    }
+
     var p = await (await fetch('/api/node/me?id=' + encodeURIComponent(place.id),
       { headers:{ 'Authorization':'Bearer ' + node.token } })).json();
     place = p;
@@ -320,7 +333,14 @@ $('#save').onclick = async function(){
     if (p.span && p.span.length){
       span = L.polyline(p.span, { color:'#3ddc97', weight:4, opacity:.55 }).addTo(map);
     }
-    if (p.road_name && p.span_source === 'osm'){
+    if (moved){
+      say('This camera moved ' + j.moved_from.metres + ' m, so it is now a NEW '
+          + 'camera watching <span class="road">' + esc(p.road_name || 'this spot')
+          + '</span>.<br><span class="hint">The old one keeps the road it used '
+          + 'to watch and every sighting it recorded there - that history is '
+          + 'still true, it just stops here. This device now posts as the new '
+          + 'camera.</span>', 'ok');
+    } else if (p.road_name && p.span_source === 'osm'){
       // 'osm' is the AIM path (road.span_from_ways): a road really did fall
       // inside the cone and won on how much of it did.
       say('Saved. Your aim picked <span class="road">' + esc(p.road_name) +
