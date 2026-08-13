@@ -174,6 +174,12 @@ MIGRATIONS = [
     # A transparency project has to be able to prove "nothing reaches the public
     # tier without a person", not merely assert it. That needs a column.
     ("sightings", "decided_by", "TEXT"),
+    # How many times this camera has said "still watching". last_beat answers
+    # "is it up now"; this answers "how much watching has this network done",
+    # which is the number that grows and is worth showing. Heartbeats were not
+    # always enabled, so a node with none is not evidence it never ran - which
+    # is exactly why this is a TOTAL and never a per-node quality signal.
+    ("nodes", "beats", "INTEGER"),
     # Operator review of a PUBLISHED claim. NULL = nobody has looked.
     # 'confirmed' / 'retracted' - see hub /review. A public sighting is an
     # assertion about a vehicle, so there has to be a way to take one back,
@@ -301,7 +307,8 @@ def heartbeat(node_id: str, ts: Optional[float] = None) -> None:
     the first marks every quiet street offline.
     """
     conn = connect()
-    conn.execute("UPDATE nodes SET last_beat = ? WHERE id = ?",
+    conn.execute("UPDATE nodes SET last_beat = ?, "
+                 "beats = COALESCE(beats, 0) + 1 WHERE id = ?",
                  (ts or now(), node_id))
     conn.commit()
 
@@ -428,6 +435,15 @@ def stats() -> dict:
                      AND plate_hash IS NOT NULL AND plate_hash != ''"""
     return {
         "nodes_active":   one("SELECT COUNT(*) FROM nodes WHERE status='active'"),
+        # Cameras that have actually contributed something, ever. Kept beside
+        # nodes_active rather than replacing it: "29 enrolled" is true and
+        # encouraging, and this is the harder number that keeps it honest.
+        "nodes_ever_produced": one(
+            "SELECT COUNT(DISTINCT node_id) FROM sightings WHERE node_id != ''"),
+        # Every "still watching" any camera has ever sent, added up. Deliberately
+        # a network total: heartbeats were not always on, so a per-node count
+        # would punish the cameras that were running before it existed.
+        "heartbeats_total": one("SELECT COALESCE(SUM(beats), 0) FROM nodes"),
         "nodes_online":   one("SELECT COUNT(*) FROM nodes WHERE last_beat > ?",
                               (now() - ONLINE_WINDOW_S,)),
         "sightings_24h":  one("SELECT COUNT(*) FROM sightings WHERE ts > ?", (day,)),

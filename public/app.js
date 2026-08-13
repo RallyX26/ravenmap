@@ -722,7 +722,22 @@ async function loadStats() {
     : `<b title="Distinct vehicles can only be counted when a plate is read.
 This camera reads none, so the sightings above cannot be told apart.">&mdash;</b> distinct vehicles`;
   $('#stats').innerHTML = `
-    <span><i>${s.nodes_online}</i>/<b>${s.nodes_active}</b> cameras online</span>
+    <!-- "online / enrolled" stays, because 29 enrolled is true and it is the
+         encouraging framing of a network that is growing. The honest companion
+         is `nodes_ever_produced` in the title: enrolling is easy, contributing
+         is the thing, and 13 of the enrolled have never sent a sighting. Both
+         numbers on screen means the flattering one cannot mislead on its own. -->
+    <span title="${s.nodes_ever_produced ?? '?'} of these have ever sent a sighting. Enrolling a camera is one tap; keeping one running is the real contribution."><i>${s.nodes_online}</i>/<b>${s.nodes_active}</b> cameras online</span>
+    <!-- Every "still watching" any camera has ever sent, added up, converted to
+         hours. Both node types beat every 30 SECONDS - run_live.py and
+         sparrow-app.js:500 - so beats/120 is hours, and the arithmetic is stated
+         in the tooltip rather than left as a number to be trusted.
+         It is a LOWER BOUND by construction: heartbeats were not always enabled,
+         a dropped beat is never made up, and early browser nodes beat at 45s. It
+         undercounts, which is the safe direction for a figure on the front page.
+         It only ever grows, it belongs to the network rather than to one person,
+         and it measures PATIENCE - most of what this project asks of a volunteer. -->
+    ${s.heartbeats_total ? `<span title="${s.heartbeats_total.toLocaleString()} heartbeats, one every 30 seconds. A lower bound: heartbeats were not always enabled and dropped ones are never counted."><b>${Math.round(s.heartbeats_total / 120).toLocaleString()}</b> hours watched</span>` : ''}
     <span><b>${(s.traffic_24h ?? 0).toLocaleString()}</b> passes 24h</span>
     <!-- 🚨 THE WINDOW HAS TO BE ON EVERY FIGURE THAT HAS ONE.
          "passes 24h" carried the qualifier and "public sightings" did not, so
