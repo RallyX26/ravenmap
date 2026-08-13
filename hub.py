@@ -641,7 +641,19 @@ class Handler(BaseHTTPRequestHandler):
                     # can see that the tier is gated rather than having to
                     # infer it from an empty map. See classify.py.
                     "publishes_public_tier": CONFIG.get("publish_public_tier", False),
-                    "classifier_validated": CONFIG.get("publish_public_tier", False),
+                    # 🚨 MEASURED, NOT ASSERTED.
+                    # This used to publish `classifier_validated`, whose value
+                    # was a verbatim copy of the line above - a config toggle
+                    # wearing the name of a validation that had never happened.
+                    # A transparency endpoint asserting its own validation with
+                    # nothing behind it is the most attackable thing a project
+                    # like this can ship, so it is replaced by counts anyone can
+                    # check: how many public sightings a PERSON decided, out of
+                    # how many there are. `decided_by` records that at the point
+                    # of the decision; rows predating the column read 'unknown'
+                    # and are reported separately rather than being quietly
+                    # counted as human.
+                    **db.public_decision_counts(),
                     # Where the map opens. This is CONFIG, not a camera: it
                     # belongs to the deployment, and it is served rather than
                     # hardcoded in app.js so that no real coordinate has to
@@ -1477,6 +1489,27 @@ class Handler(BaseHTTPRequestHandler):
         # `tierable` meant a plate-blind camera could never contribute
         # anything, which is most cameras. See classify.py rule 4.
         tier = "public" if (c["tierable"] or c["sightable"]) else "private"
+
+        # 🚨 THE PUBLIC TIER IS ENTERED BY A PERSON, NEVER BY INGEST.
+        # 33 of the 34 sightings ever auto-published came through here: the
+        # classifier judged a submission sightable and the row went public with
+        # nobody having looked at it. That is the claim the project is now
+        # making publicly - that a human decides what appears on the map - and a
+        # claim has to be true in the code, not merely usual in practice.
+        #
+        # The classification is NOT discarded. `c` still carries vclass and the
+        # reason, the crop is still parked in the review pen below, and a
+        # reviewer promotes it with one press. All that changes is that the
+        # default is private and the publish step needs a person.
+        #
+        # ⚠️ This is deliberately AFTER `tier` is computed, so the classifier's
+        # own opinion is still what routes the crop to the pen. Clearing the
+        # flags earlier would have made every candidate invisible instead of
+        # merely unpublished - the difference between "waiting for review" and
+        # "silently dropped".
+        if tier == "public":
+            c["why"] = (c.get("why") or "") + " - held for human review"
+            tier = "private"
 
         # A camera node scores its own crop, so its GOVERNMENT candidates go
         # straight to the review pen for a human to confirm - captured here as a

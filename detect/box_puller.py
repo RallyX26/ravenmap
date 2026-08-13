@@ -232,16 +232,19 @@ def run_once(vid: VehicleIdentifier, args) -> dict:
         except Exception:
             pass          # banking is a bonus; never fail the pull for it
 
-        if marked:
-            vclass = "police" if r["vclass"] == "police" else "gov"
-            publish.append({
-                "id": sid, "vclass": vclass, "conf": r["conf"],
-                "why": (f"contributor ({meta.get('node_name') or 'a phone'}); "
-                        f"clearly-marked {r['vclass']} "
-                        f"(conf {r['conf']:.2f}, margin {r['margin']:.2f})"
-                        + (f", head {hc:.2f} agrees" if hc is not None else ""))})
-            tag = "  -> PUBLISH"
-        elif candidate:
+        # 🚨 NOTHING REACHES THE PUBLIC MAP WITHOUT A PERSON (his call, under
+        # press scrutiny). `marked` used to auto-publish a contributor's crop
+        # the moment CLIP called it clearly-marked and the head agreed. Two
+        # models agreeing is a strong signal and it is still not a human, and
+        # the project's public position is that a person decides.
+        #
+        # So `marked` no longer publishes; it raises the crop to the FRONT of
+        # the review queue as a strong candidate. The whole difference is who
+        # presses the button, and the delay is one review click.
+        #
+        # Kept as a separate flag rather than folded into `candidate` because
+        # the reviewer should be able to see which ones both models liked.
+        if marked or candidate:
             vclass = "police" if r["vclass"] == "police" else "gov"
             review.append({
                 "id": sid, "vclass": vclass, "head_conf": hc,
@@ -253,11 +256,16 @@ def run_once(vid: VehicleIdentifier, args) -> dict:
                 "head_threshold": call.get("threshold")
                 if call.get("source") == "head" else None,
                 "node_name": meta.get("node_name"),
+                # Surfaced so the reviewer can see at a glance which candidates
+                # both CLIP and the head called clearly-marked - the ones that
+                # used to publish themselves.
+                "strong": bool(marked),
                 "why": (f"contributor ({meta.get('node_name') or 'a phone'}); "
-                        f"{r['vclass']} conf {r['conf']:.2f}"
+                        + ("clearly-marked " if marked else "")
+                        + f"{r['vclass']} conf {r['conf']:.2f}"
                         + (f", head {hc:.2f}" if hc is not None else "")
                         + " - needs a human")})
-            tag = "  -> REVIEW"
+            tag = "  -> REVIEW (strong)" if marked else "  -> REVIEW"
         else:
             discard.append(sid)
             tag = ""

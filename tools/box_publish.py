@@ -135,7 +135,11 @@ def publish_one(item: dict) -> None:
             "node_name": meta.get("node_name") or "a phone contributor",
             "tier": "public", "vclass": vclass, "watermark": "CONTRIBUTED"})
 
-    db.promote_sighting(sid, vclass, conf, why)
+    # Who decided, recorded rather than inferred. box_review.py (a human ruling
+    # in the reviewer UI) sends 'human'; anything automated must say 'auto' and
+    # is counted as such on the public policy endpoint.
+    db.promote_sighting(sid, vclass, conf, why,
+                        decided_by=item.get("decided_by") or "human")
     if snap:
         conn = db.connect()
         conn.execute("UPDATE sightings SET snap=? WHERE id=?", (snap, sid))

@@ -162,6 +162,18 @@ CREATE INDEX IF NOT EXISTS ix_driver_reports_exp ON driver_reports(expires);
 # a live database cannot drift apart.
 MIGRATIONS = [
     ("nodes", "last_beat", "REAL"),
+    # 🚨 WHO put this on the public map: 'human' or 'auto'.
+    #
+    # `reviewed='confirmed'` was being read as "a person looked at this", and it
+    # is not: promote_sighting stamps it, and promote_sighting is called both by
+    # a reviewer in /rv AND by the contributor auto-publish gate. The flag
+    # records that a DECISION happened, never who made it - so a count of
+    # human-reviewed publications was impossible to compute, and the only way
+    # to tell them apart was parsing the reason string.
+    #
+    # A transparency project has to be able to prove "nothing reaches the public
+    # tier without a person", not merely assert it. That needs a column.
+    ("sightings", "decided_by", "TEXT"),
     # Operator review of a PUBLISHED claim. NULL = nobody has looked.
     # 'confirmed' / 'retracted' - see hub /review. A public sighting is an
     # assertion about a vehicle, so there has to be a way to take one back,
@@ -573,6 +585,38 @@ def reports_for(sighting_id: int, open_only: bool = True) -> list:
                                           (sighting_id,)).fetchall()]
 
 
+def public_decision_counts() -> dict:
+    """Who decided what is on the public map, as numbers anyone can check.
+
+    Published on /api/policy in place of the old `classifier_validated`, which
+    was a copy of a config toggle and measured nothing. The point of this
+    project is that a person decides what gets asserted about a vehicle; that
+    is either demonstrable or it is marketing.
+
+    'unknown' is reported rather than folded into either side. Those are rows
+    published before the column existed, and counting them as human would be
+    exactly the kind of flattering guess this endpoint is meant to replace.
+    """
+    try:
+        rows = connect().execute(
+            "SELECT COALESCE(decided_by,'unknown') d, COUNT(*) n "
+            "FROM sightings WHERE tier='public' GROUP BY d").fetchall()
+    except sqlite3.Error:
+        return {}
+    by = {r["d"]: int(r["n"]) for r in rows}
+    total = sum(by.values())
+    return {
+        "public_sightings": total,
+        "public_decided_by_human": by.get("human", 0),
+        "public_decided_automatically": by.get("auto", 0),
+        "public_decided_before_this_was_recorded": by.get("unknown", 0),
+        # True only when nothing on the map got there without a person AND
+        # there is no unaudited backlog hiding in 'unknown'.
+        "every_public_sighting_human_decided": (
+            total > 0 and by.get("auto", 0) == 0 and by.get("unknown", 0) == 0),
+    }
+
+
 def retracted_with_photo() -> list[dict]:
     """Retracted sightings that still carry a stored photograph.
 
@@ -743,7 +787,8 @@ def set_sighting_desc(sighting_id: int, body: Optional[str] = None,
 
 
 def promote_sighting(sighting_id: int, vclass: str = "police",
-                     conf: Optional[float] = None, why: str = "") -> None:
+                     conf: Optional[float] = None, why: str = "",
+                     decided_by: str = "human") -> None:
     """Put a wrongly-private sighting onto the public map.
 
     The mirror of a retraction, and needed for the same reason: the classifier
@@ -760,14 +805,17 @@ def promote_sighting(sighting_id: int, vclass: str = "police",
     resurrect an identifier, which is the correct thing for this function to
     be incapable of.
     """
+    # `decided_by` defaults to 'human' because every caller that existed when
+    # this was written was a human acting deliberately; an automated caller has
+    # to say so explicitly rather than inheriting the benefit of the doubt.
     conn = connect()
     conn.execute("""UPDATE sightings
                     SET tier='public', vclass=?, vclass_conf=?, vclass_why=?,
-                        reviewed='confirmed', reviewed_at=?
+                        reviewed='confirmed', reviewed_at=?, decided_by=?
                     WHERE id=?""",
                  (vclass, conf,
                   why or "confirmed by the camera operator as a public-tier vehicle",
-                  now(), sighting_id))
+                  now(), (decided_by or "human"), sighting_id))
     conn.commit()
 
 
