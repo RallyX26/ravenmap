@@ -94,6 +94,14 @@ def _tile_prune() -> None:
 
 VERSION = "0.1.0"
 
+# High-water marks for /api/health, and when this process started. Kept in
+# memory on purpose: they describe THIS process, they cost nothing, and a file
+# would need permissions the hub should not want. They reset on restart, which
+# is why uptime_s is published beside them - peaks without a window are a
+# number pretending to be a measurement.
+_STARTED = time.time()
+_PEAK = {"fd_pct": 0.0, "threads": 0}
+
 
 # ---------------------------------------------------------------------------
 # Live feed
@@ -870,6 +878,26 @@ class Handler(BaseHTTPRequestHandler):
                     health["fd_limit"] = soft
                     health["fd_used_pct"] = round(100.0 * used / soft, 1)
                     health["threads"] = threading.active_count()
+                    # 🚨 A POINT SAMPLE CANNOT SEE A RAMP, AND THE RAMP IS THE
+                    # WHOLE STORY. An hourly checker polling only "how are you
+                    # right now" would have watched this exact outage develop
+                    # and reported ok, ok, ok, dead - because the climb from
+                    # healthy to fatal fits between two visits. The high-water
+                    # marks are what a visitor who was not here needs, so they
+                    # are kept in-process (free, no file, no permissions) and
+                    # published alongside the live numbers.
+                    #
+                    # ⚠️ `uptime_s` IS PART OF THE SIGNAL, NOT DECORATION. These
+                    # peaks reset when the process does, so a small uptime is
+                    # the caller's only warning that the peaks it is reading
+                    # describe a short window - and that something restarted
+                    # this service, which is itself the thing worth asking
+                    # about.
+                    _PEAK["fd_pct"] = max(_PEAK["fd_pct"], health["fd_used_pct"])
+                    _PEAK["threads"] = max(_PEAK["threads"], health["threads"])
+                    health["fd_peak_pct"] = _PEAK["fd_pct"]
+                    health["threads_peak"] = _PEAK["threads"]
+                    health["uptime_s"] = round(time.time() - _STARTED, 1)
                     # Degraded, not dead. Something is retaining descriptors
                     # and there is still time to look at it.
                     if used > soft * 0.8:
