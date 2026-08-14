@@ -67,6 +67,50 @@ LIVE_ID: dict = {}
 VehicleIdentifier = None
 
 
+def ensure_signing_key(args) -> None:
+    """Give this camera an ed25519 identity, once, at startup.
+
+    🚨 THIS IS WHAT MAKES THE FEATURE REACH EXISTING CAMERAS. Enrolment only
+    runs when somebody SAVES a placement, so registering the key there alone
+    would have left every camera already in the field unsigned for ever - the
+    change would have shipped and altered nothing, which is exactly how pubkey
+    came to be NULL on 158 nodes.
+
+    Failure is never fatal. An unsigned camera works; a camera that refuses to
+    start because it could not register a key does not, and this runs before
+    the first frame.
+    """
+    if not (args.node and args.token):
+        return
+    import urllib.request        # imported per-function throughout this file
+    try:
+        if node_key.load(ROOT, args.node):
+            print(f"  signing as {args.node} (key already registered)")
+            return
+        _priv, pub = node_key.create(ROOT, args.node)
+        req = urllib.request.Request(
+            f"{args.hub}/api/node/key", method="POST",
+            data=json.dumps({"node_id": args.node, "pubkey": pub}).encode(),
+            headers={"Content-Type": "application/json",
+                     "User-Agent": NODE_UA,
+                     "Authorization": f"Bearer {args.token}"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            json.loads(r.read())
+        print(f"  registered a signing key for {args.node}; "
+              f"sightings from here are signed")
+    except Exception as exc:
+        # ⚠️ AND REMOVE THE KEY WE JUST MADE. If the hub did not record the
+        # public half, keeping the private half achieves nothing and guarantees
+        # a mismatch the next time this runs - it would find a local key, skip
+        # registration for ever, and sign against a pubkey the hub never got.
+        try:
+            node_key._key_path(ROOT, args.node).unlink(missing_ok=True)
+        except Exception:
+            pass
+        print(f"  could not register a signing key ({exc}); "
+              f"posting unsigned, which still works")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", default="http://localhost:8160/stream.mjpg")
@@ -134,6 +178,7 @@ def main() -> None:
 
     stop = threading.Event()
     if args.post:
+        ensure_signing_key(args)
         threading.Thread(target=heartbeat_loop, args=(args, stop),
                          daemon=True).start()
         print(f"  heartbeat -> {args.hub} every 30s as {args.node}")

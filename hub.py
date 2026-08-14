@@ -1938,7 +1938,7 @@ class Handler(BaseHTTPRequestHandler):
                        "/api/rv/tokens/new", "/api/rv/tokens/revoke",
                        "/api/rv/my-token", "/api/drive/report", "/api/drive/vote",
                        "/api/rv/retracted/delete", "/api/rv/held/fix",
-                       "/api/node/span"}
+                       "/api/node/span", "/api/node/key"}
 
     def _do_POST_inner(self) -> None:
         try:
@@ -2129,6 +2129,49 @@ class Handler(BaseHTTPRequestHandler):
                              actor=f"camera {nd['id']}",
                              ip=privacy.audit_ip(self.client_ip))
                 return self._json(out)
+
+            if p == "/api/node/key":
+                # 🚨 A CAMERA REGISTERS ITS OWN SIGNING KEY, WITHOUT RE-ENROLLING.
+                #
+                # Enrolment only happens when somebody SAVES a placement, so
+                # every camera already running would have gone on unsigned for
+                # ever - the fix would have shipped and changed nothing, which
+                # is how pubkey came to be NULL on 158 nodes in the first place.
+                # The detector calls this once at startup instead.
+                #
+                # Deliberately NOT /api/enroll: that call carries a position,
+                # and a position is what makes nodes.enroll split a node past
+                # MOVED_THRESHOLD_M. Registering a key must never be able to
+                # mint a camera. Nothing here touches placement.
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if not nd.get("token"):
+                    return self._err(401, "this node has no token; re-enroll it")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                pub = str(b.get("pubkey") or "").strip()
+                if not pub:
+                    return self._err(400, "missing pubkey")
+                # Verify it is a usable ed25519 key BEFORE storing it. Storing
+                # an unusable one is the worst outcome available here: _ingest
+                # would then demand a signature it can never verify and 401
+                # every sighting from a camera that is working perfectly.
+                try:
+                    import base64 as _b64
+                    from cryptography.hazmat.primitives.asymmetric.ed25519 \
+                        import Ed25519PublicKey
+                    Ed25519PublicKey.from_public_bytes(_b64.b64decode(pub))
+                except Exception:
+                    return self._err(400, "that is not an ed25519 public key")
+                conn = db.connect()
+                conn.execute("UPDATE nodes SET pubkey=? WHERE id=?",
+                             (pub, nd["id"]))
+                conn.commit()
+                db.audit("node_key", nd["id"], actor=f"camera {nd['id']}",
+                         ip=privacy.audit_ip(self.client_ip))
+                return self._json({"ok": True, "id": nd["id"]})
 
             if p == "/api/node/span":
                 # The camera owner deciding whether the stretch of road their
