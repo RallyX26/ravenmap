@@ -199,6 +199,16 @@ RATE = {"/api/enroll": (120, 3600), "/api/sightings": (600, 3600),
         "/api/geocode": (300, 3600)}
 
 
+# How many tile MISSES may be fetching from the upstream CDN at once.
+#
+# Sized against what the box is: 2 vCPUs whose tile work is almost entirely
+# WAITING, so this can be well above the CPU count - but it must exist. With no
+# bound at all a purged Cloudflare cache turned every tile into an origin fetch
+# and hundreds ran together, which is how a map went 502 while the machine sat
+# idle waiting on somebody else's network.
+_TILE_FETCH = threading.Semaphore(12)
+
+
 def rate_ok(path: str, ip: str) -> bool:
     limit = RATE.get(path)
     if not limit:
@@ -520,6 +530,28 @@ class Handler(BaseHTTPRequestHandler):
         if not rate_ok("/api/tile", self.client_ip):
             return self._send(429, b"", "text/plain")
 
+        # 🚨 BOUND THE CONCURRENT UPSTREAM FETCHES. THIS TOOK THE SITE DOWN.
+        #
+        # Tiles are exempt from the request gate, and correctly so: waiting on
+        # somebody else's CDN is not work this box does, and gating it meant a
+        # visitor panning the map consumed every permit for fifteen seconds a
+        # time. But exempting them removed the ONLY bound, which is a different
+        # mistake with the same outcome.
+        #
+        # It surfaced the moment the Cloudflare cache was purged: a cold edge
+        # makes every tile a MISS, each MISS becomes an origin request, each one
+        # opens an upstream fetch, and hundreds ran at once. Load 41 on 2 vCPUs,
+        # the accept queue backed up, and the map returned 502 while the box sat
+        # mostly idle waiting on the network.
+        #
+        # A cache HIT above never reaches here, so this bounds only the
+        # amplifying path. The wait is short and deliberate: most fetches finish
+        # well under a second, so a storm sheds rather than queues. A blank tile
+        # for one pan is nothing; Leaflet fills it on the next move, and it beats
+        # taking the whole site down to render one square of road.
+        if not _TILE_FETCH.acquire(timeout=2.0):
+            return self._send(404, b"", "text/plain")
+
         import urllib.request
         url = TILE_UPSTREAM.format(s=TILE_SUBDOMAINS[(x + y) % len(TILE_SUBDOMAINS)],
                                    z=z, x=x, y=y)
@@ -532,6 +564,13 @@ class Handler(BaseHTTPRequestHandler):
             # HTML as a broken image across the map. Fail as a 404 and let it
             # leave that square blank.
             return self._send(404, b"", "text/plain")
+        finally:
+            # ⚠️ RELEASED HERE, NOT AFTER THE DISK WRITE. The permit exists to
+            # bound UPSTREAM fetches; holding it through the local write would
+            # count disk time against a network budget, and a permit leaked on
+            # the 404 path would shrink the pool to nothing one failed tile at
+            # a time - a slow strangle that looks like a network problem.
+            _TILE_FETCH.release()
 
         try:
             cached.parent.mkdir(parents=True, exist_ok=True)
