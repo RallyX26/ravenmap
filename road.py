@@ -262,7 +262,17 @@ def span_on_named_road(lat: float, lon: float, reach_m: float,
     want = (name_match or "").strip().lower()
     if not want:
         return None
-    ways = fetch_ways(lat, lon)
+    # ⚠️ Overpass rate-limits a sweep hard - 18 nodes earned a 429 in under two
+    # minutes - and it did exactly that mid-run here, crashing the tool on the
+    # third node after two had already been written. resolve() has always caught
+    # this; a second entry point into the same API must too, or a partial sweep
+    # leaves half the nodes moved and no clear record of which.
+    try:
+        ways = fetch_ways(lat, lon)
+    except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
+        print(f"[road] named-road lookup unavailable "
+              f"({exc.__class__.__name__}: {exc}) - no span; retry later")
+        return None
     pts: list[tuple[float, float]] = []
     matched_name = None
     for nm, geom in ways:
