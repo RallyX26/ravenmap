@@ -696,10 +696,20 @@ def _publish(sid: int, reviewer: dict, force_vclass: Optional[str] = None,
     if crop:
         try:
             data_url = "data:image/jpeg;base64," + base64.b64encode(crop).decode()
+            # 🚨 A REPORTED ITEM IS ALREADY STAMPED. park_reported builds its
+            # pen crop with subres_from_stored, i.e. from the file the map was
+            # already serving, and that file was captioned when it was first
+            # stored. Stamping it again lands the second caption on top of the
+            # first at the same size and position, so it does not look like a
+            # bug - the strip just goes darker and another layer of text is
+            # burned into the evidence every time round the report-confirm
+            # loop. Everything else in the pen arrives unstamped and still
+            # needs one.
             snap = snapshot.store_subresolution(data_url, {
                 "ts": meta.get("ts") or time.time(), "node_id": "review",
                 "node_name": meta.get("node_name") or "a camera",
-                "tier": "public", "vclass": vclass, "watermark": "CONFIRMED"})
+                "tier": "public", "vclass": vclass, "watermark": "CONFIRMED"},
+                stamp=not meta.get("reported"))
         except Exception:
             try:
                 name = f"{int(meta.get('ts') or time.time())}_{secrets.token_hex(4)}.jpg"

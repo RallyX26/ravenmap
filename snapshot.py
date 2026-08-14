@@ -39,6 +39,27 @@ def _font(size: int):
     return ImageFont.load_default()
 
 
+#: The most of a photograph the caption strip may ever cover, and the most the
+#: watermark may. The picture is the evidence; the stamp is the label on it.
+_CAPTION_MAX_FRAC = 0.24
+_WATERMARK_MAX_FRAC = 0.13
+#: …and the most of the WIDTH the watermark may span. Height alone did not
+#: stop "CONFIRMED" being drawn clean across the roof of the car.
+_WATERMARK_MAX_WIDTH = 0.55
+#: Below this the glyphs are mush - drawing them costs pixels and returns
+#: nothing legible, so a line that cannot reach this size is dropped instead.
+_MIN_READABLE_PX = 7
+
+
+def _fit_line(d, text: str, font, avail: int) -> str:
+    """Shorten `text` with an ellipsis until it fits `avail` pixels."""
+    if d.textlength(text, font=font) <= avail:
+        return text
+    while text and d.textlength(text + "…", font=font) > avail:
+        text = text[:-1]
+    return (text + "…") if text else ""
+
+
 def _stamp(img: Image.Image, lines: list[str], watermark: str = "") -> Image.Image:
     """Burn provenance into the image itself.
 
@@ -46,19 +67,71 @@ def _stamp(img: Image.Image, lines: list[str], watermark: str = "") -> Image.Ima
     the fact that the picture came from an automated system are part of the
     evidence, so they are drawn on the pixels rather than left in a sidecar
     that gets stripped the first time somebody screenshots it.
+
+    🚨 THE STAMP GETS A BUDGET AS A FRACTION OF THE PICTURE, AND THE TEXT FITS
+    THE BUDGET OR LINES ARE DROPPED. Never the other way around.
+
+    This used to size the fonts as `max(11, width // 55)` and `max(14, width //
+    22)`. The ratios were tuned on a full frame - at 1100px wide that is a 20px
+    caption, which is right. But the images this actually runs on are capped at
+    SUBRES_MAX_EDGE (200px), so `width // 55` is 3 and the FLOOR always won. A
+    floor is an absolute number of pixels on an image that cannot grow, so it
+    did not make the text legible, it made the text DOMINATE: on a real 176x109
+    published crop the caption strip came to 40px and the watermark another 14,
+    which is HALF THE PHOTOGRAPH covered in writing - and the caption was still
+    too wide for the image, so it rendered as "Bridge St, DIR SOUTH | Sparro".
+    Reported as "details are covering too much of the police car", which is
+    exactly what it was: the vehicle is the evidence and the label had eaten it.
+
+    So the budget is proportional, lines that will not fit the height are
+    dropped from the END (the timestamp matters most, the plate line least),
+    and every line is ellipsised to the width rather than overflowing.
     """
     d = ImageDraw.Draw(img, "RGBA")
-    f = _font(max(11, img.width // 55))
-    pad = 6
-    h = (f.size + 3) * len(lines) + pad * 2
-    d.rectangle([0, img.height - h, img.width, img.height], fill=(0, 0, 0, 165))
-    y = img.height - h + pad
-    for ln in lines:
-        d.text((pad, y), ln, font=f, fill=(235, 235, 235, 255))
-        y += f.size + 3
+    pad = max(2, img.width // 60)
+    avail = img.width - pad * 2
+
+    # Caption: the largest font whose strip stays inside the budget, then drop
+    # lines that still will not fit. A one-line legible stamp beats a two-line
+    # unreadable one.
+    budget = int(img.height * _CAPTION_MAX_FRAC)
+    keep, f = list(lines), None
+    while keep:
+        # width // 55 is the ORIGINAL ratio and it was right - a 1100px frame
+        # gets a 20px caption. Only the floor was wrong. The budget clamp is
+        # what small images need; the ratio is what big ones need.
+        size = max(_MIN_READABLE_PX,
+                   min(img.width // 55, (budget - pad) // len(keep) - 2))
+        f = _font(size)
+        if (f.size + 2) * len(keep) + pad <= budget or len(keep) == 1:
+            break
+        keep = keep[:-1]                  # drop the least important line
+    if keep and f:
+        h = (f.size + 2) * len(keep) + pad
+        d.rectangle([0, img.height - h, img.width, img.height],
+                    fill=(0, 0, 0, 165))
+        y = img.height - h + pad // 2
+        for ln in keep:
+            d.text((pad, y), _fit_line(d, ln, f, avail), font=f,
+                   fill=(235, 235, 235, 255))
+            y += f.size + 2
+
     if watermark:
-        wf = _font(max(14, img.width // 22))
-        d.text((pad, pad), watermark, font=wf, fill=(255, 90, 90, 210))
+        # 🚨 BOUNDED BY WIDTH TOO, NOT JUST HEIGHT. "CONFIRMED" at 14px on a
+        # 176px-wide crop is only 13% of the height but over 40% of the WIDTH,
+        # and it is drawn straight across the roofline - which is what actually
+        # read as covering the car. Shrink until it sits inside its share of
+        # the width; ellipsising a one-word watermark ("CONFIRM…") would be
+        # worse than a smaller one that still says what it says.
+        size = max(_MIN_READABLE_PX,
+                   min(img.width // 22, int(img.height * _WATERMARK_MAX_FRAC)))
+        wf = _font(size)
+        while size > _MIN_READABLE_PX and \
+                d.textlength(watermark, font=wf) > avail * _WATERMARK_MAX_WIDTH:
+            size -= 1
+            wf = _font(size)
+        d.text((pad, pad), _fit_line(d, watermark, wf, avail), font=wf,
+               fill=(255, 90, 90, 210))
     return img
 
 
@@ -110,7 +183,8 @@ def redact_plate(img: Image.Image, plate_box: tuple) -> Image.Image:
 
 def store_crop(frame: Image.Image, bbox: Optional[tuple], meta: dict,
                plate_box: Optional[tuple] = None,
-               plate_boxes: Optional[list] = None) -> tuple[str, str]:
+               plate_boxes: Optional[list] = None,
+               stamp: bool = True) -> tuple[str, str]:
     """Crop to the vehicle, redact if private, stamp it, write it.
 
     ``bbox`` is the vehicle box (x0, y0, x1, y1) in frame pixels.
@@ -118,6 +192,16 @@ def store_crop(frame: Image.Image, bbox: Optional[tuple], meta: dict,
     required whenever the sighting is private tier; passing None there raises,
     because silently storing a readable plate is the failure this whole module
     exists to prevent.
+
+    🚨 ``stamp=False`` FOR AN IMAGE THAT IS ALREADY STAMPED.
+    The caption and watermark are drawn at a position and size derived from the
+    image, so stamping the same picture twice lands the second copy almost
+    exactly on the first: the strip goes darker, the glyphs go bolder, and it
+    reads as one stamp rather than two. Invisible, and it happens on a real
+    path - a publicly flagged photo goes into the review pen via
+    subres_from_stored, which takes the STORED (already captioned) file, and
+    confirming it calls back through here. Every trip round that loop burns
+    another layer of text into the evidence.
     """
     img = frame.convert("RGB")
 
@@ -239,7 +323,8 @@ def store_crop(frame: Image.Image, bbox: Optional[tuple], meta: dict,
     ]
     if meta.get("tier") == "public" and meta.get("plate_text"):
         lines.append(f"plate {meta['plate_text']}  ({meta.get('vclass', '?')})")
-    img = _stamp(img, lines, watermark=meta.get("watermark", ""))
+    if stamp:
+        img = _stamp(img, lines, watermark=meta.get("watermark", ""))
 
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=JPEG_QUALITY, optimize=True)
@@ -335,7 +420,7 @@ def store_prepared(data_url: str, meta: dict,
 SUBRES_MAX_EDGE = 200
 
 
-def store_subresolution(data_url: str, meta: dict) -> str:
+def store_subresolution(data_url: str, meta: dict, stamp: bool = True) -> str:
     """Store a crop that is too small to carry a readable plate.
 
     🚨 THE SIZE IS VERIFIED HERE, NOT TRUSTED FROM THE CLIENT.
@@ -362,7 +447,8 @@ def store_subresolution(data_url: str, meta: dict) -> str:
         raise ValueError(
             f"sub-resolution submission is {img.width}x{img.height}; "
             f"longest edge must be <= {SUBRES_MAX_EDGE}px")
-    name, _sha = store_crop(img, (0, 0, img.width, img.height), meta)
+    name, _sha = store_crop(img, (0, 0, img.width, img.height), meta,
+                            stamp=stamp)
     return name
 
 

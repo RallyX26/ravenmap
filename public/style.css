@@ -89,6 +89,49 @@ main{position:absolute; inset:52px 0 57px 0; display:flex}
 .detail{border-bottom:1px solid var(--line); padding:11px 12px; background:#0d1420}
 .detail.hidden, .hidden{display:none}
 .detail img{width:100%; border-radius:7px; border:1px solid var(--line2); display:block; background:#000}
+
+/* The photo, with a "view larger" control sitting on it. The published crop is
+   at most 200px on its long edge, so on a phone the vehicle is a smudge and
+   there is no way to check the claim the map is making. */
+.shotwrap{position:relative}
+.viewbtn{
+  position:absolute; right:7px; bottom:7px;
+  appearance:none; border:1px solid rgba(255,255,255,.28); border-radius:7px;
+  background:rgba(10,16,26,.78); color:#e8eef6; font:inherit; font-size:12px;
+  font-weight:600; padding:5px 9px; cursor:pointer; backdrop-filter:blur(3px);
+  /* Bottom-RIGHT on purpose: the burnt-in caption strip runs along the bottom
+     LEFT of every stored crop, so anywhere else covers the provenance the
+     stamp exists to preserve. */
+}
+.viewbtn:hover{background:rgba(20,30,46,.92); border-color:rgba(255,255,255,.5)}
+
+.lightbox{
+  position:fixed; inset:0; z-index:4000; background:rgba(4,7,12,.93);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:12px; padding:20px;
+}
+/* 🚨 THESE CROPS ARE TINY, SO THE LIGHTBOX HAS TO SCALE THEM *UP*.
+   max-width:100% only ever shrinks - on a 176px crop it opened the "larger"
+   view at exactly the size it already was in the panel, which is a full-screen
+   overlay that achieves nothing. A published crop is capped at 200px on its
+   long edge, so the width is set deliberately and max-height then reins in a
+   tall one, keeping the aspect ratio either way. */
+.lightbox img{
+  width:min(96vw, 720px); height:auto; max-height:78vh;
+  border-radius:8px; border:1px solid var(--line2); background:#000;
+  /* Ordinary interpolation, as any photo viewer does. No sharpening filter:
+     these are the stored pixels made bigger, and nothing here should invent
+     detail that is not in the evidence. */
+  image-rendering:auto;
+}
+.lbcap{color:var(--dim); font-size:13px; text-align:center}
+.lbclose{
+  position:absolute; top:14px; right:16px;
+  appearance:none; border:1px solid var(--line2); border-radius:50%;
+  background:rgba(20,28,42,.9); color:#e8eef6; font-size:17px; line-height:1;
+  width:38px; height:38px; cursor:pointer;
+}
+.lbclose:hover{background:rgba(35,46,66,.95)}
 .detail .plate{
   font:700 21px/1 var(--mono); letter-spacing:.09em; margin:10px 0 3px;
 }

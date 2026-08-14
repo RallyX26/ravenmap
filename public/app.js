@@ -478,6 +478,35 @@ function openReport(id) {
   };
 }
 
+/* Full-screen view of one published photo.
+   Built with DOM calls rather than innerHTML because the CSP forbids inline
+   anything, and pinned to the viewport so a phone shows the crop as large as
+   the screen allows. image-rendering is left alone deliberately - smoothing a
+   200px crop invents detail that is not in the evidence. */
+function openLightbox(s) {
+  const ov = document.createElement('div');
+  ov.className = 'lightbox';
+  const img = document.createElement('img');
+  img.src = `/snap/${encodeURIComponent(s.snap)}`;
+  img.alt = 'snapshot, enlarged';
+  const cap = document.createElement('div');
+  cap.className = 'lbcap';
+  cap.textContent = `${label_for(s.vclass)} · ${new Date(s.ts * 1000).toLocaleString()}`;
+  const close = document.createElement('button');
+  close.className = 'lbclose';
+  close.textContent = '✕';
+  close.setAttribute('aria-label', 'Close');
+  const shut = () => { ov.remove(); removeEventListener('keydown', esc); };
+  const esc = (e) => { if (e.key === 'Escape') shut(); };
+  close.onclick = shut;
+  // Tapping the backdrop closes; tapping the photo itself must not, or you
+  // dismiss the thing you opened while trying to look at it.
+  ov.onclick = (e) => { if (e.target === ov) shut(); };
+  addEventListener('keydown', esc);
+  ov.appendChild(img); ov.appendChild(cap); ov.appendChild(close);
+  document.body.appendChild(ov);
+}
+
 async function select(id) {
   state.selected = id;
   const s = state.sightings.get(id) || await (await fetch(`/api/sighting/${id}`)).json();
@@ -487,7 +516,11 @@ async function select(id) {
   const conf = s.vclass_conf != null ? `${Math.round(s.vclass_conf * 100)}%` : '—';
 
   $('#detail').innerHTML = `
-    ${s.snap ? `<img src="/snap/${encodeURIComponent(s.snap)}" alt="snapshot">` : ''}
+    ${s.snap ? `<div class="shotwrap">
+      <img src="/snap/${encodeURIComponent(s.snap)}" alt="snapshot" id="snapImg">
+      <button class="viewbtn" id="btnBigger" title="View this photo larger"
+        aria-label="View this photo larger">⤢ View</button>
+    </div>` : ''}
     <div class="plate ${pub ? '' : 'priv'}">${esc(label(s))}</div>
     <div class="kv">
       <span>class</span><b style="color:${COLOR[s.vclass] || COLOR.unknown}">${
@@ -520,6 +553,15 @@ async function select(id) {
   $('#detail').classList.remove('hidden');
 
   $('#btnCenter').onclick = () => map.setView([s.lat, s.lon], 17);
+
+  /* 🔍 VIEW THE PHOTO LARGER.
+     The published crop is at most 200px on its long edge and the panel shows it
+     smaller still, so on a phone the vehicle is a smudge - you cannot check the
+     claim the map is making, which is the one thing a viewer should always be
+     able to do. Opening it full-screen does not add a single pixel of detail;
+     it just stops the layout throwing away the ones that are there. */
+  const big = $('#btnBigger');
+  if (big) big.onclick = () => openLightbox(s);
 
   /* Where to LISTEN, for the place this sighting is in.
    *
