@@ -238,6 +238,79 @@ def span_from_ways(lat: float, lon: float, heading: float, fov: float,
             "watched_m": round(length, 1), "source": "osm"}
 
 
+def span_on_named_road(lat: float, lon: float, reach_m: float,
+                       name_match: str) -> Optional[dict]:
+    """The stretch of a NAMED road nearest this camera. The operator names it.
+
+    🚨 THE CONE IS A HEURISTIC AND AT A JUNCTION IT LOSES TO A PERSON.
+    span_from_ways picks whichever road collects the most points inside the
+    camera's cone, which is the right guess when nothing better is known. Near a
+    junction it is a guess against a person who can see the street: three nodes
+    16-91 m apart all snapped to a cross street, and every police vehicle the
+    operator has ever seen was on the other one. A camera 16 m from another
+    camera was placed on a different road from it.
+
+    This does not fabricate anything - it still requires a real OSM way with
+    that name within reach, and returns None when there is none, so the rule
+    that an unknown road publishes NO span is intact (see resolve()). What it
+    drops is only the assumption that the cone knows best.
+
+    ⚠️ Heading is deliberately ignored. A camera can be aimed across a street
+    it watches, or report no heading at all from a browser enrolment, and the
+    whole reason this exists is that the aim-based pick was wrong.
+    """
+    want = (name_match or "").strip().lower()
+    if not want:
+        return None
+    ways = fetch_ways(lat, lon)
+    pts: list[tuple[float, float]] = []
+    matched_name = None
+    for nm, geom in ways:
+        if not nm or want not in nm.lower():
+            continue
+        for i in range(len(geom) - 1):
+            a = _to_xy(geom[i][0], geom[i][1], lat, lon)
+            b = _to_xy(geom[i + 1][0], geom[i + 1][1], lat, lon)
+            for px, py in _seg_points(a, b):
+                # Generous compared with the cone: the road is known, so the
+                # only question is which STRETCH of it this camera covers.
+                if math.hypot(px, py) <= max(reach_m * 2.0, SPAN_MIN_M):
+                    pts.append((px, py))
+                    matched_name = matched_name or nm
+    if not pts:
+        return None
+
+    # Same principal-axis extent as span_from_ways, so a span produced here is
+    # indistinguishable in shape from one the cone produced - only the choice
+    # of road differs.
+    cx = sum(p[0] for p in pts) / len(pts)
+    cy = sum(p[1] for p in pts) / len(pts)
+    sxx = sum((p[0] - cx) ** 2 for p in pts)
+    syy = sum((p[1] - cy) ** 2 for p in pts)
+    sxy = sum((p[0] - cx) * (p[1] - cy) for p in pts)
+    theta = 0.5 * math.atan2(2 * sxy, sxx - syy)
+    ux, uy = math.cos(theta), math.sin(theta)
+    ts = [(p[0] - cx) * ux + (p[1] - cy) * uy for p in pts]
+    t0, t1 = min(ts), max(ts)
+
+    # Keep the published span near the camera's actual coverage rather than the
+    # whole street: trim to reach either side of the closest point, then apply
+    # the usual minimum so the midpoint still cannot be back-projected.
+    near = min(range(len(pts)), key=lambda i: math.hypot(pts[i][0], pts[i][1]))
+    tn = (pts[near][0] - cx) * ux + (pts[near][1] - cy) * uy
+    t0 = max(t0, tn - reach_m)
+    t1 = min(t1, tn + reach_m)
+    length = t1 - t0
+    if length < SPAN_MIN_M:
+        pad = (SPAN_MIN_M - length) / 2.0
+        t0, t1 = t0 - pad, t1 + pad
+
+    p0 = _to_ll(cx + ux * t0, cy + uy * t0, lat, lon)
+    p1 = _to_ll(cx + ux * t1, cy + uy * t1, lat, lon)
+    return {"road_name": matched_name, "span": [list(p0), list(p1)],
+            "watched_m": round(max(length, 0.0), 1), "source": "osm:named"}
+
+
 def span_from_aim(lat: float, lon: float, heading: float,
                   reach_m: float) -> dict:
     """Fallback span: the camera's own aim axis, no road data required.

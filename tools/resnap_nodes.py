@@ -46,6 +46,9 @@ def main() -> None:
                          "this resolves nothing for every node - see the "
                          "module docstring")
     ap.add_argument("--node", default="", help="only this node id")
+    ap.add_argument("--road", default="",
+                    help="force the span onto the named road (substring match, "
+                         "case-insensitive) instead of letting the cone choose")
     args = ap.parse_args()
 
     conn = db.connect()
@@ -69,9 +72,17 @@ def main() -> None:
             print(f"{n['id']}  {n['name']}")
             print("   SKIP  carried camera - no watched road")
             continue
-        span = road.resolve(n["lat"], n["lon"], n["heading"] or 0,
-                            n["fov"] or 60, n["reach_m"] or 45,
-                            online=not args.offline)
+        if args.road:
+            span = road.span_on_named_road(
+                n["lat"], n["lon"], n["reach_m"] or 45, args.road)
+            if not span:
+                print(f"{n['id']}  no road matching '{args.road}' within reach "
+                      f"- left alone")
+                continue
+        else:
+            span = road.resolve(n["lat"], n["lon"], n["heading"] or 0,
+                                n["fov"] or 60, n["reach_m"] or 45,
+                                online=not args.offline)
         # resolve() now returns None when no ROAD could be determined, rather
         # than inventing a compass line. Skip: a node keeps whatever it had,
         # and a later run with a working Overpass can snap it properly.
