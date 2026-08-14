@@ -84,12 +84,16 @@ try {
 
 # 3) Run the detector against the hub. It reads the node id + token from the
 #    placement file (never pasted here), and is restarted if it dies for a real
-#    reason. Exit code 1 is the single-instance guard - do not loop on it.
+#    reason. Exit code 3 - and only 3 - is the single-instance guard; do not
+#    loop on it. It used to test 1, which is ALSO what Python returns for any
+#    unhandled exception, so a crashing detector was reported to the volunteer
+#    as "another detector is already running" and the loop stopped. Their camera
+#    went dark behind a message pointing at the wrong thing.
 while ($true) {
   $place = Get-Content $Place -Raw | ConvertFrom-Json
   Write-Host "  Detector running as $($place.node_id). Close this window to stop."
   & $Py 'detect\run_live.py' --post --visual --hub $Hub --node $place.node_id --token $place.token
-  if ($LASTEXITCODE -eq 1) {
+  if ($LASTEXITCODE -eq 3) {
     Write-Host "  Another detector is already running for this camera. Close it first." -ForegroundColor Yellow
     Read-Host "Press Enter to close"; break
   }

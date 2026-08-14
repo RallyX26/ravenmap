@@ -474,13 +474,22 @@ def claim_single_instance(node_id: str, port_base: int = 47800) -> "socket.socke
         s.listen(1)
         return s
     except OSError:
-        raise SystemExit(
+        # 🚨 EXIT 3, NOT 1, AND THAT DISTINCTION IS LOAD-BEARING.
+        # SystemExit("some message") exits 1 - the same code Python uses for an
+        # unhandled exception. The launcher keyed "already running" off exit 1,
+        # so when a NameError killed the detector the wrapper announced
+        # "another detector is already running - close that window first" and
+        # STOPPED retrying. Every fixed camera stayed dark behind a confident,
+        # wrong diagnosis, and the one message a human would read pointed away
+        # from the fault. A refusal and a crash must never share an exit code.
+        print(
             f"\n  A detector is ALREADY RUNNING for node {node_id or '(default)'}.\n"
             f"  Starting a second one would double-count every vehicle, so this\n"
             f"  one is stopping.\n\n"
             f"  Close the other window first, or find it with:\n"
             f"    powershell \"Get-CimInstance Win32_Process -Filter \\\"Name='python.exe'\\\" | \"\n"
-            f"      \"Where CommandLine -match 'run_live' | Select ProcessId,CommandLine\"\n")
+            f"      \"Where CommandLine -match 'run_live' | Select ProcessId,CommandLine\"\n", file=sys.stderr)
+        raise SystemExit(3)
 
 # Latest detections, for the operator's live overlay. One slot, overwritten:
 # the viewer wants the CURRENT boxes, so a backlog of old ones is worse than
