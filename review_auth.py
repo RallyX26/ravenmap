@@ -115,7 +115,47 @@ def identify(headers) -> Optional[dict]:
         "id": rec["id"], "label": rec["label"], "scope": rec["scope"],
         # None means "every node"; a set means "only these".
         "nodes": set(nodes) if rec["scope"] == "own" else None,
+        # 🚨 WHO MINTED IT, NOT JUST WHAT IT IS SCOPED TO.
+        # `is_trusted` used to be `scope == "pool"`, which was sound while the
+        # operator was the only person who could mint a pool token. Pool review
+        # is now self-service - any camera owner can take one - so scope alone
+        # no longer says anything about trust, and deriving trust from it would
+        # hand every signup the retracted-photo shelf (see and DELETE the
+        # photographs of things the map has already withdrawn). The distinction
+        # that still means something is who issued it.
+        "created_by": rec.get("created_by") or "",
     }
+
+
+def ensure_pool_token(node_id: str, label: str) -> Optional[str]:
+    """Give a camera owner a POOL-scoped token, once. Self-service.
+
+    🚨 THIS IS THE OPEN DOOR, AND IT IS DELIBERATE. It hands anyone who runs a
+    camera the shared queue of everyone's pending government calls, and a
+    verdict from it publishes to the public map. That is the point - the pool
+    is the crowd-labelling surface and it is useless if only the operator can
+    reach it - but it is worth being plain about what it grants.
+
+    What keeps it recoverable is unchanged and is the whole argument in this
+    file's header: every verdict is audited with the reviewer's label, every
+    call is reversible, and the token can be revoked on its own. What it does
+    NOT grant is the retracted-photo shelf: `created_by="self"` never satisfies
+    `review_api.is_trusted`, so deleting photographs stays with tokens the
+    operator minted by hand.
+
+    Minted once, like ensure_own_token - a token is stored only as a hash, so
+    an existing one can never be shown again.
+    """
+    for t in db.list_review_tokens(include_revoked=False):
+        if (t.get("scope") == "pool" and t.get("created_by") == "self"
+                and node_id in (t.get("nodes") or "").split(",")):
+            return None
+    # 🚨 THE NODE IS RECORDED EVEN THOUGH POOL SCOPE IGNORES IT.
+    # `identify` sets nodes=None for pool scope, so this list grants nothing -
+    # it is provenance. Without it a self-service pool token cannot be traced
+    # back to the camera that asked for it, and "revoke the one that is
+    # spamming the map" becomes guesswork.
+    return issue(label or "a camera", "pool", [node_id], created_by="self")
 
 
 def login_value(token_str: str) -> Optional[str]:

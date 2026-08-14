@@ -15,11 +15,14 @@ management). Nothing here trusts the caller on its own.
 from __future__ import annotations
 
 import base64
+import io
 import json
 import secrets
 import time
 from pathlib import Path
 from typing import Optional
+
+from PIL import Image
 
 import db
 import mirror
@@ -215,13 +218,29 @@ def is_trusted(reviewer: dict) -> bool:
     operator surface - mirror.route_allowed 404s /review and /api/operator
     outright, on the argument that a disabled review page is still a review
     page to find a bug in. Adding an operator route here to reach these photos
-    would reopen exactly that. A pool reviewer, meanwhile, can already see
-    every crop in the pen and publish or retract anything on the map, so
-    showing them the photographs of things they themselves retracted grants no
-    power they did not already hold. The gate reuses an existing, audited,
-    revocable mechanism instead of cutting a new hole.
+    would reopen exactly that. The gate reuses an existing, audited, revocable
+    mechanism instead of cutting a new hole.
+
+    🚨 IT USED TO SAY `scope == "pool"` AND THAT STOPPED BEING SAFE.
+    The reasoning above rested on a sentence that is no longer true - "pool
+    scope, which today is one token". Pool review is now self-service: any
+    camera owner can take a pool token, because a crowd-labelling queue only
+    the operator can reach is not a crowd. The old justification was that a
+    pool reviewer "can already see every crop and publish or retract anything,
+    so showing them these photographs grants no power they did not hold" - and
+    that is still true of PUBLISHING. It is not true of DELETION. These are
+    photographs of sightings the map has already withdrawn; the shelf exists to
+    clear them, and deletion is the one action here that cannot be undone by
+    another reviewer. Handing that to every signup after a viral week is not a
+    trade anyone chose.
+
+    So trust follows WHO MINTED THE TOKEN, not what it is scoped to.
+    `created_by="self"` is the self-service door; anything else was issued by
+    the operator by hand.
     """
-    return reviewer.get("nodes") is None and reviewer.get("scope") == "pool"
+    return (reviewer.get("nodes") is None
+            and reviewer.get("scope") == "pool"
+            and (reviewer.get("created_by") or "") != "self")
 
 
 def retracted(reviewer: dict) -> dict:
@@ -359,7 +378,55 @@ def _delete_pen(sid: int) -> None:
     (mirror.REVIEW / f"{sid}.json").unlink(missing_ok=True)
 
 
-def _publish(sid: int, reviewer: dict, force_vclass: Optional[str] = None) -> None:
+def tighten(raw: bytes, box: Optional[dict]) -> bytes:
+    """Cut the published photo down to the rectangle a reviewer dragged.
+
+    🚨 IT CAN ONLY EVER REMOVE PIXELS. The box arrives as four fractions of the
+    image the reviewer was looking at, and every one is clamped into [0,1]
+    before use, so the result is a sub-rectangle of the crop and nothing else.
+    That is the property that makes this safe to expose to anyone with a token:
+    an editor that could pan, zoom out or reach back to the original frame
+    could serve pixels the sub-resolution guard and the background strip were
+    put there to destroy. This cannot. The worst a malicious box does is
+    publish a smaller picture.
+
+    A too-small rectangle is IGNORED rather than honoured - under about 8% of
+    either edge is a mis-drag or a stray tap, and silently publishing a
+    forty-pixel smear as the evidence for a claim is worse than publishing the
+    untouched crop.
+
+    Returns the original bytes unchanged on any failure. The photograph is
+    worth more than the trim.
+    """
+    if not box:
+        return raw
+    try:
+        img = Image.open(io.BytesIO(raw))
+        w, h = img.size
+
+        def frac(key, default):
+            v = float(box.get(key, default))
+            return min(1.0, max(0.0, v))
+
+        x0, y0 = frac("x", 0.0), frac("y", 0.0)
+        x1, y1 = min(1.0, x0 + frac("w", 1.0)), min(1.0, y0 + frac("h", 1.0))
+        px0, py0 = int(round(x0 * w)), int(round(y0 * h))
+        px1, py1 = int(round(x1 * w)), int(round(y1 * h))
+        if (px1 - px0) < w * 0.08 or (py1 - py0) < h * 0.08:
+            return raw
+        if (px1 - px0) >= w and (py1 - py0) >= h:
+            return raw                      # the whole thing; nothing to do
+        out = io.BytesIO()
+        img.convert("RGB").crop((px0, py0, px1, py1)).save(
+            out, "JPEG", quality=88)
+        return out.getvalue()
+    except Exception as exc:
+        print(f"[review] could not apply the reviewer's crop: {exc}")
+        return raw
+
+
+def _publish(sid: int, reviewer: dict, force_vclass: Optional[str] = None,
+             crop_box: Optional[dict] = None) -> None:
     """Publish a pen item. ``force_vclass`` is the REVIEWER'S own call.
 
     Without it the class is inherited from whatever the model guessed, which
@@ -367,6 +434,8 @@ def _publish(sid: int, reviewer: dict, force_vclass: Optional[str] = None) -> No
     a better judge of police-versus-ordinary-government than the classifier
     that could not tell them apart, and the distinction matters - a patrol car
     and a council pickup are the same tier but not the same claim.
+
+    ``crop_box`` is an optional tighten-only rectangle the reviewer dragged.
     """
     meta = _pen_meta(sid)
     row = db.sighting(sid) if hasattr(db, "sighting") else None
@@ -376,7 +445,7 @@ def _publish(sid: int, reviewer: dict, force_vclass: Optional[str] = None) -> No
     why = f"confirmed by reviewer {reviewer.get('label')} as {kind}"
 
     # Attach the pen crop as the published photo (plate-less already).
-    crop = crop_bytes(sid)
+    crop = tighten(crop_bytes(sid), crop_box)
     snap = None
     if crop:
         try:
@@ -402,7 +471,8 @@ def _publish(sid: int, reviewer: dict, force_vclass: Optional[str] = None) -> No
     _delete_pen(sid)
 
 
-def verdict(reviewer: dict, sid: int, call: str, ip: str = "") -> dict:
+def verdict(reviewer: dict, sid: int, call: str, ip: str = "",
+            crop_box: Optional[dict] = None) -> dict:
     sid = int(sid)
     call = (call or "").lower()
     who = reviewer.get("label") or "reviewer"
@@ -418,7 +488,8 @@ def verdict(reviewer: dict, sid: int, call: str, ip: str = "") -> dict:
         # orphan pointing at nothing, but the answer says plainly that nothing
         # was published.
         try:
-            _publish(sid, reviewer, force_vclass="police")
+            _publish(sid, reviewer, force_vclass="police",
+                     crop_box=crop_box)
         except LookupError as exc:
             _delete_pen(sid)
             db.audit("review:confirm_failed", str(sid), actor=who, ip=ip)

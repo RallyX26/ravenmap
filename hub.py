@@ -1319,7 +1319,23 @@ class Handler(BaseHTTPRequestHandler):
                 # page is served to anyone and shows nothing without one.
                 return self._file(PUBLIC / "aim.html")
 
-            if p == "/rv":
+            # 🚨 ONE APP, THREE DOORS. `/rv` was the only way in and nothing
+            # linked to it, so in practice there was no way in at all: the map
+            # never mentioned it, and the single pointer that existed was a
+            # banner on /app shown once, just after a token was minted. Close
+            # that tab and the review queue is gone.
+            #
+            # The two scopes are now separate PAGES rather than a dropdown
+            # inside one, because they are different jobs. "Is this my camera's
+            # catch right?" and "help work through everyone's backlog" want
+            # different framing, different empty states and different urgency,
+            # and a control that silently changes which cameras you are ruling
+            # on is a control someone will get wrong.
+            #
+            # Same file for all three: the page reads its own path and locks
+            # its scope to it. Three copies of a 16 KB reviewer app would drift
+            # apart by the second bug fix.
+            if p in ("/rv", "/rv/mine", "/rv/pool"):
                 return self._file(PUBLIC / "rv.html")
             if p == "/rv/admin":
                 # Served open; the token endpoints it drives are operator-gated,
@@ -2372,8 +2388,15 @@ class Handler(BaseHTTPRequestHandler):
                     sid = int(b.get("id"))
                 except (TypeError, ValueError):
                     return self._err(400, "bad id")
+                # The tighten-only rectangle, if the reviewer drew one. Passed
+                # through as-is: review_api.tighten clamps every value into
+                # [0,1] and refuses anything degenerate, so validating the
+                # shape twice in two places would just be two places to get it
+                # wrong. A non-dict is dropped here rather than reaching it.
+                box = b.get("crop")
                 return self._json(review_api.verdict(
-                    r, sid, b.get("verdict"), privacy.audit_ip(self.client_ip)))
+                    r, sid, b.get("verdict"), privacy.audit_ip(self.client_ip),
+                    crop_box=box if isinstance(box, dict) else None))
 
             if p == "/api/drive/report":
                 # A driver taps "patrol here". Public + rate-limited; lands on the
@@ -2413,13 +2436,31 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(404, "unknown node")
                 if not self._token_ok(nd):
                     return self._err(401, "bad node token")
-                tok = review_auth.ensure_own_token(
-                    nd["id"], nd.get("name") or "a camera", created_by="self")
+                # 🚨 TWO TOKENS, TWO PAGES, ON PURPOSE.
+                # `own` sees only this camera and is what the owner wants most
+                # of the time. `pool` is the shared queue of everyone's pending
+                # government calls - self-service, because a crowd-labelling
+                # queue only the operator can reach is not a crowd. They are
+                # separate tokens rather than one widened token so that either
+                # can be revoked without taking the other with it: if a camera
+                # owner starts publishing rubbish into the pool, the pool token
+                # goes and they keep their own camera.
+                want = str(b.get("scope") or "own")
+                if want == "pool":
+                    tok = review_auth.ensure_pool_token(
+                        nd["id"], nd.get("name") or "a camera")
+                    url = "/rv/pool"
+                else:
+                    tok = review_auth.ensure_own_token(
+                        nd["id"], nd.get("name") or "a camera",
+                        created_by="self")
+                    url = "/rv/mine"
                 if tok:
-                    return self._json({"ok": True, "new": True,
-                                       "review_token": tok, "review_url": "/rv"})
-                return self._json({"ok": True, "new": False, "review_url": "/rv",
-                                   "note": "this camera already has a token"})
+                    return self._json({"ok": True, "new": True, "scope": want,
+                                       "review_token": tok, "review_url": url})
+                return self._json({"ok": True, "new": False, "scope": want,
+                                   "review_url": url,
+                                   "note": "this camera already has that token"})
 
             # --- token administration (operator only) -------------------------
             if p == "/api/rv/tokens/new":

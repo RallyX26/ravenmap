@@ -193,10 +193,50 @@
   </div>
 </div>
 
+<!-- CHOOSER: bare /rv. Two jobs, said plainly, before you are in either one. -->
+<div id="view-pick" class="wrap hidden">
+  <div class="card2">
+    <div class="brand"><span class="dot"></span> SparrowMap Review</div>
+    <p>Two queues. Pick the one you mean.</p>
+
+    <a class="primary" href="/rv/mine" style="display:block;text-decoration:none;text-align:left">
+      📷 My cameras
+      <small style="display:block;font-weight:400;opacity:.75;margin-top:4px">
+        Only the vehicles your own cameras caught. Your answer publishes straight to the map.
+      </small>
+    </a>
+
+    <a class="primary" href="/rv/pool" style="display:block;text-decoration:none;text-align:left;margin-top:10px">
+      🌍 The shared pool
+      <small style="display:block;font-weight:400;opacity:.75;margin-top:4px">
+        Everyone's pending government calls. Anyone running a camera can help work through them.
+      </small>
+    </a>
+
+    <!-- 🚨 THE LOOP HAS TO CLOSE ON THIS DEVICE. Telling someone "get a token
+         from your camera page" is how the review queue stayed empty: the
+         camera app mints an OWN token silently and shows it once, and nothing
+         ever minted a pool one. If this browser is the one running a camera,
+         its node key is already in localStorage, so the page can just ask. -->
+    <button class="primary" id="get-tokens" style="width:100%;margin-top:14px;display:none">
+      🔑 Get my reviewer tokens
+    </button>
+    <div class="err" id="pick-err"></div>
+    <p style="margin-top:6px;opacity:.7;font-size:12px" id="pick-hint">
+      Each queue uses its own token, so either can be turned off without touching the other.
+      Not on the device running your camera? <a href="/app">open the camera page</a> there first.
+    </p>
+  </div>
+</div>
+
 <!-- APP -->
 <div id="view-app" class="hidden" style="height:100%;display:flex;flex-direction:column">
   <header>
-    <span class="brand"><span class="dot"></span> Review</span>
+    <span class="brand"><span class="dot"></span> <span id="brand-txt">Review</span></span>
+    <!-- The other page is always one tap away. Two review surfaces with no
+         link between them is how /rv/retracted ended up unreachable. -->
+    <a class="iconbtn" id="other-page" href="/rv" title="switch"
+       style="text-decoration:none;font-size:12px;font-weight:600"></a>
     <div class="switch" id="switch"></div>
     <span class="count" id="count"></span>
     <button class="iconbtn" id="add-quick" title="Add a camera/token">＋</button>
@@ -212,7 +252,16 @@
     <div id="deck" style="flex:1;min-height:0;display:flex;flex-direction:column">
       <div class="stage">
         <div class="card">
-          <div class="photo" id="photo"><img id="crop" alt="vehicle crop"></div>
+          <!-- 🚨 TIGHTEN-ONLY. The overlay draws a rectangle INSIDE the crop
+               and sends it as four fractions; the box clamps them and can only
+               ever cut pixels away. There is deliberately no pan, no zoom and
+               no way back to the original frame - those would serve pixels the
+               sub-resolution guard and the background strip exist to destroy. -->
+          <div class="photo" id="photo" style="position:relative;touch-action:none">
+            <img id="crop" alt="vehicle crop">
+            <div id="cropbox" class="hidden" style="position:absolute;border:2px solid #7cf;
+                 box-shadow:0 0 0 9999px rgba(0,0,0,.55);pointer-events:none"></div>
+          </div>
           <div class="meta">
             <span class="node" id="node"></span>
             <span class="chip" id="score"></span>
@@ -233,6 +282,7 @@
         <button class="btn gov" id="b-gov">🏛 Gov <small>not on map</small></button>
         <button class="btn cop" id="b-cop">🚔 Cop <small>C / →</small></button>
       </div>
+      <button class="undo" id="b-crop" style="margin-bottom:6px">✂ Tighten the photo</button>
       <button class="undo" id="undo" disabled>↩ undo last</button>
       <div class="session" id="session">reviewed 0 this session</div>
       <div class="progress" id="progress"></div>
@@ -315,9 +365,28 @@
     if(s < 86400) return Math.floor(s/3600)+"h ago";
     return Math.floor(s/86400)+"d ago";
   }
+  /* 🚨 THE PAGE'S SCOPE COMES FROM ITS URL, NOT FROM A CONTROL.
+     "Check my own camera's catches" and "work through everyone's backlog" are
+     different jobs, and they used to share one screen with a token switcher.
+     That made the most consequential fact on the page - WHOSE cameras you are
+     ruling on, and whether your answer goes straight to the public map - a
+     thing you had to read off a chip. Now the path says it, the header says
+     it, and the wallet is filtered to match, so you cannot be on the wrong one
+     without noticing.
+
+     '' (bare /rv) means "not chosen yet" and shows the chooser. */
+  var PAGE_SCOPE = (function(){
+    var p = (location.pathname || "").replace(/\/+$/, "");
+    if(p === "/rv/mine") return "own";
+    if(p === "/rv/pool") return "pool";
+    return "";
+  })();
+
   function show(view){
     $("#view-add").classList.toggle("hidden", view!=="add");
     $("#view-app").classList.toggle("hidden", view!=="app");
+    var pick = $("#view-pick");
+    if(pick) pick.classList.toggle("hidden", view!=="pick");
   }
 
   // ---- adding a token (validated against /api/rv/me) -------------------
@@ -351,8 +420,18 @@
   }
 
   // ---- source switcher -------------------------------------------------
+  /* Only the tokens that belong on THIS page. A pool token on the "my
+     cameras" page would quietly widen what you are ruling on, which is the
+     confusion the split exists to remove. */
+  function scoped(){
+    if(!PAGE_SCOPE) return wallet.slice();
+    return wallet.filter(function(e){
+      return (e.scope === "pool" ? "pool" : "own") === PAGE_SCOPE;
+    });
+  }
   function activeEntries(){
-    return activeToken ? wallet.filter(function(e){ return e.token === activeToken; }) : wallet.slice();
+    var w = scoped();
+    return activeToken ? w.filter(function(e){ return e.token === activeToken; }) : w;
   }
   function buildSwitch(){
     var el = $("#switch"); el.innerHTML = "";
@@ -366,8 +445,9 @@
       });
       el.appendChild(b);
     }
-    if(wallet.length > 1) chip("All", "", null, activeToken === null);
-    wallet.forEach(function(e){
+    var w = scoped();
+    if(w.length > 1) chip("All", "", null, activeToken === null);
+    w.forEach(function(e){
       var isPool = e.scope === "pool";
       var label = isPool ? (e.label || "Pool") : (e.label || "camera");
       chip(label, isPool ? "pool" : "", e.token,
@@ -461,6 +541,7 @@
     p.appendChild(d);
   }
   function showCrop(it){
+    clearCrop();          // a box drawn for the last vehicle is not this one's
     if(it._noimg){ setPhoto("noimg"); return; }
     if(it._obj){ $("#crop").src = it._obj; setPhoto("img"); return; }
     setPhoto("spin"); loadCrop(it);
@@ -657,12 +738,18 @@
   });
 
   // ---- verdicts (optimistic, with the right token) ---------------------
-  function sendVerdict(it, verdict, isRetry){
-    api("/api/rv/verdict", it._token, {method:"POST", body:{id:it.id, verdict:verdict}}).then(function(r){
+  function sendVerdict(it, verdict, isRetry, box){
+    /* The rectangle is captured at the moment the button is pressed and
+       carried through the retry. Reading cropSel inside the retry would apply
+       whatever box happens to be on screen 1.5 seconds later - by then the
+       deck has moved on and it belongs to a different vehicle. */
+    var body = {id:it.id, verdict:verdict};
+    if(box) body.crop = box;
+    api("/api/rv/verdict", it._token, {method:"POST", body:body}).then(function(r){
       if(r.status === 401){ dropToken(it._token, "a token was removed (no longer valid)"); return; }
       if(!r.ok) throw new Error("bad");
     }).catch(function(){
-      if(!isRetry){ setTimeout(function(){ sendVerdict(it, verdict, true); }, 1500); }
+      if(!isRetry){ setTimeout(function(){ sendVerdict(it, verdict, true, box); }, 1500); }
       else {
         toast("couldn't save #"+it.id+" — re-queued");
         if(!items.some(function(x){ return x.id === it.id; })) items.push(it);
@@ -674,10 +761,14 @@
     if(cursor >= items.length) return;
     var it = items[cursor];
     undoStack.push({item:it, verdict:verdict});
+    /* Read BEFORE render(): render() advances the deck and showCrop() clears
+       the selection, so reading it afterwards always gets null. Only a "cop"
+       verdict publishes a photograph, so only that one carries the box. */
+    var box = (verdict === "cop") ? cropSel : null;
     cursor++;
     if(verdict !== "skip") reviewed++;
     render();
-    sendVerdict(it, verdict);
+    sendVerdict(it, verdict, false, box);
     // A wrong tap here is expensive: a confirm publishes a vehicle, and a reject
     // teaches the model that a real patrol car is an ordinary one. The deck is
     // fast on purpose, so every verdict says what it just did and how long you
@@ -746,10 +837,162 @@
   });
 
   // ---- boot ------------------------------------------------------------
+  /* ---- the tighten-only crop editor ----------------------------------
+     Drag a rectangle over the crop; it rides along with the next "Cop"
+     verdict as {x,y,w,h} in fractions of the displayed image. Cleared on
+     every card change, because a rectangle drawn for one vehicle must never
+     silently apply to the next one - that is how you publish a photograph of
+     the wrong thing and never find out.
+
+     Fractions, not pixels: the element is laid out by CSS and its size depends
+     on the phone, so pixel coordinates would mean something different on every
+     device. Fractions survive the trip. */
+  var cropSel = null;        // {x,y,w,h} in 0..1, or null
+  var cropMode = false;
+
+  function cropRect(){ return $("#crop").getBoundingClientRect(); }
+
+  function paintCrop(){
+    var el = $("#cropbox"), img = $("#crop");
+    if(!cropSel){ el.classList.add("hidden"); return; }
+    // Positioned against the IMG's own box, not the photo container - the
+    // image is letterboxed inside it and the two are not the same rectangle.
+    var r = cropRect(), p = $("#photo").getBoundingClientRect();
+    el.style.left   = (r.left - p.left + cropSel.x * r.width) + "px";
+    el.style.top    = (r.top  - p.top  + cropSel.y * r.height) + "px";
+    el.style.width  = (cropSel.w * r.width) + "px";
+    el.style.height = (cropSel.h * r.height) + "px";
+    el.classList.remove("hidden");
+  }
+
+  function clearCrop(){
+    cropSel = null; cropMode = false;
+    $("#cropbox").classList.add("hidden");
+    var b = $("#b-crop");
+    if(b){ b.textContent = "✂ Tighten the photo"; b.classList.remove("on"); }
+  }
+
+  (function wireCrop(){
+    var photo = $("#photo"), start = null;
+    function at(ev){
+      var r = cropRect();
+      var t = (ev.touches && ev.touches[0]) || ev;
+      return { x: Math.min(1, Math.max(0, (t.clientX - r.left) / r.width)),
+               y: Math.min(1, Math.max(0, (t.clientY - r.top) / r.height)) };
+    }
+    function down(ev){
+      if(!cropMode) return;
+      ev.preventDefault();
+      start = at(ev); cropSel = { x:start.x, y:start.y, w:0, h:0 }; paintCrop();
+    }
+    function move(ev){
+      if(!cropMode || !start) return;
+      ev.preventDefault();
+      var p = at(ev);
+      cropSel = { x: Math.min(start.x, p.x), y: Math.min(start.y, p.y),
+                  w: Math.abs(p.x - start.x), h: Math.abs(p.y - start.y) };
+      paintCrop();
+    }
+    function up(){
+      if(!cropMode) return;
+      start = null;
+      // Too small to be meant. The box ignores these too, but saying so here
+      // is the difference between "it did nothing" and "it did nothing and I
+      // can see why".
+      if(cropSel && (cropSel.w < 0.08 || cropSel.h < 0.08)){
+        cropSel = null; paintCrop(); toast("too small - drag a bigger box");
+      }
+    }
+    photo.addEventListener("pointerdown", down);
+    photo.addEventListener("pointermove", move);
+    photo.addEventListener("pointerup", up);
+    photo.addEventListener("pointercancel", up);
+    window.addEventListener("resize", paintCrop);
+
+    var btn = $("#b-crop");
+    if(btn) btn.addEventListener("click", function(){
+      cropMode = !cropMode;
+      btn.textContent = cropMode ? "✂ drag a box · tap to cancel"
+                                 : "✂ Tighten the photo";
+      if(!cropMode){ cropSel = null; paintCrop(); }
+    });
+  })();
+
+  /* ---- self-service tokens, from the camera key already on this device ----
+     `sparrow.node` is the camera app's own store (see key.html / aim.html).
+     If it is here, this browser can prove it runs that camera, which is
+     exactly the proof /api/rv/my-token asks for - so both tokens can be
+     fetched without the operator, without an email, and without a link that
+     expires the moment the tab is closed.
+
+     ⚠️ Minted ONCE each, server-side. A second call returns {new:false} with
+     no token, because a token is stored only as a hash and cannot be shown
+     again. That is why a failure here says "already issued" rather than
+     silently leaving the wallet empty - the two look identical otherwise, and
+     the difference decides whether the person should be re-issued or is simply
+     already set up. */
+  function nodeKey(){
+    try{
+      var n = JSON.parse(localStorage.getItem("sparrow.node") || "null");
+      return (n && n.id && n.token) ? n : null;
+    }catch(e){ return null; }
+  }
+
+  function fetchMyTokens(){
+    var n = nodeKey();
+    var err = $("#pick-err");
+    if(!n){ err.textContent = "no camera key on this device"; return; }
+    var btn = $("#get-tokens");
+    btn.disabled = true; btn.textContent = "asking…";
+    err.textContent = "";
+    var got = 0, already = 0, done = 0;
+    ["own", "pool"].forEach(function(scope){
+      fetch("/api/rv/my-token", {
+        method: "POST",
+        headers: {"Content-Type": "application/json",
+                  "Authorization": "Bearer " + n.token},
+        body: JSON.stringify({node_id: n.id, scope: scope})
+      }).then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(d){
+          if(d && d.review_token){
+            got++;
+            // Validated like any other token rather than trusted because we
+            // asked for it - addToken is the only path that writes the wallet.
+            addToken(d.review_token, function(){}, function(){});
+          } else if(d){ already++; }
+        })
+        .catch(function(){})
+        .then(function(){
+          if(++done < 2) return;
+          btn.disabled = false;
+          btn.textContent = "🔑 Get my reviewer tokens";
+          if(got){ toast(got + " token" + (got>1?"s":"") + " added"); }
+          else if(already){
+            err.textContent = "already issued on another device - "
+                            + "paste the token, or ask for it to be re-issued";
+          } else {
+            err.textContent = "could not reach the box";
+          }
+        });
+    });
+  }
+
+  function dressHeader(){
+    var b = $("#brand-txt"), o = $("#other-page");
+    if(b) b.textContent = PAGE_SCOPE === "pool" ? "Shared pool"
+                        : PAGE_SCOPE === "own"  ? "My cameras" : "Review";
+    if(o){
+      if(PAGE_SCOPE === "pool"){ o.href = "/rv/mine"; o.textContent = "My cameras"; }
+      else if(PAGE_SCOPE === "own"){ o.href = "/rv/pool"; o.textContent = "Pool"; }
+      else { o.classList.add("hidden"); }
+    }
+  }
+
   function start(){
     show("app");
+    dressHeader();
     // own-scoped reviewers with one camera just see it; multi-token shows All
-    if(wallet.length === 1) activeToken = null;
+    if(scoped().length === 1) activeToken = null;
     buildSwitch();
     loadQueue(true);
     loadProgress();
@@ -838,7 +1081,25 @@
       });
       return;
     }
-    if(!wallet.length){ show("add"); $("#first-token").focus(); return; }
+    // Bare /rv is a signpost, not a queue. It never guesses which job you
+    // meant - guessing is what the old single page did.
+    if(!PAGE_SCOPE){
+      show("pick");
+      var g = $("#get-tokens");
+      // Only offered when it can actually work. A button that always fails
+      // teaches people the page is broken.
+      if(g && nodeKey()){
+        g.style.display = "block";
+        g.addEventListener("click", fetchMyTokens);
+      }
+      return;
+    }
+    // 🚨 SCOPED, NOT `wallet.length`. Someone holding only a pool token would
+    // otherwise land on /rv/mine, see the app shell with an empty deck, and
+    // have no way to tell that the page simply has no token of its kind - the
+    // silent-empty-state failure this codebase keeps finding. Ask for the
+    // right token instead.
+    if(!scoped().length){ show("add"); dressHeader(); $("#first-token").focus(); return; }
     start();
   }
   boot();
