@@ -8,7 +8,16 @@ sighting along it.
 
     python tools\\resnap_nodes.py                # show what would change
     python tools\\resnap_nodes.py --apply        # do it
-    python tools\\resnap_nodes.py --apply --offline   # aim-axis span, no Overpass
+
+⚠️ `--offline` CANNOT PRODUCE A SPAN, AND THIS TEXT USED TO CLAIM IT COULD.
+It once meant "aim-axis span, no Overpass". road.resolve() deliberately stopped
+doing that - inventing a compass line gave 10 of 52 nodes a fabricated road,
+one of them carrying 58 real sightings along a street that does not exist - so
+it now returns None rather than guessing, and `--offline` returns None for
+EVERY node. The flag is kept because callers pass it, but it can only ever
+print "no road could be resolved". A stale usage line cost real debugging time
+here: it looks like a working fallback for exactly the situation (Overpass
+disagreeing with a stored road name) where you most want one.
 
 Re-placing history is a rewrite of stored data, so it is opt-in and prints the
 before/after distance for every node first. The sighting TIMES are untouched;
@@ -33,7 +42,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="write the changes")
     ap.add_argument("--offline", action="store_true",
-                    help="skip Overpass, use the camera's aim axis")
+                    help="(no-op) road.resolve refuses to invent a road, so "
+                         "this resolves nothing for every node - see the "
+                         "module docstring")
     ap.add_argument("--node", default="", help="only this node id")
     args = ap.parse_args()
 
