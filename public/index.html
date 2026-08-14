@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
-<link rel="stylesheet" href="/static/style.css?v=25">
+<link rel="stylesheet" href="/static/style.css?v=26">
 </head>
 <body>
 
@@ -108,9 +108,20 @@
 </main>
 
 <nav class="modes" id="modes">
+  <!-- 🚨 ORDER IS DELIBERATE, AND IT IS ABOUT THE PHONE.
+       Seven items need 580px and a phone has ~390, so the bar scrolls and only
+       the first four or five are visible without a swipe. Whatever is put last
+       is, in practice, hidden. So the DOING items lead and the READING ones
+       follow: a driver about to set off should not have to swipe a nav bar.
+       Nothing here depends on this order - app.js binds the mode buttons by
+       their data-m attribute, not by position. -->
   <button data-m="map" class="on"><span class="ic">&#128506;</span>Map</button>
-  <button data-m="about"><span class="ic">&#9432;</span>About</button>
-  <button data-m="transparency"><span class="ic">&#128065;</span>Transparency</button>
+  <!-- 🚗 DRIVING MODE HAD NO WAY IN FROM THE MAP. It is the feature people
+       actually use in the car - it warns about patrols ahead and asks about the
+       ones your own camera catches - and the only route to it was typing /drive.
+       Same failure as the review queue: a page nobody can find is a page nobody
+       uses, however good it is. -->
+  <a href="/drive" class="modelink"><span class="ic">&#128663;</span>Driving</a>
   <a href="/app" class="modelink"><span class="ic">&#128247;</span>Add a camera</a>
   <!-- 🚨 THE FRONT DOOR NEVER MENTIONED REVIEW, SO IN PRACTICE THERE WAS NO
        WAY IN. The whole map depends on people confirming crops, and the only
@@ -118,6 +129,12 @@
        token was minted - close that tab and the queue was unreachable except
        by typing the URL. A queue nobody can find is a queue nobody works. -->
   <a href="/rv" class="modelink"><span class="ic">&#9989;</span>Review</a>
+  <button data-m="about"><span class="ic">&#9432;</span>About</button>
+  <button data-m="transparency"><span class="ic">&#128065;</span>Transparency</button>
+  <!-- Status is last on purpose, and it is the one item that loses nothing by
+       it: people reach it from a LINK someone sent them after claiming the site
+       is down, not by browsing for it. -->
+  <a href="/status" class="modelink"><span class="ic">&#128246;</span>Status</a>
 </nav>
 
 <div class="legend">

@@ -365,9 +365,22 @@ main{position:absolute; inset:52px 0 57px 0; display:flex}
    Now they match: one bar, same position, same behaviour. About and
    Transparency slide over the map instead of navigating away, so the map
    never has to be reloaded and never loses where you had panned to.        */
+/* 🚨 SEVEN ITEMS DO NOT FIT A PHONE, SO THE BAR SCROLLS RATHER THAN SQUASHES.
+   With flex:1 every item shared the width equally and shrank below its label:
+   "Add a camera" already wrapped to two lines at 390px with five items, which
+   is what made the whole bar taller than the others. Adding Driving and Status
+   would have pushed the rest into the same shape.
+   flex:1 0 auto keeps the fill-the-width behaviour on a desktop and refuses to
+   shrink below the label on a phone, so the overflow becomes a swipe instead of
+   seven illegible stubs. The scrollbar is hidden because on a bottom nav it is
+   chrome nobody needs; the overflow is discoverable by dragging, which is what
+   people do to a row of buttons that runs off the edge. */
 nav.modes{position:fixed;left:0;right:0;bottom:0;z-index:1200;display:flex;
-  background:#0d1219;border-top:1px solid var(--line)}
-nav.modes button,nav.modes .modelink{flex:1;background:none;border:0;
+  background:#0d1219;border-top:1px solid var(--line);
+  overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+nav.modes::-webkit-scrollbar{display:none}
+nav.modes button,nav.modes .modelink{flex:1 0 auto;min-width:62px;white-space:nowrap;
+  background:none;border:0;
   color:var(--dim2);cursor:pointer;text-decoration:none;text-align:center;
   padding:10px 4px calc(10px + env(safe-area-inset-bottom));
   font:600 10.5px var(--mono);letter-spacing:.09em;text-transform:uppercase;
