@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import re
 import secrets
 import sys
 import queue
@@ -408,6 +409,24 @@ class Handler(BaseHTTPRequestHandler):
         # silently broken site with a valid-looking response.
         if b"@@NONCE@@" in body:
             body = body.replace(b"@@NONCE@@", self._nonce.encode())
+
+        # 🚨 FILL THE MICRO-CACHE HERE, AFTER THE NONCE SUBSTITUTION.
+        # Caching a body that still held @@NONCE@@ would serve a placeholder to
+        # everyone who got a hit; caching one WITH a nonce baked in would reuse
+        # a single nonce across viewers. Neither matters for the JSON API paths
+        # this is limited to (they carry no nonce), and the ordering is written
+        # down so it stays true if that ever changes.
+        key = getattr(self, "_micro_key", None)
+        if key and code == 200:
+            with Handler._MICRO_LOCK:
+                Handler._MICRO[key] = (time.time(), body)
+                # Bounded: the key includes the query string, and `since=` moves
+                # every few seconds, so an unbounded dict is a slow leak.
+                if len(Handler._MICRO) > 200:
+                    for k in sorted(Handler._MICRO,
+                                    key=lambda k: Handler._MICRO[k][0])[:80]:
+                        Handler._MICRO.pop(k, None)
+            self._micro_key = None
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -659,10 +678,92 @@ class Handler(BaseHTTPRequestHandler):
                     Handler._SLOW_HELD[label] = round(
                         max(held, Handler._SLOW_HELD.get(label, 0)), 1)
 
+    # 🚨 THE EDGE CACHE THIS SERVER WAS DESIGNED AROUND IS NOT SWITCHED ON.
+    #
+    # _cache_control says it plainly: the origin caps near 55 req/s on map data,
+    # and survives a crowd only because "thousands of viewers collapse to about
+    # one origin fetch per window". That assumes something in front is doing the
+    # collapsing. sparrowmap.com is proxied by Cloudflare; map.sparrowmap.com
+    # resolves straight to this box, so every viewer, every poll and every tile
+    # arrives here. Measured during the outage: 128 requests in flight, 254
+    # threads, /api/nodes and /api/sightings each holding a permit for 10-21
+    # SECONDS - plain reads, starved of CPU by the crowd doing them all at once.
+    #
+    # So the origin does the collapsing itself. These responses are PUBLIC and
+    # byte-identical for every viewer - that is already why they carry a shared
+    # Cache-Control - so one hundred simultaneous identical requests can be one
+    # computation and ninety-nine memory reads.
+    #
+    # ⚠️ ONLY _CACHEABLE_API PATHS, and the key includes the query string. The
+    # search, operator and per-visitor routes stay no-store and are never
+    # entered here: caching a plate search would build the record of who looked
+    # up what that no-store exists to prevent.
+    _MICRO: dict = {}
+    _MICRO_LOCK = threading.Lock()
+    # key -> Event, held by whichever thread is currently computing it.
+    _MICRO_FLIGHT: dict = {}
+
+    def _micro_ttl(self) -> float:
+        cc = self._cache_control()
+        if "no-store" in cc:
+            return 0.0
+        m = re.search(r"max-age=(\d+)", cc)
+        return float(m.group(1)) if m else 0.0
+
     def do_GET(self) -> None:
         if self.path.startswith(Handler._UNGATED):
             return self._do_GET_inner()
-        return self._gated(self._do_GET_inner, self.path.split("?")[0][:48])
+
+        p = urlparse(self.path).path
+        ttl = self._micro_ttl() if p in self._CACHEABLE_API else 0.0
+        if not ttl:
+            return self._gated(self._do_GET_inner, p[:48])
+
+        key = self.path
+        hit = Handler._MICRO.get(key)
+        if hit and time.time() - hit[0] < ttl:
+            # Served without taking a permit at all: a memory read is not the
+            # work the gate exists to bound.
+            return self._send(200, hit[1], "application/json")
+
+        # 🚨 SINGLE-FLIGHT, NOT MERELY A TTL. A plain cache does nothing about a
+        # STAMPEDE, and a stampede is precisely what was measured: 128 requests
+        # in flight with /api/nodes and /api/sightings each held 10-21 seconds,
+        # every one of them computing the same public answer at the same moment.
+        # They all miss an empty cache together, so a TTL alone would let all 128
+        # through and only help the 129th.
+        #
+        # So the FIRST caller computes and the rest wait for it. One hundred
+        # simultaneous identical requests become one query and ninety-nine
+        # waiters - which is exactly what the absent edge cache would have done.
+        with Handler._MICRO_LOCK:
+            leader = Handler._MICRO_FLIGHT.get(key)
+            if leader is None:
+                leader = threading.Event()
+                Handler._MICRO_FLIGHT[key] = leader
+                mine = True
+            else:
+                mine = False
+
+        if not mine:
+            # ⚠️ BOUNDED WAIT. If the leader dies or is unusually slow, a
+            # follower must fall through and do the work itself rather than hang
+            # - a cache that can wedge a request is worse than no cache.
+            leader.wait(timeout=min(ttl + 5.0, 20.0))
+            hit = Handler._MICRO.get(key)
+            if hit and time.time() - hit[0] < ttl + 5.0:
+                return self._send(200, hit[1], "application/json")
+            return self._gated(self._do_GET_inner, p[:48])
+
+        try:
+            # Captured in _send rather than by threading a key through
+            # _do_GET_inner, which is hundreds of lines with dozens of exits.
+            self._micro_key = key
+            return self._gated(self._do_GET_inner, p[:48])
+        finally:
+            with Handler._MICRO_LOCK:
+                Handler._MICRO_FLIGHT.pop(key, None)
+            leader.set()      # release the followers, success or failure
 
     def do_POST(self) -> None:
         return self._gated(self._do_POST_inner,
