@@ -106,7 +106,18 @@ Filed automatically by \`deploy/sparrowmap-watch.sh\`. See the memory note on de
        python3 - <<'PYEOF'
 import json, os, sys, urllib.request, urllib.error
 repo = os.environ["ALERT_REPO"]
-tok = open(os.environ["TOKEN_FILE"]).read().strip()
+# 🚨 utf-8-sig, NOT utf-8, AND strip() - BOTH ARE LOAD-BEARING.
+# The token gets put here by a human, and if it is written from PowerShell it
+# arrives with a UTF-8 BOM and CRLF: 45 bytes for a 40-character token. strip()
+# removes the CRLF and leaves the BOM, which then goes into an Authorization
+# header, and http.client raises on the invalid header value - an unhandled
+# traceback rather than the clean "HTTP 401" this code was ready to report.
+# The alarm failing with a stack trace is the failure mode this whole path
+# exists to prevent, so it tolerates however the file was written.
+tok = open(os.environ["TOKEN_FILE"], encoding="utf-8-sig").read().strip()
+if not tok:
+    print("token file is empty", file=sys.stderr)
+    sys.exit(1)
 payload = json.dumps({
     "title": "SparrowMap: health watch gave up after repeated restarts",
     "body": os.environ["ALERT_BODY"],
@@ -128,7 +139,9 @@ PYEOF
     then
         say "ALERT FILED on $ALERT_REPO"
     else
-        say "ALERT FAILED - could not file an issue on $ALERT_REPO"
+        # ⚠️ CAPTURE WHY. "ALERT FAILED" with no reason sends whoever reads this
+        # log hunting, at the one moment they are already busy with an outage.
+        say "ALERT FAILED - could not file an issue on $ALERT_REPO (see stderr above)"
     fi
 }
 
