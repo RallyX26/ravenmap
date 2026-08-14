@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -341,7 +342,58 @@ def main() -> None:
                     help="process at most N crops this run (0 = all)")
     ap.add_argument("--dry-run", action="store_true",
                     help="score and print, but neither publish nor delete")
+    ap.add_argument("--singleton", action="store_true",
+                    help="exit quietly if another copy is already running, so a "
+                         "scheduled task can double as a supervisor")
     args = ap.parse_args()
+
+    # 🚨 THE LOCK IS WHAT LETS THE 5-MINUTE TASK BECOME A WATCHDOG.
+    #
+    # This used to run as `--once` every 5 minutes, which meant a drive-mode
+    # crop waited up to 5 minutes plus a 17.5s cold start before anyone could
+    # be told it was a patrol car - and 12.6s of that 17.5 was loading CLIP and
+    # the head, paid again on every single run for a job that mostly finds an
+    # empty inbox. As a long-running loop the model is loaded once and a cycle
+    # costs seconds.
+    #
+    # A loop needs supervising, though, and the Task Scheduler entry that used
+    # to DO the work is already a perfectly good supervisor: keep it firing
+    # every 5 minutes, and let the second copy exit here on a held port. If the
+    # loop is alive nothing happens; if it died, the next tick restarts it. No
+    # new moving parts, and the failure mode is "back within 5 minutes" rather
+    # than "off until somebody notices".
+    #
+    # AN OS FILE LOCK, NOT A PORT, AND NOT A PIDFILE.
+    #
+    # 🚨 A PORT WAS THE FIRST ATTEMPT AND IT FAILED ON THE FIRST REAL TEST.
+    # 8799 was already held by youtube_stream.py on this machine, so the loop
+    # bound nothing and took its own "someone else is running" branch: silently
+    # dead, which is worse than the 5-minute cold start it replaced. A port
+    # cannot tell "another copy of me" from "an unrelated program", and the
+    # quiet exit that makes a supervisor tick cheap is exactly what makes that
+    # collision invisible.
+    #
+    # A pidfile is worse still: it survives a crash and then lies about what is
+    # running. An advisory lock on a file this program owns has the property
+    # that actually matters - the OS drops it the instant the process dies,
+    # whatever killed it - and the file cannot be claimed by anything else.
+    _lock = None
+    if args.singleton:
+        from core import DATA
+        DATA.mkdir(parents=True, exist_ok=True)
+        _lock = open(DATA / "box_puller.lock", "a+b")
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(_lock.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            # Not an error and must not look like one: this is the supervisor
+            # tick finding a healthy loop, which is the normal case. Exit 0 and
+            # say nothing that would fill a log with noise every five minutes.
+            return
     if not args.inbox and not (args.box and args.key):
         ap.error("give --inbox <dir> for a local mirror, or both --box and --key "
                  "to pull over ssh")

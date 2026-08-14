@@ -657,10 +657,15 @@
     // Hotspot history for the "hot area ahead" warning. Slow-moving data, so a
     // long refresh; the warning itself is checked on every GPS fix.
     loadHeatCells(); setInterval(loadHeatCells,300000);
-    // "Has the classifier called any of mine a patrol car yet?" Costs one small
-    // POST every 15s and only when something is actually outstanding - it
-    // returns immediately if `pending` is empty, which is almost always.
-    setInterval(pollParked,15000);
+    // "Has the classifier called any of mine a patrol car yet?"
+    //
+    // 3s, not 15s, and it costs nothing when idle: pollParked returns before
+    // the fetch when `pending` is empty, which is almost always. The verdict
+    // now lands within a few seconds of the crop reaching the box (the puller
+    // runs as a loop rather than a 5-minute cold start), so a 15s poll would
+    // have been the largest remaining delay - the map would have known and sat
+    // on it while the vehicle got further away.
+    setInterval(pollParked,3000);
     navigator.geolocation.getCurrentPosition(onFix,onGeoErr,{enableHighAccuracy:true,timeout:15000,maximumAge:2000});
     navigator.geolocation.watchPosition(onFix,onGeoErr,{enableHighAccuracy:true,maximumAge:1000,timeout:20000});
     startCompass();   // must be asked from this gesture (iOS permission prompt)
