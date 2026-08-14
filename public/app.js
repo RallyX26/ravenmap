@@ -678,11 +678,27 @@ function drawPlaces() {
   if (!state.places || map.getZoom() > PLACE_MAX_ZOOM) return;
 
   const G = '#3ddc97';
+
+  /* 🚨 THE BADGE HAS TO SHRINK AS YOU ZOOM OUT, OR IT BECOMES THE BLOB IT
+   * REPLACED. A radius fixed in pixels is a radius that covers more GROUND the
+   * further out you go: at zoom 3 a 20 px circle spans several hundred miles,
+   * so the eastern states merged into one green mass and the red sightings
+   * underneath disappeared. That is the same "it looks like a marker" failure
+   * as the spans, arriving from the opposite direction.
+   *
+   * So the badge is small enough at continental zoom to read as a scatter of
+   * distinct towns, and grows as the view narrows and there is room. */
+  const z = map.getZoom();
+  const zf = Math.max(0.42, Math.min(1, (z - 1) / 8));
+  // Below this the circle is too small to hold a number legibly, and a
+  // half-clipped digit reads as damage rather than data.
+  const LABEL_MIN_R = 11;
+
   state.places.forEach((p) => {
     // Area, not radius, tracks the count - a radius proportional to cameras
     // makes three cameras look nine times one. Clamped so a single camera is
     // still findable and a big town does not swallow the county.
-    const r = Math.max(9, Math.min(26, 7 + Math.sqrt(p.cameras) * 5));
+    const r = Math.round(Math.max(9, Math.min(26, 7 + Math.sqrt(p.cameras) * 5)) * zf);
     const live = p.online > 0;
 
     L.circleMarker([p.lat, p.lon], {
@@ -700,15 +716,19 @@ function drawPlaces() {
     ).addTo(state.placeLayer);
 
     // The count inside the badge, so the map is readable without hovering -
-    // which matters most on a phone, where there is no hover at all.
-    L.marker([p.lat, p.lon], {
-      interactive: false,
-      icon: L.divIcon({
-        className: 'placelabel',
-        html: `<span>${p.cameras}</span>`,
-        iconSize: [r * 2, r * 2], iconAnchor: [r, r],
-      }),
-    }).addTo(state.placeLayer);
+    // which matters most on a phone, where there is no hover at all. Dropped
+    // entirely when the circle is too small to hold it: a clipped digit reads
+    // as a rendering fault, and at that zoom the dot is the message anyway.
+    if (r >= LABEL_MIN_R) {
+      L.marker([p.lat, p.lon], {
+        interactive: false,
+        icon: L.divIcon({
+          className: 'placelabel',
+          html: `<span>${p.cameras}</span>`,
+          iconSize: [r * 2, r * 2], iconAnchor: [r, r],
+        }),
+      }).addTo(state.placeLayer);
+    }
   });
 }
 
