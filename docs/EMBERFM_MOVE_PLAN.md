@@ -35,6 +35,12 @@ Frees a full core. Touches nothing that serves a listener.
 `http://localhost:8000/ember.mp3`. From another box it reads
 `https://fm.emberaudio.net/ember.mp3` — already public, already live, 128 kbps.
 
+✅ **And no code edit is needed.** `youtube_stream.py:24` is already
+`ICECAST = os.environ.get("EMBER_STREAM_URL", "http://localhost:8000/ember.mp3")`,
+so the new box only needs that environment variable set in its unit file. The
+script stays byte-identical to the one on the old box, which is what makes
+rollback a straight copy back rather than a reverse-edit.
+
 **Risk:** YouTube accepts one stream per key, so old must stop before new starts.
 Expect a short gap on the YouTube channel. **Icecast, TuneIn, the player site and
 every listener are untouched** — they never involve this service.
