@@ -666,6 +666,13 @@ def stats() -> dict:
         "public_24h":     one("SELECT COUNT(*) FROM sightings WHERE tier='public' AND ts > ?", (day,)),
         # Passes past a camera. Not vehicles - the same car twice is two.
         "traffic_24h":    one("SELECT COUNT(*) FROM sightings WHERE tier!='public' AND ts > ?", (day,)),
+        # The same count over the last hour, and it exists to give "moving now"
+        # something to be read against. A live figure of 0 is the normal state
+        # of a small network at 4am, and on its own it is indistinguishable from
+        # every camera being down - which is the reading a visitor will reach
+        # for. A rate separates a quiet road from a dead one.
+        "traffic_1h":     one("SELECT COUNT(*) FROM sightings WHERE tier!='public' AND ts > ?",
+                              (now() - 3600,)),
         "vehicles_24h":   one(identified, (day,)),
         # 0 here means the question could not be asked, not that the answer
         # was none. The UI shows a dash rather than a zero.

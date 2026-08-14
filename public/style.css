@@ -40,6 +40,13 @@ body{
 .stats{display:flex; gap:16px; margin-left:auto; font-family:var(--mono); font-size:11.5px; color:var(--dim)}
 .stats b{color:var(--ink); font-weight:600}
 .stats i{font-style:normal; color:var(--police)}
+/* "Moving now" is the one live figure in a row of totals, and it is private
+   traffic - so it takes the civilian colour rather than the red reserved for
+   the subject of the map. Red here would read as "N police moving now", which
+   is the single worst thing this header could accidentally say. */
+.stats .movingstat{cursor:help}
+.stats .movingstat b{color:var(--civilian); transition:color .4s}
+.stats .movingstat b.on{color:#93a7c4}   /* something is actually passing */
 
 nav{display:flex; align-items:center; gap:14px; font-size:12.5px}
 nav a{color:var(--dim); text-decoration:none; border-bottom:1px solid transparent; padding-bottom:2px}

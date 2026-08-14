@@ -275,6 +275,19 @@ function drawTraffic(s) {
   state.traffic.set(s.id, { rec: s, marker: m });
 }
 
+/* How many vehicles are crossing a camera right now.
+ *
+ * ⚠️ ONE DEFINITION, THREE READOUTS. This number is printed in the stats row,
+ * beside the live dot, and in the panel's traffic bar. They were computed
+ * separately - two of them counted the live set, the third filtered it to the
+ * last 60 seconds - and a filter at 60s over a set that is reaped at 45s can
+ * never remove anything, so the third was the same number written a longer way.
+ * Three copies of one figure is three chances for them to drift apart and for
+ * the map to be seen disagreeing with itself, which costs more trust than the
+ * figure earns. So: one function, and it is the size of the live set by
+ * definition. If the fade window changes, every readout follows it. */
+const movingNow = () => state.traffic.size;
+
 /* One timer fades and reaps every traffic dot. Per-dot timers would mean
    hundreds of them on a busy road, all firing independently. */
 function ageTraffic() {
@@ -293,11 +306,20 @@ function ageTraffic() {
     e.marker.setStyle({ fillOpacity: 0.8 * k, opacity: 0.95 * k,
                         radius: 5 * (0.45 + 0.55 * k) });
   }
-  const n = state.traffic.size;
+  const n = movingNow();
   const el = $('#traffic');
   if (el) {
     el.textContent = n ? `${n} passing now` : 'road quiet';
     el.classList.toggle('busy', n > 0);
+  }
+  // The stats row is rewritten wholesale every 3s by loadStats, which renders
+  // this figure as it stands at that moment; this keeps it moving in between.
+  // Updating the one element rather than the row means the count ticks without
+  // the rest of the header flickering.
+  const mv = $('#movingnow');
+  if (mv) {
+    mv.textContent = n.toLocaleString();
+    mv.classList.toggle('on', n > 0);
   }
   emptyState();
 }
@@ -1105,6 +1127,19 @@ This camera reads none, so the sightings above cannot be told apart.">&mdash;</b
   // Every figure with a time window says so ON THE FIGURE. "passes 24h" once
   // carried the qualifier while "public sightings" did not, so the second read
   // as a running total against an all-time count published elsewhere.
+  // "Moving now" is the only figure up here that is not the server's - it is
+  // the size of the live traffic set this page is already drawing, so the
+  // number in the header and the dots on the map are the same fact and cannot
+  // disagree. ageTraffic keeps it ticking between these rewrites.
+  //
+  // The last hour rides in the title because the live figure alone is
+  // ambiguous in the direction that matters: 0 is the normal state of a small
+  // network on a quiet road, and it looks identical to every camera being off.
+  // The hourly count is what tells a visitor which one they are looking at.
+  const hour = s.traffic_1h ?? null;
+  const movingTitle = hour === null
+    ? 'Vehicles crossing a camera in the last 45 seconds.'
+    : `Vehicles crossing a camera in the last 45 seconds. ${hour.toLocaleString()} passes in the last hour, so 0 here means a quiet road rather than a network that has stopped.`;
   const everProduced = s.nodes_ever_produced ?? '?';
   const hours = s.heartbeats_total
     ? `<span title="${s.heartbeats_total.toLocaleString()} heartbeats, one every 30 seconds. A lower bound: heartbeats were not always enabled and dropped ones are never counted."><b>${Math.round(s.heartbeats_total / 120).toLocaleString()}</b> hours watched</span>`
@@ -1112,6 +1147,7 @@ This camera reads none, so the sightings above cannot be told apart.">&mdash;</b
   $('#stats').innerHTML = `
     <span title="${everProduced} of these have ever sent a sighting. Enrolling a camera is one tap; keeping one running is the real contribution."><i>${s.nodes_online}</i>/<b>${s.nodes_active}</b> cameras online</span>
     ${hours}
+    <span class="movingstat" title="${movingTitle}"><b id="movingnow" class="${movingNow() ? 'on' : ''}">${movingNow().toLocaleString()}</b> moving now</span>
     <span><b>${(s.traffic_24h ?? 0).toLocaleString()}</b> passes 24h</span>
     <span><i>${s.public_24h.toLocaleString()}</i> public sightings 24h</span>
     <span>${vehicles}</span>`;
@@ -1132,9 +1168,7 @@ async function refresh() {
       // Make "live" tangible: show how many vehicles have passed a camera in the
       // last minute. It reads "live" on a quiet road and "live · N passing" when
       // traffic is actually crossing, so the map obviously IS the live view.
-      const now = Date.now() / 1000;
-      let passes = 0;
-      state.traffic.forEach((e) => { if (now - e.rec.ts < 60) passes += 1; });
+      const passes = movingNow();
       dot.lastChild.textContent = passes ? `live · ${passes} passing` : 'live';
     }
   } catch (e) {
