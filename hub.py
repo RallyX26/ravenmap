@@ -1491,6 +1491,48 @@ class Handler(BaseHTTPRequestHandler):
                              ip=privacy.audit_ip(self.client_ip))
                 return self._json(out)
 
+            if p == "/api/node/confirm":
+                # 🚨 THE OPERATOR SAYING "YES, THAT WAS A PATROL CAR" ABOUT A
+                # PASS THE GATE THREW AWAY.
+                #
+                # /api/node/label moves a sighting that already exists. This one
+                # exists because most confirmations have nothing to move: the
+                # posting gate runs when the vehicle leaves frame, and a marked
+                # patrol car with an unreadable plate clears only one marker, so
+                # the pass is dropped and no sighting is ever created. The human
+                # then confirms the crop and the map cannot change, because
+                # there is no row. Every such confirmation was silently lost.
+                #
+                # This is NOT a way to publish anything a camera fancies. It is
+                # the same claim /api/sightings accepts, from the same node
+                # token, with one addition the SERVER makes: human_confirmed,
+                # which classify.py weighs at 4.0 and which waives the
+                # two-marker rule. The submitter cannot assert it (it is
+                # stripped in _ingest and re-set only from this flag), and the
+                # sighting still goes through classify() exactly like any other
+                # - so `public_tiers` still decides what becomes public, and a
+                # confirmed council truck still stays private.
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if nd["status"] != "active":
+                    return self._err(403, f"node is {nd['status']}")
+                if not nd.get("token"):
+                    return self._err(401, "this node has no token; re-enroll it")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                if not rate_ok("/api/sightings", self.client_ip):
+                    return self._err(429, "posting too fast")
+                # The node may only confirm its OWN camera's crop, and the
+                # source is fixed here rather than taken from the body.
+                b["node_id"] = nd["id"]
+                b["source"] = "camera"
+                db.audit("node_confirm", str(b.get("bank_ref") or "?"),
+                         actor=f"camera {nd['id']}",
+                         ip=privacy.audit_ip(self.client_ip))
+                return self._ingest(b, operator_confirmed=True)
+
             if p == "/api/heartbeat":
                 # "I am awake and watching." Deliberately separate from a
                 # sighting: a camera pointed at an empty street at 4am is
@@ -1858,8 +1900,13 @@ class Handler(BaseHTTPRequestHandler):
         return _hmac.compare_digest(supplied, nd["token"])
 
     # -- ingest ---------------------------------------------------------
-    def _ingest(self, ev: dict) -> None:
+    def _ingest(self, ev: dict, operator_confirmed: bool = False) -> None:
         """Accept a detection from a node.
+
+        `operator_confirmed` may ONLY be set by /api/node/confirm, which proves
+        the caller owns the camera the crop came from. It is a parameter rather
+        than a field in `ev` on purpose: anything inside `ev` is attacker-
+        controlled, and this one grants the right to publish.
 
         The node has already done recognition locally. What arrives here is a
         few hundred bytes of structured claim plus a cropped still. No video
@@ -1909,6 +1956,27 @@ class Handler(BaseHTTPRequestHandler):
         #     computes and this server re-derives.
         evidence.pop("human_confirmed", None)
         evidence.pop("visual_police", None)
+
+        # 🚨 THE OPERATOR'S CONFIRMATION, RESTORED AFTER THE STRIP AND NEVER
+        # BEFORE IT. The strip above is right: `human_confirmed` is the single
+        # strongest signal classify.py has (weight 4.0, and it WAIVES the
+        # two-marker police rule), so a submitter who could assert it could
+        # publish a neighbour's car. It is set here instead, from a flag this
+        # server derived by checking a node token against the node that owns
+        # the crop - never from anything the caller typed.
+        #
+        # 📌 WHY THIS PATH HAS TO EXIST AT ALL. The posting gate runs at the
+        # moment a vehicle leaves frame, and it drops passes that clear no two
+        # markers. That is correct and it is also why a confirmed patrol car
+        # could never reach the map: a real one was scored by the trained head
+        # at 0.987, failed the gate because the plate read disagreed (0.34 <
+        # 0.55) and no second marker fired, and was discarded. The operator then
+        # pressed "Yes - government" on the crop and nothing happened, because
+        # there was no sighting to promote. The human arrived AFTER the gate.
+        # classify.py has always known how to weigh a human; it simply never got
+        # told, because the row it would have gone on was never created.
+        if operator_confirmed:
+            evidence["human_confirmed"] = True
 
         # A public mirror cannot score a phone crop (no GPU, no trained head),
         # so it parks a plate-less copy for the home classifier to pull. Captured

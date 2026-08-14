@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import json
 import random
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -436,6 +437,18 @@ def set_label(day: str, stem: str, label: str, sampling: str = "review") -> dict
     #
     # Best effort on purpose: the label is the thing that must not be lost, so a
     # database problem may never fail the labelling call.
+    # 🚨 A CONFIRMATION WITH NOTHING TO CONFIRM IS THE COMMON CASE, NOT THE EDGE.
+    # 22 of 63 live-popup answers had no sighting_id, because the posting gate
+    # had already discarded the pass. Promoting a row that does not exist is a
+    # no-op, so every one of those was lost in silence. Report it instead - see
+    # _report_new_sighting for why only the live popup is allowed to.
+    if not d.get("sighting_id") and label in ("police", "gov"):
+        new_id = _report_new_sighting(day, stem, d, label)
+        if new_id:
+            d["sighting_id"] = new_id
+            d["reported_by_operator"] = True
+            p.write_text(json.dumps(d, indent=1, default=str), encoding="utf-8")
+
     synced = _sync_sighting(d.get("sighting_id"), label)
     if synced:
         # Recorded so `clear_label` can reverse EXACTLY what this label did,
@@ -478,7 +491,7 @@ def _node_creds() -> Optional[tuple]:
     return hub, nid, tok
 
 
-def _call_box(payload: dict) -> Optional[dict]:
+def _call_box(payload: dict, path: str = "/api/node/label") -> Optional[dict]:
     creds = _node_creds()
     if not creds:
         print("[labelbank] not enrolled: no node_id/token in placement.json, "
@@ -487,12 +500,75 @@ def _call_box(payload: dict) -> Optional[dict]:
     hub, nid, tok = creds
     import urllib.request
     req = urllib.request.Request(
-        f"{hub}/api/node/label", method="POST",
+        f"{hub}{path}", method="POST",
         data=json.dumps({**payload, "node_id": nid}).encode(),
         headers={"Content-Type": "application/json",
                  "Authorization": f"Bearer {tok}"})
     with urllib.request.urlopen(req, timeout=20) as r:
         return json.loads(r.read())
+
+
+def _report_new_sighting(day: str, stem: str, d: dict, label: str) -> Optional[int]:
+    """The operator confirmed a pass the POSTING GATE THREW AWAY. Report it now.
+
+    🚨 35% OF EVERY LIVE CONFIRMATION HE EVER MADE WAS SILENTLY LOST TO THIS.
+    Measured over the whole bank: 63 crops answered through the live popup, 41
+    had a sighting to move and **22 did not**. The map never heard about those
+    22 patrol cars, and nothing anywhere said so.
+
+    The cause is ordering, not policy. The posting gate runs the instant a
+    vehicle leaves frame and drops any pass clearing fewer than two markers - so
+    a marked patrol car with an unreadable plate is discarded (head 0.987, plate
+    agreement 0.34 < 0.55) before a human ever sees it. The popup then asks the
+    operator, they say yes, and there is no row to promote. classify.py has
+    always weighed `human_confirmed` at 4.0 and lets it WAIVE the two-marker
+    rule; it simply never got told, because the row was already gone.
+
+    ⚠️ ONLY THE LIVE POPUP MAY DO THIS - `sampling == "likely"`.
+    A label from the review or hunt queue is a TRAINING judgement about an old
+    photograph, not a decision to report a vehicle. 201 crops carry a `hunt`
+    label of police, and publishing those would be inventing sightings from a
+    labelling session nobody meant as a report. The popup is different in kind:
+    it fires while the vehicle is still in sight and asks a person to make a
+    call about THIS pass.
+
+    The box still decides. This sends the same claim /api/sightings takes, and
+    `human_confirmed` is set server-side from the node token - never asserted
+    here - so classify() and `public_tiers` still gate what becomes public.
+    """
+    if d.get("sampling") != "likely":
+        return None
+    img = _sidecar(day, stem).with_suffix(".jpg")
+    if not img.exists():
+        print(f"[labelbank] cannot report {stem}: the crop image is gone")
+        return None
+    import base64
+    clip = d.get("clip") or {}
+    body = {
+        "ts": d.get("ts") or time.time(),
+        "vclass_hint": label,
+        "body": d.get("cls_name"),
+        "evidence": {k: v for k, v in (d.get("evidence") or {}).items()
+                     if not k.startswith("_")},
+        "bank_ref": stem,
+        # No plate. This path exists precisely BECAUSE the plate was unreadable,
+        # and a public sighting is public because it carries no identifier.
+        "plate_text": "", "plate_conf": 0.0,
+        "snap_b64": "data:image/jpeg;base64,"
+                    + base64.b64encode(img.read_bytes()).decode(),
+    }
+    if clip.get("head_conf") is not None:
+        body["evidence"].setdefault("visual_police_conf", clip["head_conf"])
+    try:
+        out = _call_box(body, path="/api/node/confirm")
+    except Exception as exc:
+        print(f"[labelbank] REPORT FAILED - {stem} confirmed but not on the map: {exc}")
+        return None
+    sid = (out or {}).get("id")
+    if sid:
+        print(f"[labelbank] reported {stem} as sighting {sid} "
+              f"(tier={out.get('tier')}, {out.get('vclass')})")
+    return sid
 
 
 def _sync_sighting(sighting_id, label: str) -> Optional[str]:
