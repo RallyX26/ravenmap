@@ -73,8 +73,12 @@
         <option value="604800">last 7 days</option>
       </select>
       <!-- The toggle shows/hides the WATCHED ROADS. Camera positions are not
-           published at all, so there is nothing here to reveal. -->
-      <label class="cams"><input type="checkbox" id="showcams" checked> watched roads</label>
+           published at all, so there is nothing here to reveal.
+           Ships UNCHECKED to match the default in app.js (state.showCams), and
+           app.js sets .checked from the stored preference on load. The two must
+           agree before anyone sees the control: a box that says "on" over a map
+           with no bands reads as broken. -->
+      <label class="cams"><input type="checkbox" id="showcams"> watched roads</label>
     </div>
 
     <div class="trafficbar">
@@ -109,7 +113,7 @@
 
 <script src="/vendor/leaflet.js"></script>
 <script src="/static/transparency.js?v=18"></script>
-<script src="/static/app.js?v=29"></script>
+<script src="/static/app.js?v=30"></script>
 <script src="/static/refresh.js?v=18"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->

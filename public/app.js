@@ -70,7 +70,21 @@ const TRAFFIC_FADE_S = 45;   // live view: a pass shows, then fades quickly
 const state = {
   filter: 'all',
   windowS: 0,
-  showCams: true,
+  // 🚦 THE WATCHED-ROAD BANDS DEFAULT TO OFF, AND THAT IS A PRESENTATION CALL,
+  // NOT A PRIVACY ONE. Nothing about them leaks - a span is deliberately padded
+  // so its midpoint does not localise the camera (road.py / SPAN_MIN_M).
+  //
+  // The problem is that on a map with few red dots, thirty green bands ARE the
+  // map, and a visitor reads them as "thirty things detected here" - which is
+  // the exact misreading the corridor shape was drawn to prevent. A band means
+  // "somebody is watching this stretch", a dot means "a police vehicle passed".
+  // When the dots are sparse the bands drown them out and the map appears to say
+  // something it is not saying.
+  //
+  // ⏭️ TURN THIS BACK ON once the map carries enough sightings that the bands
+  // read as context behind the dots instead of as the content. The toggle in the
+  // header does it, and the choice is remembered - see SHOWCAMS_KEY.
+  showCams: false,
   sightings: new Map(),   // id -> record  (public tier: the records)
   markers: new Map(),     // id -> leaflet marker
   traffic: new Map(),     // id -> {rec, marker}  (private tier: the live view)
@@ -730,7 +744,38 @@ document.querySelectorAll('.chip').forEach((b) => {
 });
 
 $('#window').onchange = (e) => { state.windowS = Number(e.target.value); load(); };
-$('#showcams').onchange = (e) => { state.showCams = e.target.checked; loadCameras(); };
+/* The watched-roads toggle, and it REMEMBERS.
+ *
+ * A visitor who turns the bands on, pans, and has them snap back off on the
+ * next load will conclude the toggle is broken rather than that it is
+ * per-session. The default lives in `state.showCams`; this only overrides it
+ * once somebody has expressed a preference, so flipping the default later
+ * still reaches everyone who has never touched the control.
+ *
+ * localStorage can throw outright in private browsing, so every access is
+ * guarded - a map that fails to load because it could not remember a checkbox
+ * would be a poor trade. */
+const SHOWCAMS_KEY = 'sparrow.showCams';
+try {
+  const saved = localStorage.getItem(SHOWCAMS_KEY);
+  if (saved !== null) state.showCams = saved === '1';
+} catch (e) { /* private mode: keep the default */ }
+
+const _showcams = $('#showcams');
+// The checkbox must be made to AGREE with state before anyone sees it. The
+// markup ships checked; if the stored answer or the default is off, a control
+// that says "on" over a map with no bands is worse than no control.
+_showcams.checked = state.showCams;
+_showcams.onchange = (e) => {
+  state.showCams = e.target.checked;
+  try { localStorage.setItem(SHOWCAMS_KEY, state.showCams ? '1' : '0'); }
+  catch (err) { /* not remembering is survivable; not drawing is not */ }
+  // Unticking has to CLEAR what is already drawn. loadCameras() returns early
+  // when showCams is false, so without this the bands stay on screen and the
+  // toggle looks dead until the next reload.
+  if (!state.showCams) state.camLayer.clearLayers();
+  loadCameras();
+};
 
 /* ----------------------------------------------------------------- data -- */
 
