@@ -392,6 +392,37 @@
    * so it is the one a person can actually answer about.
    * Unanswered is not lost: the crop stays in the review pen either way. This
    * only ever ADDS the chance to answer now. */
+  /* Crops this phone has posted and not yet heard a verdict on.
+   *
+   * Bounded three ways, because this is a driving session that can run for
+   * hours: at most PEND_MAX entries, dropped after PEND_TTL_MS, and each one
+   * holds a ~200px JPEG data URL rather than anything the server sends back -
+   * no image ever travels down for this. Giving up on one costs nothing: the
+   * crop is in the review pen either way, which is exactly where it was before
+   * any of this existed. */
+  var pending=[], PEND_MAX=24, PEND_TTL_MS=12*60*1000;
+  function pollParked(){
+    if(!(driveNode&&driveNode.token)) return;
+    var now=Date.now();
+    pending=pending.filter(function(p){return now-p.at<PEND_TTL_MS;});
+    if(pending.length>PEND_MAX) pending=pending.slice(-PEND_MAX);
+    if(!pending.length || askSid) return;   // one question at a time
+    fetch('/api/node/parked',{method:'POST',
+      headers:{'Content-Type':'application/json',
+               'Authorization':'Bearer '+driveNode.token},
+      body:JSON.stringify({node_id:driveNode.id,
+                           ids:pending.map(function(p){return p.id;})})})
+      .then(function(r){return r.json();}).then(function(r){
+        var hit=(r&&r.parked||[])[0];
+        if(!hit) return;
+        // Newest wins, and the answered one leaves the list either way.
+        var got=null;
+        pending=pending.filter(function(p){
+          if(p.id===hit.id){got=p;return false;} return true;});
+        if(got) askCop(hit.id, got.crop);
+      }).catch(function(){});
+  }
+
   var askSid=null;
   function askCop(sid, imgDataUrl){
     askSid=sid;
@@ -626,6 +657,10 @@
     // Hotspot history for the "hot area ahead" warning. Slow-moving data, so a
     // long refresh; the warning itself is checked on every GPS fix.
     loadHeatCells(); setInterval(loadHeatCells,300000);
+    // "Has the classifier called any of mine a patrol car yet?" Costs one small
+    // POST every 15s and only when something is actually outstanding - it
+    // returns immediately if `pending` is empty, which is almost always.
+    setInterval(pollParked,15000);
     navigator.geolocation.getCurrentPosition(onFix,onGeoErr,{enableHighAccuracy:true,timeout:15000,maximumAge:2000});
     navigator.geolocation.watchPosition(onFix,onGeoErr,{enableHighAccuracy:true,maximumAge:1000,timeout:20000});
     startCompass();   // must be asked from this gesture (iOS permission prompt)
@@ -824,7 +859,17 @@
           // never told - they found it at /rv hours later, as a still of a car
           // they no longer remembered. Ask now, while it is still in the
           // mirror. b.crop is the exact image the hub is holding.
+          // A CAMERA node is told immediately, because it scored its own crop.
           if(r.parked && r.id) askCop(r.id, b.crop);
+          // 🚨 A PHONE IS NOT, AND THIS IS THE HALF THAT MATTERS HERE.
+          // There is no classifier in a browser, so this post CANNOT come back
+          // saying "that was a patrol car" - the crop goes to the inbox, the
+          // head scores it at home minutes later, and the verdict lands back
+          // in the pen here. `parked` is false for every drive-mode post, so
+          // the popup above could never once have fired on this client.
+          // Remember what we sent, keep OUR copy of the crop (no image ever
+          // comes back down), and ask.
+          else if(r.id) pending.push({id:r.id, crop:b.crop, at:Date.now()});
         }
       }).catch(function(){});
   }

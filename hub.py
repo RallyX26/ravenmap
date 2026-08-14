@@ -2130,6 +2130,58 @@ class Handler(BaseHTTPRequestHandler):
                              ip=privacy.audit_ip(self.client_ip))
                 return self._json(out)
 
+            if p == "/api/node/parked":
+                # 🚨 THE DRIVE CLIENT CANNOT LEARN THIS ANY OTHER WAY.
+                #
+                # A camera node scores its own crop, so _ingest can answer
+                # "parked: true" in the POST response and the owner is asked
+                # immediately. A PHONE cannot: there is no head in a browser, so
+                # its crop goes to the inbox, box_puller pulls it home, the head
+                # scores it there, and box_publish moves the head-positives into
+                # the pen back here - minutes later, long after the response the
+                # phone was reading.
+                #
+                # So the drive popup built on `parked` could never fire for the
+                # one client that needed it most. This is the missing half: the
+                # phone names the sightings it posted and asks which of them
+                # have since become government candidates.
+                #
+                # Deliberately CLIENT-NAMED ids rather than "everything recent
+                # for this node". The phone already knows what it sent and is
+                # holding the crop to show; a route that volunteers a node's
+                # recent history would be a second, chattier read path over the
+                # same rows for no benefit.
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if not nd.get("token"):
+                    return self._err(401, "this node has no token; re-enroll it")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                try:
+                    ids = [int(x) for x in (b.get("ids") or [])][:40]
+                except (TypeError, ValueError):
+                    return self._err(400, "bad ids")
+                out = []
+                for sid in ids:
+                    row = db.sighting(sid)
+                    # 🚨 IT MUST BE THEIR OWN. Ids are sequential and printed
+                    # beside every sighting on the public map, so without this
+                    # any camera could enumerate whether ANY id is a government
+                    # candidate - which is a government-vehicle oracle over the
+                    # whole database, from one enrolled phone. Same rule
+                    # /api/node/label already enforces, for the same reason.
+                    if not row or (row.get("node_id") or "") != nd["id"]:
+                        continue
+                    meta = review_api._pen_meta(sid)
+                    if not meta:
+                        continue
+                    out.append({"id": sid,
+                                "vclass": meta.get("vclass") or row.get("vclass"),
+                                "score": meta.get("score")})
+                return self._json({"parked": out})
+
             if p == "/api/node/key":
                 # 🚨 A CAMERA REGISTERS ITS OWN SIGNING KEY, WITHOUT RE-ENROLLING.
                 #

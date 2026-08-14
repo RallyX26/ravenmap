@@ -45,6 +45,7 @@ import argparse
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -102,7 +103,11 @@ def ssh(cmd: str, timeout: int = 180) -> subprocess.CompletedProcess:
 # startup, so editing core.py leaves three processes running yesterday's rules
 # while the repo says otherwise.
 LOCAL = {
-    "hub.py":      {"match": "*hub.py*", "args": "hub.py", "camera": False},
+    # `port` is what makes a restart VERIFIABLE rather than merely issued: the
+    # hub can leave a process behind and still not be serving, which is exactly
+    # how a deploy came to report success over a dead :8150.
+    "hub.py":      {"match": "*hub.py*", "args": "hub.py", "camera": False,
+                    "port": 8150},
     "run_live.py": {"match": r"*detect\run_live.py*", "args": None, "camera": True},
     "camctl.py":   {"match": r"*camctl\camctl.py*", "args": r"camctl\camctl.py",
                     "camera": True},
@@ -113,6 +118,38 @@ def _ps(cmd: str) -> str:
     return subprocess.run(["powershell", "-NoProfile", "-Command", cmd],
                           capture_output=True, encoding="utf-8",
                           errors="replace").stdout.strip()
+
+
+def _came_up(name: str, spec: dict, wait_s: int = 12) -> bool:
+    """Did the thing we just started actually start?
+
+    Two questions, because they fail separately. A process can exist and still
+    be unable to serve - the hub binds a port, and the most likely reason a
+    restarted hub dies is that the old one had not released :8150 yet, which
+    leaves a process that exits a second later into a minimised window nobody
+    reads. So for anything with a port, the port is the answer that counts.
+    """
+    port = spec.get("port")
+    deadline = time.time() + wait_s
+    seen_proc = False
+    while time.time() < deadline:
+        got = _ps(f"(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+                  f"Where-Object {{ $_.CommandLine -like '{spec['match']}' -and "
+                  f"$_.CommandLine -notlike '*Get-CimInstance*' }} | "
+                  f"Measure-Object).Count")
+        if (got or "0").strip() not in ("", "0"):
+            seen_proc = True
+            if not port:
+                return True
+            listening = _ps(f"(Get-NetTCPConnection -LocalPort {port} -State Listen "
+                            f"-ErrorAction SilentlyContinue | Measure-Object).Count")
+            if (listening or "0").strip() not in ("", "0"):
+                return True
+        time.sleep(1.5)
+    if seen_proc and port:
+        print(f"         (a {name} process exists but nothing is listening "
+              f"on {port} - it is probably exiting on a bind error)")
+    return False
 
 
 def sync_local(a) -> None:
@@ -164,7 +201,25 @@ def sync_local(a) -> None:
         _ps("Start-Sleep -Seconds 3; Start-Process -FilePath "
             f"'{sys.executable}' -ArgumentList '{args}' "
             f"-WorkingDirectory '{ROOT}' -WindowStyle Minimized")
-        say(" ok ", f"restarted {name}")
+        # 🚨 ISSUING THE COMMAND IS NOT THE SAME AS THE THING RUNNING, AND THIS
+        # LINE USED TO CLAIM OTHERWISE.
+        #
+        # It printed "restarted hub.py" unconditionally, straight after
+        # Start-Process. Observed live: the deploy reported "✅ restarted
+        # hub.py" and the local hub was NOT RUNNING afterwards - the old
+        # process had been force-stopped and nothing replaced it, so :8150 was
+        # simply dead and the deploy said it had succeeded. A stop that works
+        # and a start that does not is strictly worse than doing nothing, and
+        # reporting it as success is how it stays unnoticed.
+        #
+        # Step 7 already refuses to believe the BOX is up without asking it.
+        # This machine gets the same treatment: wait for the process, and for
+        # anything that listens, wait for the port to answer.
+        if not _came_up(name, spec):
+            say("fail", f"{name} was stopped and did NOT come back - "
+                        f"start it yourself and check the window for the error")
+        else:
+            say(" ok ", f"restarted {name} (verified running)")
 
     check = _run([sys.executable, str(ROOT / "tools" / "check_running_code.py")])
     if "up to date" in (check.stdout or ""):
