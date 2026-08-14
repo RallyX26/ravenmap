@@ -233,6 +233,15 @@ MIGRATIONS = [
     ("nodes", "setup_stage", "TEXT"),
     ("nodes", "setup_stage_ts", "REAL"),
     ("nodes", "setup_platform", "TEXT"),
+    # The filename of a photograph that has been pulled off the map and moved
+    # into core.HELD, pending a human decision. `snap` is NULL while this is
+    # set, so nothing serves the picture, and this remembers what to crop or
+    # restore from. Both being set at once would mean the file is in two places
+    # and one of them is a lie, so hold_photo/fix_photo always swap the pair.
+    ("sightings", "snap_held", "TEXT"),
+    # When it was held, so the fix queue can show the oldest first - a held
+    # photo is a sighting with its evidence missing, which is a debt.
+    ("sightings", "held_at", "REAL"),
 ]
 
 # The setup funnel, in order. Progress only ever moves FORWARD through this
@@ -704,8 +713,23 @@ def review_sighting(sighting_id: int, verdict: str) -> None:
 REPORT_REASONS = {
     "not_government":    "not a government vehicle",
     "wrong_description": "wrong description (body or colour)",
+    # 🚨 THE ONE REASON THAT ACTS BEFORE A HUMAN LOOKS. Every other flag is a
+    # suggestion that waits in the queue, because being wrong about a vehicle
+    # for a few hours costs nothing that cannot be corrected. This one is
+    # different: a passer-by's arm, a face, a watch, a work van's lettering
+    # caught behind the patrol car is a person's own detail on a public map,
+    # and the harm is done while it waits. So a privacy flag HOLDS the
+    # photograph immediately (see PRIVACY_REPORT / review_api.hold_photo) and
+    # the review decides whether it comes back, cropped or whole.
+    #
+    # It is deliberately not a delete. The flag may be mistaken, and the stored
+    # original is the only thing a full-quality crop can be cut from.
+    "privacy":          "shows a person or a private detail",
     "other":            "other (see note)",
 }
+
+# The reason that takes the picture down first and asks afterwards.
+PRIVACY_REPORT = "privacy"
 
 
 def add_report(sighting_id: int, reason: str, note: str, ip: str) -> int:
@@ -1002,6 +1026,64 @@ def set_sighting_desc(sighting_id: int, body: Optional[str] = None,
     conn = connect()
     conn.execute(f"UPDATE sightings SET {', '.join(sets)} WHERE id=?", args)
     conn.commit()
+
+
+def set_snap_held(sighting_id: int, held_name: Optional[str],
+                  snap_name: Optional[str] = None) -> None:
+    """Swap a sighting's photograph between served and held.
+
+    The two columns are written together on purpose. `snap` is the name the map
+    serves and `snap_held` is the name sitting in core.HELD, and a row carrying
+    both would be claiming the same picture is in two places - one of which is
+    not true, and whichever half a later reader trusts decides whether a held
+    photograph is quietly served again.
+    """
+    conn = connect()
+    conn.execute(
+        "UPDATE sightings SET snap=?, snap_held=?, held_at=? WHERE id=?",
+        (snap_name, held_name, now() if held_name else None, int(sighting_id)))
+    conn.commit()
+
+
+def held_photos(node_ids: Optional[list] = None, limit: int = 200) -> list:
+    """Sightings whose photograph is held, oldest first.
+
+    ⚠️ OLDEST FIRST, unlike every other queue here. A held photo is a published
+    claim with its evidence missing, so the queue is a debt and the oldest debt
+    is the one to pay - the reverse of the review pen, where the newest crop is
+    the one still worth judging.
+    """
+    conn = connect()
+    where, args = "s.snap_held IS NOT NULL", []
+    if node_ids is not None:
+        if not node_ids:
+            return []
+        where += " AND s.node_id IN (%s)" % ",".join("?" * len(node_ids))
+        args.extend(node_ids)
+    args.append(int(limit))
+    rows = conn.execute(
+        f"SELECT s.*, n.name AS node_name FROM sightings s "
+        f"LEFT JOIN nodes n ON n.id = s.node_id "
+        f"WHERE {where} ORDER BY COALESCE(s.held_at, s.ts) ASC LIMIT ?",
+        args).fetchall()
+    return [dict(r) for r in rows]
+
+
+def snap_referenced_elsewhere(name: str, except_id: int) -> bool:
+    """Does any OTHER sighting point at this snapshot file?
+
+    Names carry a random token so two stores never collide, but a re-crop or a
+    republish can leave two rows pointing at one file, and deleting a file that
+    another live claim is still serving replaces a privacy problem with a
+    broken photograph on someone else's sighting. Checked before every unlink.
+    """
+    if not name:
+        return False
+    conn = connect()
+    r = conn.execute(
+        "SELECT 1 FROM sightings WHERE id<>? AND (snap=? OR snap_held=?) LIMIT 1",
+        (int(except_id), name, name)).fetchone()
+    return r is not None
 
 
 def promote_sighting(sighting_id: int, vclass: str = "police",

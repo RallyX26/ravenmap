@@ -390,7 +390,16 @@ addEventListener('keydown', (e) => {
    a motorcycle", "that is not a government vehicle". The flag does NOT change the
    map; it drops the sighting into the operator's review queue, where a human
    confirms or retracts it. That is the whole trust model: correctable by anyone,
-   editable only after a human agrees. */
+   editable only after a human agrees.
+
+   🚨 WITH ONE EXCEPTION, AND IT IS THE POINT OF THE FOURTH BUTTON.
+   "Shows a person" is not a claim about the vehicle, it is a claim about
+   somebody who never asked to be in the photograph - an arm on the wheel of the
+   car alongside, a face through a window, a watch. Waiting for review is fine
+   when the cost of being wrong is a mislabelled truck; it is not fine when the
+   cost accrues to a person for every hour the queue is behind. That reason
+   takes the PICTURE down immediately (the sighting stays), and a reviewer then
+   crops the person out and puts it back. See review_api.hold_photo. */
 function openReport(id) {
   const box = $('#reportbox');
   box.classList.remove('hidden');
@@ -399,6 +408,7 @@ function openReport(id) {
     <div class="rreasons">
       <button class="btn alt" data-r="not_government">Not a government vehicle</button>
       <button class="btn alt" data-r="wrong_description">Wrong description</button>
+      <button class="btn alt" data-r="privacy">Shows a person or private detail</button>
       <button class="btn alt" data-r="other">Something else</button>
     </div>
     <textarea id="rnote" maxlength="500" rows="2"
@@ -416,6 +426,15 @@ function openReport(id) {
       b.classList.add('on');
       reason = b.dataset.r;
       $('#rsend').disabled = false;
+      // Ask for the one detail that makes a privacy flag actionable. A reviewer
+      // cropping a person out is looking at a small photo and guessing which
+      // part to cut; "the arm on the left" turns that into one drag.
+      const note = $('#rnote');
+      if (note) {
+        note.placeholder = reason === 'privacy'
+          ? 'Whereabouts in the picture? e.g. the arm and watch on the left'
+          : 'Add a detail (optional), e.g. this is an SUV, not a motorcycle';
+      }
     };
   });
   const done = () => { box.classList.add('hidden'); box.innerHTML = ''; };
@@ -430,9 +449,24 @@ function openReport(id) {
         body: JSON.stringify({ id, reason, note: ($('#rnote').value || '').slice(0, 500) }),
       });
       if (res.ok) {
-        box.innerHTML = '<div class="rmsg ok">Thanks. This was sent to the review '
-          + 'queue for a person to check. Nothing on the map changes until they do.</div>';
-        setTimeout(done, 4500);
+        // 🚨 THE MESSAGE HAS TO MATCH WHAT ACTUALLY HAPPENED. "Nothing on the
+        // map changes until they do" is true of every other reason and FALSE of
+        // a privacy flag, which pulls the photograph immediately - and telling
+        // somebody who just reported their own arm that nothing has changed yet
+        // is the worst possible answer to give them. The server reports what it
+        // did (`held`) rather than the page assuming from the reason it sent.
+        let held = false;
+        try { held = !!(await res.json()).held; } catch { held = false; }
+        box.innerHTML = held
+          ? '<div class="rmsg ok">Thanks. <b>The photo has been taken off the map '
+            + 'straight away</b> while a person looks at it. The sighting itself '
+            + 'stays; the picture comes back only cropped, or not at all.</div>'
+          : '<div class="rmsg ok">Thanks. This was sent to the review '
+            + 'queue for a person to check. Nothing on the map changes until they do.</div>';
+        setTimeout(done, 6000);
+        // The picture is gone from the server: drop it from the open panel too,
+        // rather than leaving the flagged image on screen behind the receipt.
+        if (held) { const im = document.querySelector('#detail img'); if (im) im.remove(); }
       } else {
         $('#rmsg').textContent = 'Could not send that. Please try again.';
         $('#rsend').disabled = false;

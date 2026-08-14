@@ -28,7 +28,7 @@ import db
 import mirror
 import snapshot
 import review_auth
-from core import SNAPS
+from core import HELD, SNAPS
 
 
 def _pen_meta(sid: int) -> dict:
@@ -136,6 +136,18 @@ def queue(reviewer: dict, scope: str = "pool", limit: int = 60,
             "ts": meta.get("ts") or (row or {}).get("ts"),
             "crop": f"/api/rv/crop/{sid}",
             "rejected": was_rejected,
+            # 🚨 A FLAG THE REVIEWER CANNOT SEE IS STILL A BLACK HOLE.
+            # park_reported writes `why` into the pen meta under a comment
+            # saying it is "shown to the reviewer as the reason this is in
+            # front of them", and this function never returned it - so a public
+            # flag arrived looking exactly like a fresh candidate. The reviewer
+            # then answered the question the card appeared to ask ("is this a
+            # government vehicle?") instead of the one that was actually put
+            # ("somebody says this is wrong, and here is why"). Routing the
+            # report into the pen was only half the fix.
+            "reported": bool(meta.get("reported")),
+            "report_reason": meta.get("report_reason") or "",
+            "why": meta.get("why") or "",
         })
     if rejected:
         # 🚨 NEWEST-FIRST IS THE WRONG ORDER FOR AN AUDIT.
@@ -352,6 +364,240 @@ def park_reported(sid: int, row: dict, reason: str = "") -> bool:
     }))
 
 
+def _flags(sid: int) -> list:
+    try:
+        return db.reports_for(int(sid), open_only=True) or []
+    except Exception:
+        return []
+
+
+def _flag_reason(sid: int) -> str:
+    f = _flags(sid)
+    if not f:
+        return ""
+    return db.REPORT_REASONS.get(f[0].get("reason") or "", f[0].get("reason") or "")
+
+
+def _flag_note(sid: int) -> str:
+    for f in _flags(sid):
+        if f.get("note"):
+            return str(f["note"])[:500]
+    return ""
+
+
+def hold_photo(sid: int, row: dict, reason: str = "") -> bool:
+    """Take a published photograph off the map NOW, before anyone reviews it.
+
+    🚨 CLEARING THE COLUMN IS NOT TAKING IT DOWN. `/snap/<name>` serves any file
+    in SNAPS by name, with no reference to the row - that is precisely how the
+    retracted-photo shelf came to exist. So a hold MOVES the file into core.HELD,
+    which no route serves, and only then clears `snap`. Reference-first would
+    leave a window where the row says nothing and the URL still answers.
+
+    📌 Why this one reason acts before a human does. Every other flag is a claim
+    about a VEHICLE, and being wrong about a vehicle for a few hours is
+    correctable. This one is a claim about a PERSON who did not ask to be on the
+    map - the arm on the wheel of the car alongside, a face through a window, a
+    watch. The harm accrues while the queue waits, and the queue is measured in
+    hours. Failing towards nobody seeing the photograph is the recoverable
+    direction; the opposite failure is not recoverable at all.
+
+    It is a hold and never a delete. The flag may be mistaken, and the stored
+    original is the only thing a full-quality crop can be cut from - cropping
+    the pen's 200px copy instead would permanently degrade a photograph that
+    turned out to be fine.
+
+    ⚠️ ABUSE IS REAL AND ACCEPTED. Anyone can flag, so anyone can strip photos
+    (rate-limited to 20/hr per IP). A reviewer restores or crops them back, and
+    the sighting itself - dot, class, time - never moves. A recoverable outage
+    beats an unrecoverable leak. If it is ever used as a weapon the answer is to
+    require a token for this reason, not to stop holding.
+    """
+    if not row:
+        return False
+    name = row.get("snap")
+    if not name or row.get("snap_held"):
+        return False              # nothing served, or already held
+    name = Path(str(name)).name
+    src = SNAPS / name
+    if not src.exists():
+        # The row points at a file that is gone: nothing is being served, so
+        # there is nothing to hold. Clear the reference so the queue is not
+        # given an item whose photograph can never be shown.
+        db.set_snap_held(int(sid), None, None)
+        return False
+    try:
+        HELD.mkdir(parents=True, exist_ok=True)
+        dst = HELD / name
+        if dst.exists():
+            dst.unlink()          # a previous hold of the same file; the source wins
+        src.replace(dst)          # move, not copy - a copy leaves the original served
+    except Exception as exc:
+        print(f"[review] could not hold photo for {sid}: {exc}")
+        return False
+    db.set_snap_held(int(sid), name, None)
+    db.audit("photo:held", str(sid), actor="public", ip="")
+    return True
+
+
+def may_fix(reviewer: dict, row: dict) -> bool:
+    """May this reviewer work on this held photograph at all?
+
+    Same node rule as the pen: a pool token sees everything, an 'own' token sees
+    only its own cameras. Read from the sighting row rather than pen meta,
+    because a held photo has no pen card of its own.
+    """
+    allowed = reviewer.get("nodes")
+    if allowed is None:
+        return True
+    return (row or {}).get("node_id") in allowed
+
+
+def held_queue(reviewer: dict) -> dict:
+    """Photographs held off the map, waiting for someone to look.
+
+    Items carry `photo`, which is the ORIGINAL - the full-quality file, held but
+    not destroyed. That is the whole reason it is kept: a crop cut from the pen's
+    200px copy would permanently shrink a photograph the flag turned out to be
+    wrong about.
+    """
+    allowed = reviewer.get("nodes")
+    rows = db.held_photos(None if allowed is None else list(allowed))
+    out = []
+    for r in rows:
+        name = Path(str(r.get("snap_held") or "")).name
+        if not name or not (HELD / name).exists():
+            continue              # row remembers a file that is already gone
+        out.append({
+            "id": r["id"], "ts": r.get("ts"), "held_at": r.get("held_at"),
+            "node_id": r.get("node_id") or "",
+            "node_name": r.get("node_name") or "a camera",
+            "vclass": r.get("vclass"),
+            "body": r.get("body"), "color": r.get("color"),
+            # The newest OPEN flag, in the flagger's own words where they left
+            # any. A reviewer who cannot see what was objected to is guessing at
+            # which part of the frame to cut, and a wrong guess here publishes
+            # the complaint again.
+            "reason": _flag_reason(r["id"]),
+            "note": _flag_note(r["id"]),
+            "photo": f"/api/rv/held/photo/{r['id']}",
+            # Restoring UNTOUCHED is the only action that puts the exact flagged
+            # pixels back, so the page hides that button unless the token may.
+            "may_restore": is_trusted(reviewer),
+        })
+    return {"items": out, "count": len(out)}
+
+
+def held_photo_bytes(reviewer: dict, sid: int) -> Optional[bytes]:
+    row = db.sighting(int(sid))
+    if not row or not row.get("snap_held") or not may_fix(reviewer, row):
+        return None
+    p = HELD / Path(str(row["snap_held"])).name
+    if not p.exists():
+        return None
+    try:
+        return p.read_bytes()
+    except Exception:
+        return None
+
+
+def _drop_file(directory: Path, name: Optional[str], except_id: int) -> None:
+    """Unlink a photograph, unless another live sighting still points at it."""
+    if not name:
+        return
+    name = Path(str(name)).name
+    if db.snap_referenced_elsewhere(name, int(except_id)):
+        return
+    try:
+        (directory / name).unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def fix_photo(reviewer: dict, sid: int, action: str,
+              box: Optional[dict] = None, ip: str = "") -> dict:
+    """Rule on a held photograph: crop it back, restore it whole, or destroy it.
+
+    🔑 THE ASYMMETRY IS DELIBERATE. Cropping and deleting are open to any
+    reviewer who may touch the camera; restoring UNTOUCHED needs a trusted
+    token. Both of the open actions can only ever make the map show LESS of the
+    person who complained - `tighten` cannot pan, zoom or reach back to the
+    original frame, and delete removes the picture entirely while the sighting
+    itself stays. Restoring is the single action that puts the exact flagged
+    pixels back in public, so it is the single one that is gated.
+
+    Making this queue easy to work in the private direction and hard to work in
+    the public one is the only arrangement where opening it to volunteers is not
+    a way to overrule the person in the photograph.
+    """
+    sid = int(sid)
+    action = (action or "").lower()
+    who = reviewer.get("label") or "reviewer"
+    row = db.sighting(sid)
+    if not row or not row.get("snap_held"):
+        return {"ok": False, "error": "no held photo"}
+    if not may_fix(reviewer, row):
+        return {"ok": False, "error": "not your camera"}
+    held_name = Path(str(row["snap_held"])).name
+    src = HELD / held_name
+
+    if action == "delete":
+        db.set_snap_held(sid, None, None)
+        _drop_file(HELD, held_name, sid)
+        db.audit("photo:deleted", str(sid), actor=who, ip=ip)
+        return {"ok": True, "id": sid, "action": "delete"}
+
+    if action == "restore":
+        if not is_trusted(reviewer):
+            return {"ok": False, "error": "restoring an untouched photo is "
+                                          "limited to an operator-issued token"}
+        if not src.exists():
+            db.set_snap_held(sid, None, None)
+            return {"ok": False, "error": "the held file is gone"}
+        try:
+            SNAPS.mkdir(parents=True, exist_ok=True)
+            src.replace(SNAPS / held_name)
+        except Exception as exc:
+            return {"ok": False, "error": f"could not restore: {exc}"}
+        db.set_snap_held(sid, None, held_name)
+        db.audit("photo:restored", str(sid), actor=who, ip=ip)
+        return {"ok": True, "id": sid, "action": "restore"}
+
+    if action == "crop":
+        if not src.exists():
+            db.set_snap_held(sid, None, None)
+            return {"ok": False, "error": "the held file is gone"}
+        try:
+            raw = src.read_bytes()
+        except Exception as exc:
+            return {"ok": False, "error": f"could not read the photo: {exc}"}
+        cropped = tighten(raw, box)
+        if cropped == raw:
+            # 🚨 SAY SO RATHER THAN PUBLISHING THE FLAGGED PICTURE.
+            # tighten() returns the input untouched when the box is missing,
+            # degenerate, full-frame or unparseable - which is right for the pen,
+            # where the fallback is the crop the reviewer was already happy with.
+            # Here the fallback would be re-publishing the exact photograph
+            # somebody complained about, dressed as a fix. That is a restore, and
+            # a restore is gated, so it cannot happen by accident through this door.
+            return {"ok": False, "error": "that box did not change the photo - "
+                                          "drag a smaller one"}
+        try:
+            name = f"{int(row.get('ts') or time.time())}_{secrets.token_hex(4)}.jpg"
+            SNAPS.mkdir(parents=True, exist_ok=True)
+            (SNAPS / name).write_bytes(cropped)
+        except Exception as exc:
+            return {"ok": False, "error": f"could not write the crop: {exc}"}
+        db.set_snap_held(sid, None, name)
+        # Only now is the original expendable: the map is already serving the
+        # cropped file, so an unlink that fails leaves a held orphan, not a gap.
+        _drop_file(HELD, held_name, sid)
+        db.audit("photo:cropped", str(sid), actor=who, ip=ip)
+        return {"ok": True, "id": sid, "action": "crop", "snap": name}
+
+    return {"ok": False, "error": "unknown action"}
+
+
 def may_touch(reviewer: dict, sid: int) -> bool:
     """May this reviewer see or rule on this pen item?
 
@@ -465,9 +711,20 @@ def _publish(sid: int, reviewer: dict, force_vclass: Optional[str] = None,
 
     db.promote_sighting(sid, vclass, _score(meta, row), why)
     if snap:
+        # 🚨 THE PHOTOGRAPH THIS REPLACES HAS TO STOP BEING SERVED.
+        # This wrote the new name over the old one and left the old FILE in
+        # place, and `/snap/<name>` hands out any file in SNAPS by name with no
+        # reference to the row - so a reviewer who cropped a person out of a
+        # published photo swapped which picture the map linked to and changed
+        # nothing about what was reachable. The uncropped original stayed one
+        # URL away, which is the same leak the retracted-photo shelf exists to
+        # clean up after. Unlinked is not deleted.
+        old = (row or {}).get("snap")
         conn = db.connect()
         conn.execute("UPDATE sightings SET snap=? WHERE id=?", (snap, sid))
         conn.commit()
+        if old and Path(str(old)).name != snap:
+            _drop_file(SNAPS, old, sid)
     _delete_pen(sid)
 
 

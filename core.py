@@ -21,6 +21,21 @@ ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 SNAPS = DATA / "snaps"
 
+# Photographs pulled off the map but not yet destroyed.
+#
+# 🚨 THE POINT OF THIS DIRECTORY IS THAT NO ROUTE SERVES IT. `/snap/<name>`
+# hands out any file in SNAPS by name, so clearing a row's `snap` column takes
+# the picture off the map and leaves it fetchable by direct URL - which is the
+# exact mistake the retracted-photo shelf exists to clean up after. A photograph
+# somebody has flagged as showing them is not taken down until the FILE stops
+# being reachable, so holding one means MOVING it, not un-referencing it.
+#
+# It is a hold, not a delete, because the whole reason a photo is here is that a
+# human has not looked yet: the flag may be wrong, and the original is the only
+# thing a full-quality crop can be cut from. review_api.fix_photo either crops
+# it back onto the map, restores it untouched, or deletes it for good.
+HELD = DATA / "held"
+
 # 🚨 EVERY CLIENT THAT TALKS TO THE HUB MUST SAY WHO IT IS.
 #
 # Not politeness - it is load-bearing. The node clients sent no User-Agent at

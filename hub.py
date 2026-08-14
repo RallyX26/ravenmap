@@ -1397,6 +1397,38 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, b, "image/jpeg",
                                   {"Cache-Control": "no-store"})
 
+            # --- held photographs: fix what is already on the map -------------
+            # Where a privacy flag lands. The picture is off the map already
+            # (moved into core.HELD, which no route serves); this is where a
+            # human crops the person out and puts it back, restores it whole, or
+            # deletes it. Any reviewer may work their own cameras' items, on the
+            # rule in review_api.fix_photo: the two open actions can only ever
+            # show LESS, and the one that re-publishes the flagged pixels is
+            # gated on a trusted token.
+            if p == "/rv/photos":
+                return self._file(PUBLIC / "photos.html")
+            if p == "/api/rv/held":
+                r = review_auth.identify(self.headers)
+                if not r:
+                    return self._err(401, "not signed in")
+                return self._json(review_api.held_queue(r))
+            if p.startswith("/api/rv/held/photo/"):
+                r = review_auth.identify(self.headers)
+                if not r:
+                    return self._err(401, "not signed in")
+                try:
+                    sid = int(p.rsplit("/", 1)[-1])
+                except ValueError:
+                    return self._err(400, "bad id")
+                b = review_api.held_photo_bytes(r, sid)
+                if not b:
+                    return self._err(404, "no photo")
+                # no-store, like the retracted shelf: this is a picture that has
+                # been taken off the public map, and a cache is a second copy of
+                # it in a place nobody can revoke.
+                return self._send(200, b, "image/jpeg",
+                                  {"Cache-Control": "no-store"})
+
             if p.startswith("/api/rv/crop/"):
                 r = review_auth.identify(self.headers)
                 if not r:
@@ -1871,7 +1903,7 @@ class Handler(BaseHTTPRequestHandler):
                        "/api/rv/login", "/api/rv/logout", "/api/rv/verdict",
                        "/api/rv/tokens/new", "/api/rv/tokens/revoke",
                        "/api/rv/my-token", "/api/drive/report", "/api/drive/vote",
-                       "/api/rv/retracted/delete"}
+                       "/api/rv/retracted/delete", "/api/rv/held/fix"}
 
     def _do_POST_inner(self) -> None:
         try:
@@ -2226,7 +2258,24 @@ class Handler(BaseHTTPRequestHandler):
                     review_api.park_reported(sid, row, reason)
                 except Exception:
                     traceback.print_exc()
-                return self._json({"ok": True})
+                # 🚨 A PRIVACY FLAG ACTS FIRST AND ASKS AFTERWARDS.
+                # Every other reason above is a claim about a VEHICLE and can
+                # safely wait in the queue. This one is a claim about a PERSON
+                # who never asked to be photographed - a passenger's arm, a
+                # face, a watch, caught alongside the patrol car - and the harm
+                # accrues for as long as the queue takes. The photograph is
+                # moved out of the served directory now; the sighting itself
+                # (dot, class, time) does not move, and a reviewer decides
+                # whether the picture comes back cropped, whole, or not at all.
+                # See review_api.hold_photo for why this is recoverable and the
+                # opposite failure is not.
+                held = False
+                if reason == db.PRIVACY_REPORT:
+                    try:
+                        held = review_api.hold_photo(sid, row, reason)
+                    except Exception:
+                        traceback.print_exc()
+                return self._json({"ok": True, "held": held})
 
             if p == "/api/review":
                 # 🚨 A PUBLIC SIGHTING IS AN ASSERTION, SO IT HAS TO BE
@@ -2378,6 +2427,21 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(400, "bad id")
                 return self._json(review_api.delete_retracted_photo(
                     r, sid, privacy.audit_ip(self.client_ip)))
+
+            if p == "/api/rv/held/fix":
+                r = review_auth.identify(self.headers)
+                if not r:
+                    return self._err(401, "not signed in")
+                b = self._body()
+                try:
+                    sid = int(b.get("id"))
+                except (TypeError, ValueError):
+                    return self._err(400, "bad id")
+                crop = b.get("crop")
+                return self._json(review_api.fix_photo(
+                    r, sid, b.get("action") or "",
+                    crop if isinstance(crop, dict) else None,
+                    privacy.audit_ip(self.client_ip)))
 
             if p == "/api/rv/verdict":
                 r = review_auth.identify(self.headers)

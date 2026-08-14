@@ -76,6 +76,14 @@
   .noimg{color:var(--dim);font-size:13px;font-family:var(--mono);padding:40px;text-align:center}
   .spin{width:26px;height:26px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite}
   @keyframes sp{to{transform:rotate(360deg)}}
+  /* A public flag, above the meta row. Amber and full width because it changes
+     what the card is asking, and a reviewer skimming a stack of near-identical
+     crops has to notice it without reading. */
+  .flagged{
+    padding:10px 14px;border-top:1px solid var(--line);
+    background:#221a09;color:#f0b429;font-size:13px;line-height:1.45;
+    font-weight:600
+  }
   .meta{
     display:flex;align-items:center;gap:10px;padding:12px 14px;
     border-top:1px solid var(--line);background:var(--panel2)
@@ -197,7 +205,7 @@
 <div id="view-pick" class="wrap hidden">
   <div class="card2">
     <div class="brand"><span class="dot"></span> SparrowMap Review</div>
-    <p>Two queues. Pick the one you mean.</p>
+    <p>Three queues. Pick the one you mean.</p>
 
     <a class="primary" href="/rv/mine" style="display:block;text-decoration:none;text-align:left">
       📷 My cameras
@@ -210,6 +218,19 @@
       🌍 The shared pool
       <small style="display:block;font-weight:400;opacity:.75;margin-top:4px">
         Everyone's pending government calls. Anyone running a camera can help work through them.
+      </small>
+    </a>
+
+    <!-- 🚨 A THIRD DOOR, AND IT MUST BE ON THE CHOOSER FOR THE SAME REASON THE
+         OTHER TWO ARE. /rv/retracted was built and then reachable only by
+         typing it, which is most of why that shelf sat full. A queue nobody can
+         find is a queue nobody works - and this one holds photographs that are
+         off the map until somebody does, so an unworked queue here is a
+         published sighting with its evidence missing. -->
+    <a class="primary" href="/rv/photos" style="display:block;text-decoration:none;text-align:left;margin-top:10px">
+      ✂ Fix a photo
+      <small style="display:block;font-weight:400;opacity:.75;margin-top:4px">
+        Photos flagged as showing a person. Already off the map — crop them and they go back.
       </small>
     </a>
 
@@ -262,6 +283,10 @@
             <div id="cropbox" class="hidden" style="position:absolute;border:2px solid #7cf;
                  box-shadow:0 0 0 9999px rgba(0,0,0,.55);pointer-events:none"></div>
           </div>
+          <!-- Why this card is here, when a PERSON put it here rather than the
+               classifier. Above the meta row because it changes the question
+               being asked, not just the context for it. -->
+          <div class="flagged hidden" id="flagged"></div>
           <div class="meta">
             <span class="node" id="node"></span>
             <span class="chip" id="score"></span>
@@ -595,6 +620,21 @@
     $("#ago").textContent = ago(it.ts);
     if(it.score == null){ $("#score").classList.add("hidden"); }
     else { $("#score").classList.remove("hidden"); $("#score").innerHTML = "score <b>"+Number(it.score).toFixed(2)+"</b>"; }
+    /* 🚨 SAY WHEN A PERSON PUT THIS CARD HERE, NOT A MODEL.
+       park_reported has always written the flag into the pen item, under a
+       comment saying it is shown to the reviewer - and it was never shown,
+       because the queue endpoint did not return it. So a public correction
+       arrived looking exactly like a fresh candidate, and got answered as one:
+       the reviewer judged "is this a government vehicle" while the actual
+       question on the card was "somebody says this is wrong, and here is why".
+       Half a routing fix reads as no fix at all. */
+    var fl = $("#flagged");
+    if(it.reported && it.why){
+      fl.textContent = "⚑ " + it.why;
+      fl.classList.remove("hidden");
+    } else {
+      fl.textContent = ""; fl.classList.add("hidden");
+    }
     showCrop(it);
     preload(cursor + 1);
   }
