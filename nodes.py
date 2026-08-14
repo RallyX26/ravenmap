@@ -307,6 +307,20 @@ def enroll(name: str, lat: float, lon: float, pubkey: Optional[str] = None,
         # and token - otherwise it keeps posting as a camera that is no longer
         # where it says it is.
         rec["moved_from"] = moved_from
+        # 🚨 AND RECORD IT, BECAUSE THE OLD ROW IS NO LONGER A CAMERA.
+        # This fact was computed here, handed back, and then forgotten. The
+        # retired node keeps beating until the device adopts its new id - and
+        # if the device never does, for ever - so it counted as a camera ONLINE
+        # the whole time. One physical camera at Ross street appeared three
+        # times, all reporting in.
+        #
+        # Written AFTER the new row is stored, so a failure here leaves a live
+        # camera with an extra stale entry rather than a retired pointer to a
+        # node that does not exist.
+        try:
+            db.set_superseded(moved_from["id"], nid)
+        except Exception as exc:
+            print(f"[nodes] could not mark {moved_from['id']} superseded: {exc}")
     return rec
 
 

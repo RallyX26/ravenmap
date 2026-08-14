@@ -256,6 +256,25 @@ MIGRATIONS = [
     # Opt-IN rather than opt-out, because a default that publishes and waits to
     # be corrected has already published. See /api/node/span.
     ("nodes", "publish_span", "INTEGER"),
+    # 🚨 THE NODE THIS ONE TURNED INTO WHEN THE CAMERA MOVED.
+    #
+    # A camera that moves more than MOVED_THRESHOLD_M is deliberately a NEW
+    # node (see nodes.enroll): moving a device must not drag its history and
+    # its watched road onto a street it never saw. That is right, and it leaves
+    # the old row behind as a real record of a real period.
+    #
+    # What it does NOT leave behind is any way to tell that the old row is no
+    # longer a camera. enroll() computes exactly this fact, hands it back as
+    # `moved_from`, and nothing stored it - so the retired node kept beating
+    # for as long as the device took to adopt its new id, and counted as a
+    # CAMERA ONLINE the whole time. One physical camera, three entries, three
+    # of them "online". Same shape as the ratio bug in the comment below: a
+    # number that counts rows nobody would call a camera.
+    #
+    # Deliberately NOT a delete and NOT a merge. The row is history, the
+    # registered total is a true count of registrations, and the sightings stay
+    # attached to the node that actually took them.
+    ("nodes", "superseded_by", "TEXT"),
 ]
 
 # The setup funnel, in order. Progress only ever moves FORWARD through this
@@ -539,10 +558,23 @@ def sighting(sid: int) -> Optional[dict]:
     return dict(r) if r else None
 
 
-def nodes(active_only: bool = True) -> list[dict]:
+def nodes(active_only: bool = True, include_superseded: bool = False) -> list[dict]:
+    """Cameras. By default, the ones that ARE a camera right now.
+
+    A superseded row is a real record of a real period, and it is not a camera
+    any more - it is where a camera used to be. Listing it puts a second entry
+    on the map for one device and makes the same claim twice. Excluded here for
+    the same reason it is excluded from nodes_online, and by the same test, so
+    the list and the count cannot disagree.
+    """
     sql = "SELECT * FROM nodes"
+    where = []
     if active_only:
-        sql += " WHERE status = 'active'"
+        where.append("status = 'active'")
+    if not include_superseded:
+        where.append("(superseded_by IS NULL OR superseded_by = '')")
+    if where:
+        sql += " WHERE " + " AND ".join(where)
     return [dict(r) for r in connect().execute(sql + " ORDER BY name").fetchall()]
 
 
@@ -609,8 +641,15 @@ def stats() -> dict:
         # heartbeats_total - which is what the public "hours watched" figure is
         # built from. A denominator that filters and a numerator that does not
         # is how a ratio exceeds 1.
+        # ...and superseded_by matters for the same reason. A camera that moved
+        # left its old row behind, and that row goes on beating until the
+        # device adopts its new id - so one physical camera reported as two or
+        # three ONLINE at once. The registered total above deliberately still
+        # counts it, because it really was registered; this is the count of
+        # things that are a camera right now.
         "nodes_online":   one("SELECT COUNT(*) FROM nodes "
-                              "WHERE status='active' AND last_beat > ?",
+                              "WHERE status='active' AND superseded_by IS NULL "
+                              "AND last_beat > ?",
                               (now() - ONLINE_WINDOW_S,)),
         "sightings_24h":  one("SELECT COUNT(*) FROM sightings WHERE ts > ?", (day,)),
         "public_24h":     one("SELECT COUNT(*) FROM sightings WHERE tier='public' AND ts > ?", (day,)),
@@ -1061,6 +1100,20 @@ def set_sighting_desc(sighting_id: int, body: Optional[str] = None,
     args.append(sighting_id)
     conn = connect()
     conn.execute(f"UPDATE sightings SET {', '.join(sets)} WHERE id=?", args)
+    conn.commit()
+
+
+def set_superseded(old_id: str, new_id: str) -> None:
+    """Mark a node as retired in favour of the one the camera moved to.
+
+    Never overwrites an existing pointer: a camera moved twice retires A->B and
+    then B->C, and rewriting A to point at C would erase the step that actually
+    happened. The chain is the history.
+    """
+    conn = connect()
+    conn.execute("UPDATE nodes SET superseded_by=? "
+                 "WHERE id=? AND (superseded_by IS NULL OR superseded_by='')",
+                 (str(new_id), str(old_id)))
     conn.commit()
 
 
