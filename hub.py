@@ -26,6 +26,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import classify
 import db
 import mirror
+import node_label
 import operator_auth
 import qr
 import nodes as node_mod
@@ -1289,6 +1290,56 @@ class Handler(BaseHTTPRequestHandler):
                 # Always 200: a camera must never treat a telemetry failure as
                 # a setup failure, and there is nothing useful to tell it.
                 return self._json({"ok": True})
+
+            if p == "/api/node/label":
+                # 🚨 THE CAMERA OPERATOR'S VERDICT, ARRIVING FROM THE CAMERA.
+                #
+                # labelbank runs on the machine that owns the camera and used to
+                # apply this judgement to its OWN local sqlite file. Once the box
+                # became the single source of truth that file stopped being the
+                # map: the crops camctl labels carry sighting ids issued HERE, and
+                # 0 of the last 30 of them existed locally. So every "Yes -
+                # government" answered at the camera since the cutover wrote a
+                # perfectly good training label and moved nothing, while the popup
+                # said it had moved the sighting. An invisible failure - the popup
+                # closes, the label is real, the map just never changes.
+                #
+                # Same auth as /api/node/progress, plus two rules this route needs
+                # that a heartbeat does not:
+                #   - a token is REQUIRED. _token_ok passes a tokenless node, which
+                #     is tolerable for telemetry and not for publishing.
+                #   - the sighting must BELONG to the calling node. Ids are
+                #     sequential and printed next to sightings on the public map,
+                #     so without this any camera could publish or retract any
+                #     other camera's vehicles by naming an id.
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if nd["status"] != "active":
+                    return self._err(403, f"node is {nd['status']}")
+                if not nd.get("token"):
+                    return self._err(401, "this node has no token; re-enroll it")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                try:
+                    sid = int(b.get("sighting_id"))
+                except (TypeError, ValueError):
+                    return self._err(400, "bad sighting_id")
+                row = db.sighting(sid)
+                if not row:
+                    return self._err(404, "no such sighting")
+                if (row.get("node_id") or "") != nd["id"]:
+                    return self._err(403, "not your camera's sighting")
+                out = node_label.apply(sid, row, str(b.get("label") or ""),
+                                       undo=str(b.get("undo") or ""))
+                if out.get("error"):
+                    return self._err(400, out["error"])
+                if out.get("did"):
+                    db.audit(f"node_label:{out['did']}", str(sid),
+                             actor=f"camera {nd['id']}",
+                             ip=privacy.audit_ip(self.client_ip))
+                return self._json(out)
 
             if p == "/api/heartbeat":
                 # "I am awake and watching." Deliberately separate from a

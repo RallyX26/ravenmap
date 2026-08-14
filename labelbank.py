@@ -457,49 +457,84 @@ def set_label(day: str, stem: str, label: str, sampling: str = "review") -> dict
             "synced": synced}
 
 
+# Where this camera's sightings actually live, and who this camera is. Read
+# from camctl's placement file rather than passed in, because labelbank is
+# imported by camctl, by the labelling page and by tools, and threading node
+# credentials through all three call sites is how one of them ends up without.
+_PLACEMENT = Path(__file__).resolve().parent / "camctl" / "placement.json"
+
+
+def _node_creds() -> Optional[tuple]:
+    """(hub, node_id, token) for this camera, or None if it is not enrolled."""
+    import os
+    try:
+        p = json.loads(_PLACEMENT.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    nid, tok = p.get("node_id"), p.get("token")
+    if not nid or not tok:
+        return None
+    hub = os.environ.get("SPARROW_HUB", "https://map.sparrowmap.com").rstrip("/")
+    return hub, nid, tok
+
+
+def _call_box(payload: dict) -> Optional[dict]:
+    creds = _node_creds()
+    if not creds:
+        print("[labelbank] not enrolled: no node_id/token in placement.json, "
+              "so this label cannot reach the map")
+        return None
+    hub, nid, tok = creds
+    import urllib.request
+    req = urllib.request.Request(
+        f"{hub}/api/node/label", method="POST",
+        data=json.dumps({**payload, "node_id": nid}).encode(),
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {tok}"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read())
+
+
 def _sync_sighting(sighting_id, label: str) -> Optional[str]:
     """Make the map agree with the human. Returns what changed, or None.
+
+    🚨 THIS ASKS THE BOX. IT USED TO ASK A LOCAL DATABASE, AND THAT IS THE BUG.
+
+    It called `db.sighting(id)` against `data/sparrow.db` on this machine. That
+    stopped being the map when the box became the single source of truth: the
+    sighting ids these crops carry are issued by the BOX (45512-45543 in the
+    last sample) and the local file tops out at 30,437, so the lookup returned
+    None for every single one and the function returned None having done
+    nothing. It did not raise. It did not log. The popup went on telling him
+    "your answer labels the crop AND moves the sighting on the map", the
+    training label really was written, and the map never changed - for every
+    government vehicle he confirmed at the camera between the cutover and now.
+
+    🍀 It could have been much worse: the two id ranges do not overlap. If they
+    had, this would have promoted a completely unrelated vehicle to the public
+    tier every time he pressed Y.
 
     ⚠️ Only ever moves a sighting the labeller is looking at. A crop with no
     `sighting_id` never became one - the pass did not clear the posting gate -
     and inventing a sighting here would publish a vehicle from a photograph
     nobody chose to report.
+
+    The POLICY now lives on the box in node_label.py, next to the database it
+    acts on, so this side does not get to hold an opinion that has drifted out
+    of date - which is the second half of what went wrong here.
     """
     if not sighting_id or label == "unsure":
         return None
     try:
-        import db
-        row = db.sighting(int(sighting_id))
-        if not row:
-            return None
-        # 'gov' promotes on exactly the same basis 'police' always has: a human
-        # who looked at the crop says it is a government vehicle. Splitting the
-        # button changed which CLASS the public row carries, not how many rows
-        # get published - and classify.py has always treated gov as sightable.
-        if label in ("police", "gov") and row["tier"] != "public":
-            db.promote_sighting(int(sighting_id), label, None,
-                                "confirmed as a government vehicle by the "
-                                "camera operator while labelling")
-            return "promoted"
-        # Re-splitting a public row from police to gov (or back) keeps it
-        # public and corrects the class, rather than leaving the map asserting
-        # a police vehicle the operator has just said was not one.
-        if label in ("police", "gov") and row["tier"] == "public" \
-                and row["vclass"] != label:
-            was = row["vclass"]
-            db.promote_sighting(int(sighting_id), label, None,
-                                "class corrected by the camera operator while "
-                                "splitting police from government")
-            # Carries the OLD class so the undo is an exact reversal rather than
-            # a guess. A half-undo that leaves the corrected class in place is
-            # the failure this whole function was written to stop.
-            return f"reclassified:{was}"
-        if label in ("civilian", "fleet") and row["tier"] == "public":
-            db.review_sighting(int(sighting_id), "retracted")
-            return "retracted"
+        out = _call_box({"sighting_id": int(sighting_id), "label": label})
     except Exception as exc:
-        print(f"[labelbank] could not sync sighting {sighting_id}: {exc}")
-    return None
+        # 🚨 LOUD. The whole cost of this bug was that the failure was silent,
+        # so a network error here says so plainly rather than returning None
+        # like the success-with-nothing-to-do case does.
+        print(f"[labelbank] SIGHTING NOT SYNCED - the map was not updated for "
+              f"sighting {sighting_id}: {exc}")
+        return None
+    return (out or {}).get("did")
 
 
 # CLIP's classes are finer than the label set, and comparing them directly
@@ -545,30 +580,22 @@ def clear_label(day: str, stem: str) -> Optional[str]:
     undone = None
     sid, synced = d.get("sighting_id"), d.get("synced")
     if sid and synced:
+        # 🚨 THE UNDO GOES TO THE BOX TOO, AND FOR A SHARPER REASON THAN THE
+        # LABEL DID. While the forward path was dead the undo path was harmless
+        # - it could not take anything off a map it had never put anything on.
+        # The moment the forward path works, an undo that still writes to the
+        # stale local file becomes an undo button that does nothing to a
+        # sighting this camera just published. Both halves move together or
+        # neither does.
+        #
+        # `was` is what the box itself reported doing, replayed back to it, so
+        # the reversal is exact rather than inferred - see node_label._undo.
         try:
-            import db
-            if synced == "promoted":
-                db.review_sighting(int(sid), "retracted")
-                undone = "taken off the map"
-            elif synced.startswith("reclassified:"):
-                # Put the class back exactly as it was. The row was already
-                # public before anyone labelled it, so its tier is not this
-                # label's doing and must not move.
-                db.promote_sighting(int(sid), synced.split(":", 1)[1], None,
-                                    "label cleared; the class correction it "
-                                    "caused was undone with it")
-                undone = "class put back"
-            elif synced == "retracted":
-                db.promote_sighting(int(sid), "police", None,
-                                    "label cleared; the retraction it caused "
-                                    "was undone with it")
-                undone = "put back on the map"
-            # Back to "no decision has been made". Both calls above stamp
-            # `reviewed`, and leaving that behind would hide the sighting from
-            # the possibly-missed queue for ever - so the accident would still
-            # cost the vehicle its second look.
-            db.unreview_sighting(int(sid))
-        except Exception:
+            out = _call_box({"sighting_id": int(sid), "undo": synced})
+            undone = (out or {}).get("undone")
+        except Exception as exc:
+            print(f"[labelbank] UNDO NOT SYNCED - sighting {sid} is still "
+                  f"'{synced}' on the map: {exc}")
             undone = None
     d["label"] = None
     d.pop("labelled_at", None)
