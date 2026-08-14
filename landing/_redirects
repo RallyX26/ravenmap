@@ -1,0 +1,20 @@
+# Cloudflare Pages redirects for the sparrowmap.com static site.
+#
+# 🚨 WHY THIS FILE EXISTS: sparrowmap.com/status returned 200 and served the
+# LANDING PAGE. Pages falls back to index.html for any path it does not have,
+# so a link that looks right, answers 200, and shows the wrong page - which is
+# the worst of the three, because nothing about it looks broken.
+#
+# /status is the page people are sent to when someone claims the site is
+# blocked, and sparrowmap.com is the domain they will type. A status link that
+# quietly shows the marketing page instead would lose exactly the argument it
+# was built to win.
+#
+# 302 rather than 301: the status page lives on the hub today, and a permanent
+# redirect is cached by browsers for a long time and is painful to take back if
+# that ever moves.
+/status  https://map.sparrowmap.com/status  302
+
+# The same trap, for the two paths people already share by hand.
+/map     https://map.sparrowmap.com/        302
+/app     https://map.sparrowmap.com/app     302
