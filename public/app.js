@@ -70,6 +70,9 @@ const TRAFFIC_FADE_S = 45;   // live view: a pass shows, then fades quickly
 const state = {
   filter: 'all',
   windowS: 0,
+  // null until the first refresh answers, so the dot keeps saying "connecting"
+  // rather than claiming either state before anything has been tried.
+  online: null,
   // 🚦 THE WATCHED-ROAD BANDS DEFAULT TO OFF, AND THAT IS A PRESENTATION CALL,
   // NOT A PRIVACY ONE. Nothing about them leaks - a span is deliberately padded
   // so its midpoint does not localise the camera (road.py / SPAN_MIN_M).
@@ -288,6 +291,21 @@ function drawTraffic(s) {
  * definition. If the fade window changes, every readout follows it. */
 const movingNow = () => state.traffic.size;
 
+/* The live dot carries two things at once: whether the last refresh worked, and
+ * the same count as everything else. They are decided by different timers -
+ * connection state on the 4s refresh, the count on the 1s reap - so writing the
+ * text from whichever fired last had the dot reading "live · 25 passing" beside
+ * a header saying "24 moving now". One definition was not enough; they also
+ * have to be PAINTED from the same tick. This is the only writer, and both
+ * timers call it. */
+function paintLive() {
+  const dot = $('#live');
+  if (!dot || state.online === null) return;   // still saying "connecting"
+  if (!state.online) { dot.lastChild.textContent = 'reconnecting'; return; }
+  const n = movingNow();
+  dot.lastChild.textContent = n ? `live · ${n} passing` : 'live';
+}
+
 /* One timer fades and reaps every traffic dot. Per-dot timers would mean
    hundreds of them on a busy road, all firing independently. */
 function ageTraffic() {
@@ -321,6 +339,7 @@ function ageTraffic() {
     mv.textContent = n.toLocaleString();
     mv.classList.toggle('on', n > 0);
   }
+  paintLive();
   emptyState();
 }
 
@@ -1163,17 +1182,17 @@ async function refresh() {
   const dot = $('#live');
   try {
     await load();
-    if (dot) {
-      dot.classList.add('on');
-      // Make "live" tangible: show how many vehicles have passed a camera in the
-      // last minute. It reads "live" on a quiet road and "live · N passing" when
-      // traffic is actually crossing, so the map obviously IS the live view.
-      const passes = movingNow();
-      dot.lastChild.textContent = passes ? `live · ${passes} passing` : 'live';
-    }
+    // Make "live" tangible: the dot reads "live" on a quiet road and
+    // "live · N passing" when traffic is actually crossing, so the map
+    // obviously IS the live view. paintLive owns the text; this owns whether
+    // the connection is up.
+    state.online = true;
+    if (dot) dot.classList.add('on');
   } catch (e) {
-    if (dot) { dot.classList.remove('on'); dot.lastChild.textContent = 'reconnecting'; }
+    state.online = false;
+    if (dot) dot.classList.remove('on');
   }
+  paintLive();
 }
 
 refresh();
