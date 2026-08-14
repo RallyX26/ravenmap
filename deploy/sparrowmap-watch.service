@@ -1,0 +1,14 @@
+# Paired with sparrowmap-watch.timer. See deploy/sparrowmap-watch.sh for why
+# this is a timer-driven one-shot rather than a long-running watchdog: a
+# watchdog that can hang silently is one more thing that needs watching.
+
+[Unit]
+Description=SparrowMap health watch (one shot)
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sparrowmap/deploy/sparrowmap-watch.sh
+# Bounded on purpose. If a run wedges, systemd kills it and the next tick runs
+# clean, rather than the watch quietly stopping while looking installed.
+TimeoutStartSec=90

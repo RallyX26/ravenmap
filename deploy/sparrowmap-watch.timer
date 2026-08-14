@@ -1,0 +1,22 @@
+# Every two minutes. The failure this was built for took ~45 minutes to
+# develop, so two minutes catches the ramp with a lot of room to spare while
+# costing one HTTP request.
+#
+# Install:
+#   sudo cp deploy/sparrowmap-watch.{service,timer} /etc/systemd/system/
+#   sudo chmod +x /opt/sparrowmap/deploy/sparrowmap-watch.sh
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now sparrowmap-watch.timer
+
+[Unit]
+Description=Run the SparrowMap health watch every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+# Without this a reboot silently skips the run that was due, and the watch is
+# most needed exactly when the machine has just come back.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
