@@ -48,7 +48,27 @@ from http.server import ThreadingHTTPServer
 # Refusing quickly is the kind thing to do. A 503 in 5ms lets the proxy retry
 # something that will work; a 40-second wait behind 500 thrashing threads
 # helps nobody and costs everybody.
-MAX_INFLIGHT = 48
+#
+# 🚨 THIS COUNTS CONNECTIONS, NOT REQUESTS, AND 48 WAS WRONG BECAUSE OF IT.
+#
+# The permit is held for the whole life of the connection, because that is the
+# unit socketserver hands to a thread. With HTTP/1.1 keep-alive a connection
+# outlives its request by design - Caddy keeps a pool of them open and idle -
+# so 48 permits does NOT mean "48 requests at once", it means "48 open sockets,
+# busy or not". Measured steady state here is 32-64 open connections doing
+# essentially nothing, which means the cap sat BELOW normal traffic and started
+# refusing real visitors while the box was idle. deploy.py caught it: / and
+# /api/stats both 503 while the server was at 34 threads and load 5.
+#
+# 📌 A limiter tuned to the wrong unit does not fail loudly, it fails
+# intermittently - which is worse, because it looks like flakiness.
+#
+# So the number is chosen against what this actually bounds: THREADS. Normal is
+# 32-64, the congestion collapse reached 1098, and 2 vCPUs cannot usefully
+# thrash 250 Python threads either. 250 sits far above real traffic and far
+# below the runaway, and IDLE_TIMEOUT_S is what keeps the steady state near the
+# bottom of that range rather than drifting up to the ceiling.
+MAX_INFLIGHT = 250
 
 # How long a connection may sit idle before the server hangs up. Keep-alive is
 # worth having - it is why the per-thread database connection is cached - but an

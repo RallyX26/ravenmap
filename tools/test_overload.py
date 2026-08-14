@@ -33,7 +33,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-FLOOD = 300          # simultaneous connections, well past MAX_INFLIGHT
+# Sized off the cap at runtime rather than hardcoded, so raising MAX_INFLIGHT
+# cannot quietly turn this into a test that never reaches the limit it exists to
+# exercise. That is precisely how the first version of the cap shipped wrong.
+def _flood_size(cap):
+    return max(300, int(cap * 1.6))
 
 
 def main() -> int:
@@ -59,6 +63,9 @@ def main() -> int:
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+    cap = dualstack.MAX_INFLIGHT
+    FLOOD = _flood_size(cap)
 
     srv = serve(H, 0, "127.0.0.1")
     port = srv.server_address[1]
@@ -118,7 +125,6 @@ def main() -> int:
         recovered = False
     srv.shutdown()
 
-    cap = dualstack.MAX_INFLIGHT
     avg = lambda xs: (sum(xs) / len(xs)) if xs else 0.0
     print(f"flood of {FLOOD} simultaneous connections against a cap of {cap}, "
           f"{flood_s:.1f}s")
