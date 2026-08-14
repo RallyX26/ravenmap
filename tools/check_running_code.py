@@ -37,6 +37,21 @@ WATCH = {
                     "detect/vehicle_id.py", "detect/head.py", "detect/bank.py",
                     "classify.py", "core.py"],
     "camctl.py":   ["camctl/camctl.py", "labelbank.py", "core.py"],
+    # 🚨 ADDED WHEN THE PULLER BECAME A LOOP, BECAUSE THAT IS WHAT MADE IT
+    # ABLE TO GO STALE. As a `--once` task it re-imported everything on every
+    # run and was fresh by construction, so it did not belong here. A process
+    # that now stays up for days holds whatever vehicle_id.py said when it
+    # started - and it is the only thing standing between a contributor's crop
+    # and a human, so a silently stale copy is expensive.
+    #
+    # ⚠️ THE KEY IS ALSO THE PROCESS MATCH, so it is "box_puller" and NOT
+    # "box_puller.py". This is launched as `-m detect.box_puller`, whose command
+    # line never contains ".py" - the first version of this entry reported
+    # "NOT RUNNING" while the loop was running fine, and the summary line still
+    # said everything was up to date. A false all-clear from the tool whose
+    # entire job is not giving false all-clears.
+    "box_puller":  ["detect/box_puller.py", "detect/vehicle_id.py",
+                    "detect/head.py", "detect/bank.py", "core.py"],
 }
 
 

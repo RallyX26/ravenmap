@@ -108,6 +108,17 @@ LOCAL = {
     # how a deploy came to report success over a dead :8150.
     "hub.py":      {"match": "*hub.py*", "args": "hub.py", "camera": False,
                     "port": 8150},
+    # 🚨 THE PULLER CAN GO STALE NOW THAT IT IS A LOOP. As a `--once` task it
+    # re-imported everything every five minutes and was fresh by construction;
+    # a process that stays up for days holds whatever vehicle_id.py said when
+    # it started, and it is the only route a contributor's crop has to a human.
+    #
+    # `bat` rather than `args`: its launcher lives OUTSIDE the repo because it
+    # carries the box address and the ssh key path, so this must not try to
+    # reconstruct the command line - it would have to hardcode exactly what
+    # that file exists to keep out of here.
+    "box_puller":  {"match": "*box_puller*", "bat": r"D:\LLM\run_box_puller.bat",
+                    "args": None, "camera": False},
     "run_live.py": {"match": r"*detect\run_live.py*", "args": None, "camera": True},
     "camctl.py":   {"match": r"*camctl\camctl.py*", "args": r"camctl\camctl.py",
                     "camera": True},
@@ -183,6 +194,22 @@ def sync_local(a) -> None:
                         f"--restart-camera (do it when you can reach the camera)")
             continue
         args = spec["args"]
+        if spec.get("bat"):
+            # Stop it, then let its own launcher start it again. The launcher
+            # holds the credentials and the flags; this only decides WHEN.
+            _ps(f"Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+                f"Where-Object {{ $_.CommandLine -like '{spec['match']}' -and "
+                f"$_.CommandLine -notlike '*Get-CimInstance*' }} | "
+                f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}")
+            _ps(f"Start-Sleep -Seconds 2; Start-Process -FilePath 'cmd.exe' "
+                f"-ArgumentList '/c','{spec['bat']}' -WindowStyle Minimized")
+            if not _came_up(name, spec):
+                say("fail", f"{name} was stopped and did NOT come back - "
+                            f"the 5-minute watchdog will retry, or run "
+                            f"{spec['bat']} yourself")
+            else:
+                say(" ok ", f"restarted {name} (verified running)")
+            continue
         if args is None:      # the detector carries its node token in argv
             cmd = _ps(f"(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
                       f"Where-Object {{ $_.CommandLine -like '{spec['match']}' -and "
