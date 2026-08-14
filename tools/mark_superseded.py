@@ -21,9 +21,15 @@ registered. Only `nodes_online` and the map's camera list change, and both
 become more accurate.
 
 ⚠️ MATCHED ON NAME + PROXIMITY + HANDOVER, which is evidence and not proof.
-`nodes.pubkey` is declared and never populated, so there is no device identity
-to match on - see the note in the memory file. The rules below are deliberately
-narrow, and anything they are not sure about is left alone and printed.
+Cameras now register an ed25519 key at detector startup (node_key.py), so
+`nodes.pubkey` finally identifies a device - but only for nodes that have
+STARTED since that shipped. Every row enrolled before it still has no key, and
+those are exactly the rows this tool exists to sort out, so the matching stays
+circumstantial. The rules below are deliberately narrow, and anything they are
+not sure about is left alone and printed.
+
+📌 When enough nodes carry keys, a pubkey match becomes the right test and
+should REPLACE these heuristics rather than be added alongside them.
 """
 
 from __future__ import annotations
