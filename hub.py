@@ -325,6 +325,11 @@ class Handler(BaseHTTPRequestHandler):
     _SLOW_S = 2.0
 
     def handle_one_request(self):
+        # One handler instance serves every request on a keep-alive connection,
+        # so per-REQUEST state must be reset per request. Clearing the cache key
+        # here means no path - including ones that bypass _send entirely - can
+        # carry a key from one request into the next.
+        self.__dict__.pop("_micro_key", None)
         # The read that BLOCKS on an idle keep-alive connection happens inside
         # the parent, before any handler runs. Wrapping the whole call would put
         # us straight back to holding a permit for an idle socket, so the gate
@@ -426,7 +431,16 @@ class Handler(BaseHTTPRequestHandler):
         # a single nonce across viewers. Neither matters for the JSON API paths
         # this is limited to (they carry no nonce), and the ordering is written
         # down so it stays true if that ever changes.
-        key = getattr(self, "_micro_key", None)
+        # 🚨 TAKEN AND CLEARED IN ONE STEP, BEFORE ANY EARLY RETURN.
+        # This used to clear the key only inside the success branch, so a
+        # non-200 left it set on a handler instance that lives for the WHOLE
+        # keep-alive connection - and the next 200 on that connection was then
+        # stored under the previous request's public key. _too_busy() made it
+        # reachable: it writes its 503 straight to wfile and never enters
+        # _send, so it could not clear anything, and it fires exactly during
+        # overload. Worst case the body cached under a public key came from
+        # /api/node/me, the one endpoint that returns a camera's TRUE position.
+        key = self.__dict__.pop("_micro_key", None)
         if key and code == 200:
             with Handler._MICRO_LOCK:
                 Handler._MICRO[key] = (time.time(), body)
@@ -436,7 +450,6 @@ class Handler(BaseHTTPRequestHandler):
                     for k in sorted(Handler._MICRO,
                                     key=lambda k: Handler._MICRO[k][0])[:80]:
                         Handler._MICRO.pop(k, None)
-            self._micro_key = None
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
