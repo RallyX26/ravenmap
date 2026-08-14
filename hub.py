@@ -1854,6 +1854,15 @@ class Handler(BaseHTTPRequestHandler):
                 r = db.sighting(int(p.rsplit("/", 1)[1]))
                 if not r:
                     return self._err(404, "no such sighting")
+                # 🚨 NO PICTURE, NO PUBLICATION - HERE TOO.
+                # recent_sightings withholds a public row with no photograph
+                # from the feed, and a rule applied to one representation is
+                # bypassed by the other: ids are sequential and printed beside
+                # every sighting, so without this the withheld claim is still
+                # one URL away. Same lesson as the span consent gate and the
+                # /snap file that outlived its row.
+                if r.get("tier") == "public" and not r.get("snap"):
+                    return self._err(404, "no such sighting")
                 # 🚨 READING IS NOT AUDITED, DELIBERATELY.
                 # This used to write a row saying that somebody looked at this
                 # sighting. The whole project refuses to keep a record of which

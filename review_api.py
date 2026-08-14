@@ -735,6 +735,18 @@ def _publish(sid: int, reviewer: dict, force_vclass: Optional[str] = None,
         conn.commit()
         if old and Path(str(old)).name != snap:
             _drop_file(SNAPS, old, sid)
+        # 🚨 TWO PATHS CAN PUBLISH A PHOTO AND ONLY ONE KNEW ABOUT THE HOLD.
+        # A reported sighting is BOTH held and parked in the pen, so confirming
+        # it here republished the picture while `snap_held` still pointed at the
+        # held original. db.set_snap_held's own docstring says a row carrying
+        # both is claiming the same picture is in two places - and it was: the
+        # map served the new crop, the fix queue went on listing the item as
+        # waiting, and the held file was orphaned in core.HELD with nothing left
+        # to clean it up. Observed live on 45852.
+        held = (row or {}).get("snap_held")
+        if held:
+            db.set_snap_held(sid, None, snap)
+            _drop_file(HELD, held, sid)
     _delete_pen(sid)
 
 

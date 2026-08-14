@@ -486,6 +486,26 @@ def search_plate(text: str, limit: int = 200) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+#: A public sighting with no photograph is withheld from the public feed.
+#:
+#: 🚨 NO PICTURE, NO PUBLICATION. A public row is an ASSERTION that a specific
+#: government vehicle passed a specific place, and the photograph is the whole
+#: of the evidence for it. Without one there is nothing a reader can check and
+#: nothing a reporter can dispute - it is the project asking to be believed,
+#: which is the opposite of the argument it makes for existing.
+#:
+#: It withholds rather than deletes. The vehicle really did pass, so erasing
+#: the row would replace an unevidenced claim with a false absence, and the
+#: rule reverses itself the moment a photo is attached: crop a held photo back
+#: on and the sighting returns by itself, with no state to unwind. Same reason
+#: the span consent check lives at the point of publication.
+_HAS_PHOTO = "snap IS NOT NULL AND snap <> ''"
+#: A public row must carry a photo; a private one is live traffic, not a claim,
+#: and never had one to show. So the rule binds the public rows inside a mixed
+#: feed rather than the whole query.
+_PUBLISHABLE = f"(tier <> 'public' OR ({_HAS_PHOTO}))"
+
+
 def recent_sightings(since: float = 0, limit: int = 500,
                      vclass: Optional[str] = None,
                      bbox: Optional[tuple] = None) -> list[dict]:
@@ -493,10 +513,12 @@ def recent_sightings(since: float = 0, limit: int = 500,
     args: list[Any] = [since]
     if vclass and vclass != "all":
         if vclass == "public":
-            sql += " AND tier = 'public'"
+            sql += f" AND tier = 'public' AND {_HAS_PHOTO}"
         else:
-            sql += " AND vclass = ?"
+            sql += " AND vclass = ? AND " + _PUBLISHABLE
             args.append(vclass)
+    else:
+        sql += " AND " + _PUBLISHABLE
     if bbox:
         sql += " AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?"
         args += [bbox[0], bbox[2], bbox[1], bbox[3]]
