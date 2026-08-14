@@ -25,6 +25,33 @@
     overscroll-behavior:none}
   #map{position:absolute;inset:0;background:#0b0e13}
   .leaflet-container{background:#0b0e13}
+  /* --- "was that a cop?" prompt ---------------------------------------
+     Sized and placed for a phone in a windscreen mount: the buttons are the
+     full width of a thumb and far apart, because the wrong one here publishes
+     a stranger's car to a public map. */
+  #copask{position:absolute;inset:0;z-index:1400;display:none;
+    align-items:center;justify-content:center;background:rgba(4,7,12,.72);
+    backdrop-filter:blur(3px);padding:16px}
+  #copask.show{display:flex;animation:pop .2s ease}
+  #copask .card{width:100%;max-width:420px;background:#0f151f;
+    border:1px solid #27354a;border-radius:16px;padding:16px;
+    box-shadow:0 24px 70px rgba(0,0,0,.7)}
+  #copask .hdr{display:flex;align-items:center;gap:9px;font-size:1.05rem;
+    color:#e8eef6;margin-bottom:10px}
+  #copask .hdr .em{font-size:1.5rem}
+  #copask img{display:block;width:100%;border-radius:10px;background:#080c12;
+    /* The crop is small and a driver is glancing. Scale it up and keep the
+       edges hard rather than letting the browser smooth it into mush. */
+    image-rendering:pixelated;max-height:38vh;object-fit:contain}
+  #copask .sub{font-size:.82rem;color:#8a97a8;margin:9px 2px 13px;line-height:1.4}
+  #copask .btns{display:flex;gap:10px}
+  #copask .btns button{flex:1;padding:16px 10px;border-radius:12px;border:0;
+    font:600 1rem system-ui,sans-serif;cursor:pointer}
+  #copask .yes{background:#ef4444;color:#fff}
+  #copask .no{background:#1b2432;color:#c7d2dc;border:1px solid #2b3a4f !important}
+  #copask .skip{display:block;width:100%;margin-top:10px;padding:10px;
+    background:none;border:0;color:#6b7a8d;font-size:.8rem;cursor:pointer}
+
   /* --- top banner (alert) --- */
   #alert{position:absolute;top:0;left:0;right:0;z-index:1200;
     padding:calc(env(safe-area-inset-top) + 14px) 18px 14px;
@@ -151,6 +178,30 @@
 <div id="map"></div>
 
 <div id="alert"><span class="em">🚨</span><span id="alertTxt">Patrol ahead</span></div>
+
+<!-- 🚨 ASK THE DRIVER WHILE THE CAR IS STILL IN THE MIRROR.
+     The hub has always answered a drive-mode post with `parked: true` when the
+     classifier called the vehicle government and put the crop in front of a
+     human - and this page threw that field away and incremented a counter. So
+     the one person who actually saw the vehicle drove on knowing nothing, and
+     found a still photo of a car they no longer remember waiting at /rv hours
+     later. That is the same silent loss /api/node/confirm was built to end,
+     one client further out.
+     Deliberately a MODAL, not the banner above: the banner is ambient
+     information about the road ahead, this is a question, and a question that
+     can be mistaken for a notification does not get answered. -->
+<div id="copask">
+  <div class="card">
+    <div class="hdr"><span class="em">🚓</span><b>Was that a police vehicle?</b></div>
+    <img id="copimg" alt="the vehicle your camera just caught">
+    <div class="sub" id="copsub">Your camera flagged it. Nobody has looked yet.</div>
+    <div class="btns">
+      <button id="copyes" class="yes">Yes, police</button>
+      <button id="copno"  class="no">No</button>
+    </div>
+    <button id="copskip" class="skip">not sure — decide later</button>
+  </div>
+</div>
 
 <div id="calbar"><span id="calTxt">Calibrating…</span><button id="calReset">reset</button></div>
 
@@ -312,6 +363,66 @@
     g.gain.exponentialRampToValueAtTime(.4,audioCtx.currentTime+.02);
     g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+.5);
     o.start();o.stop(audioCtx.currentTime+.52);}catch(e){} }
+
+  /* A DIFFERENT sound from beep(), on purpose. beep() means "something is on
+     the road ahead" and needs no reply; this one means "answer me". Two rising
+     tones, because one tone at a different pitch is not distinguishable at
+     speed with the radio on - the pattern is what carries, not the frequency.
+     Ignores soundOn deliberately: that toggle silences ambient alerts, and a
+     driver who muted the road-ahead chirp has not asked to stop being asked
+     questions. The vibration is the fallback when the phone is silent anyway. */
+  function askTone(){ try{
+    audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
+    [0,0.17].forEach(function(off,i){
+      var o=audioCtx.createOscillator(),g=audioCtx.createGain();
+      o.type='triangle';o.frequency.value=i?1180:760;
+      o.connect(g);g.connect(audioCtx.destination);
+      var t=audioCtx.currentTime+off;
+      g.gain.setValueAtTime(.001,t);
+      g.gain.exponentialRampToValueAtTime(.5,t+.02);
+      g.gain.exponentialRampToValueAtTime(.001,t+.15);
+      o.start(t);o.stop(t+.17);
+    });}catch(e){} }
+
+  /* ---- "was that a cop?" ------------------------------------------------
+   * ONE AT A TIME, NEWEST WINS. A busy road can park several crops in a
+   * minute, and a queue of these on a windscreen is a wall to swipe through -
+   * which trains the driver to dismiss without looking, and the next one is
+   * the one that mattered. A newer vehicle is also the one still in sight,
+   * so it is the one a person can actually answer about.
+   * Unanswered is not lost: the crop stays in the review pen either way. This
+   * only ever ADDS the chance to answer now. */
+  var askSid=null;
+  function askCop(sid, imgDataUrl){
+    askSid=sid;
+    var el=$('#copask');
+    if(imgDataUrl) $('#copimg').src=imgDataUrl;
+    $('#copsub').textContent='Your camera flagged it. Nobody has looked yet '
+      +'— answering now publishes it straight away.';
+    el.className='show';
+    askTone();
+    if(navigator.vibrate) navigator.vibrate([90,60,90]);
+  }
+  function closeAsk(){ askSid=null; $('#copask').className=''; }
+  function sendLabel(label){
+    var sid=askSid; closeAsk();
+    if(!(sid&&driveNode&&driveNode.token)) return;
+    fetch('/api/node/label',{method:'POST',
+      headers:{'Content-Type':'application/json',
+               'Authorization':'Bearer '+driveNode.token},
+      body:JSON.stringify({node_id:driveNode.id,sighting_id:sid,label:label})})
+      .then(function(r){return r.json();})
+      .then(function(r){
+        // 🚨 SAY WHAT ACTUALLY HAPPENED, NOT WHAT WAS ASKED FOR. `public_tiers`
+        // still decides: answering "police" about a council truck records the
+        // label and publishes nothing, and a toast claiming otherwise would be
+        // this project telling its own volunteers something untrue.
+        if(r&&r.error){ toast(r.error); return; }
+        toast(label==='police'
+          ? (r&&r.did==='published' ? 'Published to the map' : 'Recorded, thank you')
+          : 'Marked as ordinary — thank you');
+      }).catch(function(){ toast('Could not send that — it stays in review'); });
+  }
 
   // ---- markers ----
   function meIcon(){ return L.divIcon({className:'',iconSize:[20,20],iconAnchor:[10,10],
@@ -484,6 +595,14 @@
   // ---- controls ----
   $('#recenter').onclick=function(){follow=true;this.style.display='none';if(me)map.setView(me,17);};
   $('#report').onclick=report;
+  $('#copyes').onclick=function(){sendLabel('police');};
+  $('#copno').onclick=function(){sendLabel('civilian');};
+  // "Not sure" is a real answer and must cost nothing. It sends NOTHING: the
+  // crop is already in the review pen, so silence leaves it exactly where it
+  // would have been. Guessing under time pressure is how a stranger's car
+  // reaches a public map.
+  $('#copskip').onclick=closeAsk;
+
   $('#soundBtn').onclick=function(){soundOn=!soundOn;this.textContent=soundOn?'🔊':'🔈';
     this.className='rbtn'+(soundOn?'':' warn'); if(soundOn)beep();};
   $('#trailBtn').onclick=function(){trailOn=!trailOn;this.className='rbtn'+(trailOn?' on':'');
@@ -697,7 +816,16 @@
         snap_b64:b.crop,lat:loc[0],lon:loc[1]})})
       .then(function(r){return r.json();}).then(function(r){
         if(r&&!r.error){ dsent++; $('#sent').textContent=dsent;
-          $('#sentStat').style.display='block'; flashTile(); }
+          $('#sentStat').style.display='block'; flashTile();
+          // 🚨 THE FIELD THIS PAGE WAS THROWING AWAY.
+          // `parked` is the hub saying "the classifier called this government
+          // and a human is being asked about it". The only human who saw the
+          // vehicle is the one holding this phone, and until now they were
+          // never told - they found it at /rv hours later, as a still of a car
+          // they no longer remembered. Ask now, while it is still in the
+          // mirror. b.crop is the exact image the hub is holding.
+          if(r.parked && r.id) askCop(r.id, b.crop);
+        }
       }).catch(function(){});
   }
   function dloop(){
