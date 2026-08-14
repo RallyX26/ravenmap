@@ -47,6 +47,13 @@ import sys                                        # noqa: E402
 sys.path.insert(0, str(HERE.parent))
 import db                                         # noqa: E402
 import labelbank                                  # noqa: E402
+import node_key                                   # noqa: E402
+# The key store lives in the PROJECT ROOT, not in camctl/. camctl enrols
+# the camera and run_live signs with the key it made - two processes in
+# different directories, and a store that moved with the caller would give
+# them one key store each. The detector would then find no key, post
+# unsigned, and be 401'd by the pubkey camctl had just registered.
+ROOT_DIR = HERE.parent
 from core import is_operator_addr, NODE_UA        # noqa: E402
 PRESETS = HERE / "presets.json"
 PORT = 8160
@@ -418,6 +425,16 @@ def enroll_with_hub(p: dict, hub: str = None) -> dict:
     """
     hub = (hub or PUBLIC_HUB)
     import urllib.request
+
+    def _post(b):
+        req = urllib.request.Request(
+            hub.rstrip("/") + "/api/enroll", method="POST",
+            data=json.dumps(b).encode(),
+            headers={"Content-Type": "application/json",
+                     "User-Agent": NODE_UA})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read())
+
     body = {
         "name": p.get("name") or "Camera node",
         "lat": p["lat"], "lon": p["lon"],
@@ -425,13 +442,40 @@ def enroll_with_hub(p: dict, hub: str = None) -> dict:
         "reach_m": p.get("reach_m", 40), "kind": "fixed",
         "node_id": p.get("node_id") or "",
     }
-    req = urllib.request.Request(
-        hub.rstrip("/") + "/api/enroll", method="POST",
-        data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json",
-                 "User-Agent": NODE_UA})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        return json.loads(r.read())
+    # An existing camera re-registers with the key it already has, so a nudge
+    # from /aim never looks like a key rotation.
+    known = p.get("node_id") or ""
+    if known:
+        pub = node_key.public_for(ROOT_DIR, known)
+        if pub:
+            body["pubkey"] = pub
+        if p.get("token"):
+            body["token"] = p["token"]
+    out = _post(body)
+
+    # 🚨 THE KEY IS NAMED AFTER THE NODE, AND THE NODE ID COMES FROM THE SERVER.
+    # A brand-new camera has no id to name a key file after until this call
+    # answers, and a camera that MOVED far enough comes back with a different id
+    # than it sent (nodes.enroll splits past 60 m). Both land here with a node
+    # that has no registered key, so the key is made now and registered by one
+    # more call - which is a no-op move of 0 m and cannot split again.
+    #
+    # It converges rather than assuming: if the node already has the right key,
+    # nothing else is sent.
+    nid, tok = out.get("id"), out.get("token") or p.get("token")
+    if nid and tok and not node_key.load(ROOT_DIR, nid):
+        try:
+            _priv, pub = node_key.create(ROOT_DIR, nid)
+            body.update({"node_id": nid, "token": tok, "pubkey": pub})
+            out2 = _post(body)
+            out.setdefault("token", tok)
+            out["pubkey_registered"] = bool(out2.get("id"))
+        except Exception as exc:
+            # An unsigned camera works. A camera that fails to start because it
+            # could not register a key does not, so this can never be fatal.
+            print(f"[camctl] could not register a signing key: {exc}")
+            out["pubkey_registered"] = False
+    return out
 
 
 def load_presets() -> dict:

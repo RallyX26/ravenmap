@@ -104,3 +104,8 @@ testvideo/
 # noticing. The live file is committed; the snapshot's content is in git
 # history if it is ever wanted.
 *.bak
+
+# 🔐 A camera's PRIVATE signing key. Never leaves the machine that owns the
+# camera, so it must never reach the repo either - and the public half is the
+# only part the hub is ever sent.
+keys/

@@ -411,7 +411,18 @@ def upsert_node(n: dict) -> None:
                 :span_lat1,:span_lon1,:span_lat2,:span_lon2,
                 :road_name,:span_source)
         ON CONFLICT(id) DO UPDATE SET
-            name=excluded.name, pubkey=excluded.pubkey, token=excluded.token,
+            name=excluded.name,
+            -- 🚨 A REGISTERED KEY IS NEVER CLEARED BY A RE-ENROL.
+            -- This was `pubkey=excluded.pubkey`, so any re-save that omitted
+            -- the key wiped it - and _ingest only demands a signature from a
+            -- node that HAS a pubkey. So the one call that is supposed to
+            -- strengthen a camera's identity could silently downgrade it to
+            -- unsigned, and nothing would look wrong: sightings keep arriving,
+            -- sig_ok just quietly goes back to 0. Nudging a heading from /aim
+            -- would have been enough.
+            -- A camera can still ROTATE its key by sending a new one.
+            pubkey=COALESCE(excluded.pubkey, nodes.pubkey),
+            token=excluded.token,
             lat=excluded.lat, lon=excluded.lon,
             pub_lat=excluded.pub_lat, pub_lon=excluded.pub_lon,
             heading=excluded.heading, fov=excluded.fov, reach_m=excluded.reach_m,

@@ -42,8 +42,9 @@ import cv2
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import classify              # noqa: E402
+import node_key              # noqa: E402
 import snapshot              # noqa: E402
-from core import DATA, NODE_UA        # noqa: E402
+from core import DATA, NODE_UA, ROOT  # noqa: E402
 from detect import bank, visual    # noqa: E402
 from detect.grabber import FrameGrabber   # noqa: E402
 from detect.pipeline import (MIN_TRACK_FRAMES, TRACK_TIMEOUT_FRAMES,  # noqa: E402
@@ -751,6 +752,22 @@ def post_one(vp, args, vid, ev=None, verdict=None, plate=None, agree=None,
     # detector is already running" because the exit code collided with the
     # single-instance guard. One pass is an acceptable loss; the camera is not.
     try:
+        # 🚨 SIGN THE CLAIM, NOT JUST THE CONNECTION.
+        # The bearer token proves a secret was replayed. A signature proves
+        # THIS claim came from the camera that owns the key, so altering a
+        # plate hash or a position in flight stops it verifying - which is the
+        # tamper the project has to be able to rule out when it says a
+        # government vehicle was somewhere.
+        #
+        # Only signs if this node has a key. A node with none is the normal
+        # supported case (browser and phone nodes cannot hold one), and
+        # _ingest demands a signature only from a node that has REGISTERED a
+        # public key, so an unsigned post from an unsigned node is accepted
+        # exactly as before. Never fatal: a signing failure loses a signature,
+        # never the sighting.
+        sig = node_key.sign(ROOT, body.get("node_id") or "", body)
+        if sig:
+            body["sig"] = sig
         req = urllib.request.Request(
             f"{args.hub}/api/sightings", method="POST",
             data=json.dumps(body).encode(),
