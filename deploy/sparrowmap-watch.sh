@@ -40,6 +40,115 @@ FAILS="$STATE/consecutive_fails"
 
 say() { echo "$(date -Is) $*" >> "$LOG"; }
 
+# --- reaching a human -------------------------------------------------------
+#
+# 🚨 THE LAYER THAT WAS MISSING. Restarting is not telling anyone. This watch
+# can restart the service three times and give up, and until now that produced
+# a line in a log file nobody was reading - the same failure, one level up, as
+# the outage that caused this script to exist.
+#
+# It opens a GitHub issue, which does two jobs at once: it notifies Matthew on
+# his phone, and it is an event a Claude routine can be triggered by, so the
+# give-up can wake something that reasons instead of something that restarts.
+#
+# ⚠️ THE BODY IS DELIBERATELY THIN, AND THE REPO IS A CHOICE.
+# ALERT_REPO defaults to the public code repo, so anything written here is
+# public and permanent. Counts and timestamps only - never an address, never a
+# coordinate, never a token. /api/health already publishes these same numbers,
+# so this leaks nothing new; a detailed post-mortem does not belong here.
+# 📌 If you would rather not announce outages in public at all, point
+# ALERT_REPO at a private repo - that is the only change needed.
+ALERT_REPO="${SPARROW_ALERT_REPO:-SparrowMap/sparrowmap}"
+TOKEN_FILE="${SPARROW_GH_TOKEN_FILE:-/etc/sparrowmap/github_token}"
+
+alert_human() {
+    local status="$1"
+    if [ ! -r "$TOKEN_FILE" ]; then
+        say "CANNOT ALERT: no token at $TOKEN_FILE, so nobody is being told. "\
+"Create a fine-grained PAT with Issues:write on $ALERT_REPO and put it there, chmod 600."
+        return 1
+    fi
+    # One issue per incident, not one per tick. A watch that files an issue
+    # every two minutes during an outage is a watch that gets muted, and a
+    # muted alarm is worse than none.
+    local stamp_file="$STATE/last_alert"
+    local now_s last_s
+    now_s=$(date +%s)
+    last_s=$(cat "$stamp_file" 2>/dev/null || echo 0)
+    if [ $(( now_s - last_s )) -lt 3600 ]; then
+        say "alert suppressed: one was already filed within the hour"
+        return 0
+    fi
+    echo "$now_s" > "$stamp_file"
+
+    local tail_lines body
+    tail_lines=$(tail -6 "$LOG" | sed 's/"/'"'"'/g')
+    body="The health watch restarted \`$SERVICE\` $MAX_RESTARTS times within an hour and it is still failing, so it has stopped restarting - continuing would only destroy the evidence.
+
+**Last poll:** \`$status\`
+
+**Recent watch log (counts only):**
+\`\`\`
+$tail_lines
+\`\`\`
+
+Live numbers: $URL
+
+Filed automatically by \`deploy/sparrowmap-watch.sh\`. See the memory note on descriptor exhaustion and congestion collapse before assuming the database is broken - that error usually means the process is out of file descriptors, not that the file is bad."
+
+    # ⚠️ THE BODY GOES THROUGH THE ENVIRONMENT, NOT INTO THE SOURCE.
+    # Interpolating it into the heredoc would splice log text into Python source,
+    # where one stray quote or backslash turns an outage alert into a
+    # SyntaxError - the alarm failing silently at exactly the moment it is
+    # needed. The token is read from a file rather than passed as an argument so
+    # it never appears in the process list.
+    if ALERT_BODY="$body" ALERT_REPO="$ALERT_REPO" TOKEN_FILE="$TOKEN_FILE" \
+       python3 - <<'PYEOF'
+import json, os, sys, urllib.request, urllib.error
+repo = os.environ["ALERT_REPO"]
+tok = open(os.environ["TOKEN_FILE"]).read().strip()
+payload = json.dumps({
+    "title": "SparrowMap: health watch gave up after repeated restarts",
+    "body": os.environ["ALERT_BODY"],
+    "labels": ["outage"],
+}).encode()
+req = urllib.request.Request(
+    f"https://api.github.com/repos/{repo}/issues", data=payload, method="POST",
+    headers={"Authorization": f"Bearer {tok}",
+             "Accept": "application/vnd.github+json",
+             "X-GitHub-Api-Version": "2022-11-28",
+             "User-Agent": "sparrowmap-watch"})
+try:
+    with urllib.request.urlopen(req, timeout=20) as r:
+        print(json.load(r).get("html_url", "filed"))
+except urllib.error.HTTPError as e:
+    print(f"HTTP {e.code}: {e.read().decode()[:200]}", file=sys.stderr)
+    sys.exit(1)
+PYEOF
+    then
+        say "ALERT FILED on $ALERT_REPO"
+    else
+        say "ALERT FAILED - could not file an issue on $ALERT_REPO"
+    fi
+}
+
+# 🚨 THE ALERT PATH HAS TO BE TESTABLE ON DEMAND.
+# It only ever runs when everything else has already failed, which is the worst
+# possible time to discover a typo in it. `--test-alert` exercises it for real
+# without pretending the site is down, and bypasses the once-an-hour dedupe so
+# a test is never silently swallowed.
+#
+#     sudo /opt/sparrowmap/deploy/sparrowmap-watch.sh --test-alert
+#
+if [ "${1:-}" = "--test-alert" ]; then
+    rm -f "$STATE/last_alert"
+    say "TEST: exercising the alert path deliberately (not a real outage)"
+    alert_human "TEST - this is a drill, the site is fine"
+    echo "--- last 3 log lines ---"
+    tail -3 "$LOG"
+    exit 0
+fi
+
 BODY=$(curl -fsS --max-time 10 "$URL" 2>/dev/null)
 CURL_RC=$?
 
@@ -82,6 +191,7 @@ RC=$(cat "$RC_FILE")
 if [ "$RC" -ge "$MAX_RESTARTS" ]; then
     say "GIVING UP restarting: $RC restarts this hour already and it is still "\
 "failing. This needs a human - restarting again only destroys the evidence."
+    alert_human "$STATUS"
     exit 1
 fi
 
