@@ -376,6 +376,7 @@ class Handler(BaseHTTPRequestHandler):
         # here means no path - including ones that bypass _send entirely - can
         # carry a key from one request into the next.
         self.__dict__.pop("_micro_key", None)
+        self.__dict__.pop("_body_done", None)
         # The read that BLOCKS on an idle keep-alive connection happens inside
         # the parent, before any handler runs. Wrapping the whole call would put
         # us straight back to holding a permit for an idle socket, so the gate
@@ -383,7 +384,50 @@ class Handler(BaseHTTPRequestHandler):
         # do_GET/do_POST route through.
         return super().handle_one_request()
 
+    def _drain_body(self) -> None:
+        """Read and discard a request body we are about to refuse.
+
+        🚨 REFUSING WITHOUT READING DESYNCS A POOLED CONNECTION.
+        Caddy keeps upstream connections alive and reuses them. If a 503 or 429
+        is written while the request body is still unread, those bytes stay in
+        the socket and are parsed as the START of the next request on that same
+        connection - so the resulting 400 lands on some unrelated visitor's
+        request, and log_message is suppressed here so nothing records it.
+
+        The 429 paths matter more than the 503 one: a global 600/hour bucket is
+        far easier to trip than 200 concurrent requests.
+        """
+        # ⚠️ IDEMPOTENT, OR IT HANGS THE REQUEST. Handlers that read the body
+        # and THEN refuse are common (unknown node, bad token, bad json). A
+        # second read of an exhausted stream blocks waiting for bytes that have
+        # already been consumed - turning a tidy-up into a stall on the very
+        # path that is shedding load.
+        if getattr(self, "_body_done", False):
+            return
+        self._body_done = True
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            n = 0
+        if n <= 0:
+            # Nothing to drain. A GET has no body, and closing the connection
+            # here would make every refusal on a GET kill keep-alive - turning
+            # a fix for a desync into a much larger performance bug. Caught by
+            # tools/test_cache_key_leak.py, which reuses a connection after a
+            # 503 and started aborting.
+            return
+        if n > self.MAX_BODY:
+            # More than we are willing to read just to be polite. The bytes
+            # cannot be left in the socket, so closing is the honest option.
+            self.close_connection = True
+            return
+        try:
+            self.rfile.read(n)
+        except Exception:
+            self.close_connection = True
+
     def _too_busy(self) -> None:
+        self._drain_body()
         body = b'{"error": "busy - too many requests in flight"}'
         try:
             self.send_response(503)
@@ -657,6 +701,15 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj, default=str).encode(), "application/json")
 
     def _err(self, code: int, msg: str) -> None:
+        # 🚨 DRAIN BEFORE REFUSING. Several refusals - every 429, the unknown
+        # node, the bad token - return BEFORE _body() has read the request, and
+        # Caddy reuses upstream connections. Unread bytes are then parsed as the
+        # start of the NEXT request on that connection, so the resulting 400
+        # lands on an unrelated visitor and log_message is suppressed here so
+        # nothing records it. Doing it in _err rather than at each call site
+        # means a refusal path added later cannot forget.
+        if code >= 400:
+            self._drain_body()
         self._json({"error": msg}, code)
 
     def _file(self, path: Path) -> None:
@@ -682,6 +735,9 @@ class Handler(BaseHTTPRequestHandler):
     MAX_BODY = 8 * 1024 * 1024
 
     def _body(self) -> dict:
+        # Marked before any read, so a refusal AFTER this point never tries to
+        # drain an already-consumed stream. See _drain_body.
+        self._body_done = True
         n = int(self.headers.get("Content-Length") or 0)
         if not n:
             return {}
@@ -785,8 +841,18 @@ class Handler(BaseHTTPRequestHandler):
                 if held > Handler._SLOW_S:
                     # A permit held this long is the shape of every outage so
                     # far: something waiting on a third party, not working.
+                    #
+                    # ⚠️ BOUNDED. The label is a route, but a route can be
+                    # unbounded - /api/tile/{z}/{x}/{y} alone is millions of
+                    # distinct strings - so an unbounded dict here is a slow
+                    # memory leak fed by exactly the traffic that causes an
+                    # outage. Keep the worst offenders; the tail is noise.
                     Handler._SLOW_HELD[label] = round(
                         max(held, Handler._SLOW_HELD.get(label, 0)), 1)
+                    if len(Handler._SLOW_HELD) > 40:
+                        for k, _ in sorted(Handler._SLOW_HELD.items(),
+                                           key=lambda kv: kv[1])[:20]:
+                            Handler._SLOW_HELD.pop(k, None)
 
     # 🚨 THE EDGE CACHE THIS SERVER WAS DESIGNED AROUND IS NOT SWITCHED ON.
     #
@@ -863,6 +929,23 @@ class Handler(BaseHTTPRequestHandler):
         m = re.search(r"max-age=(\d+)", cc)
         return float(m.group(1)) if m else 0.0
 
+    @staticmethod
+    def _route_label(path: str) -> str:
+        """A stable label for a path, so counters key on ROUTES not URLs.
+
+        /api/sighting/45746 and /api/tile/12/1096/1521.png are one route each,
+        not one label each. Keying on the raw path turns any per-id endpoint
+        into an unbounded set of dictionary keys.
+        """
+        parts = path.split("/")
+        out = []
+        for seg in parts:
+            if seg and (seg.isdigit() or seg.rstrip(".png").isdigit()):
+                out.append("{n}")
+            else:
+                out.append(seg)
+        return "/".join(out)[:48]
+
     def do_GET(self) -> None:
         if self.path.startswith(Handler._UNGATED):
             return self._do_GET_inner()
@@ -870,7 +953,7 @@ class Handler(BaseHTTPRequestHandler):
         p = urlparse(self.path).path
         ttl = self._micro_ttl() if p in self._CACHEABLE_API else 0.0
         if not ttl:
-            return self._gated(self._do_GET_inner, p[:48])
+            return self._gated(self._do_GET_inner, self._route_label(p))
 
         key = self._micro_key_for(p)
         hit = Handler._MICRO.get(key)
@@ -906,13 +989,13 @@ class Handler(BaseHTTPRequestHandler):
             hit = Handler._MICRO.get(key)
             if hit and time.time() - hit[0] < ttl + 5.0:
                 return self._send(200, hit[1], "application/json")
-            return self._gated(self._do_GET_inner, p[:48])
+            return self._gated(self._do_GET_inner, self._route_label(p))
 
         try:
             # Captured in _send rather than by threading a key through
             # _do_GET_inner, which is hundreds of lines with dozens of exits.
             self._micro_key = key
-            return self._gated(self._do_GET_inner, p[:48])
+            return self._gated(self._do_GET_inner, self._route_label(p))
         finally:
             with Handler._MICRO_LOCK:
                 Handler._MICRO_FLIGHT.pop(key, None)
@@ -920,7 +1003,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         return self._gated(self._do_POST_inner,
-                           "POST " + self.path.split("?")[0][:42])
+                           "POST " + self._route_label(self.path.split("?")[0]))
 
     def _do_GET_inner(self) -> None:
         try:
@@ -1348,11 +1431,19 @@ class Handler(BaseHTTPRequestHandler):
                 # Published because this limiter has now refused visitors on an
                 # idle box three times, and each diagnosis needed a live
                 # investigation that this one field would have answered.
+                # ⚠️ SNAPSHOT UNDER THE LOCK, SORT OUTSIDE IT.
+                # This sorted the whole dict INSIDE _INFLIGHT_LOCK - the lock
+                # every gated request takes twice - so an O(N log N) pass ran
+                # while holding the one thing serialising all traffic. It grew
+                # during overload and was read by the watchdog, which restarts
+                # the service from this very URL: the diagnostic stalled the
+                # server hardest exactly when it was being consulted about a
+                # stall.
                 with Handler._INFLIGHT_LOCK:
                     holding = list(Handler._INFLIGHT_PATHS.values())
-                    health["slowest_ever"] = dict(
-                        sorted(Handler._SLOW_HELD.items(),
-                               key=lambda kv: -kv[1])[:6])
+                    slow = list(Handler._SLOW_HELD.items())
+                health["slowest_ever"] = dict(
+                    sorted(slow, key=lambda kv: -kv[1])[:6])
                 nowt = time.time()
                 health["inflight"] = len(holding)
                 health["inflight_cap"] = MAX_REQUESTS
@@ -2469,9 +2560,33 @@ class Handler(BaseHTTPRequestHandler):
         # flags earlier would have made every candidate invisible instead of
         # merely unpublished - the difference between "waiting for review" and
         # "silently dropped".
-        if tier == "public":
+        # ⚠️ REMEMBER THAT THIS WAS A CANDIDATE. Downstream code needs to know
+        # "the classifier would have published this" AFTER the tier has been
+        # rewritten to private, and the tier can no longer answer that. Two
+        # separate behaviours were silently switched off by reading `tier`
+        # here: fragment merging, and the pen write itself.
+        candidate = (tier == "public")
+        # 🚨 AN OPERATOR CONFIRMATION IS THE HUMAN STEP. DO NOT HOLD IT FOR ONE.
+        #
+        # The hold above exists because nobody has looked yet. On this path
+        # somebody has: /api/node/confirm is only reached by the owner of the
+        # camera, authenticated with its token, answering the popup about a
+        # vehicle they just watched go past. Holding it for review asked the
+        # same person the same question twice.
+        #
+        # It also made the publish depend on a SECOND request succeeding
+        # (labelbank then calls /api/node/label to promote it). If that call
+        # failed the sighting sat private with no pen card - the confirmation
+        # reaching neither the map nor the queue, which is the exact silent loss
+        # /api/node/confirm was built to end.
+        #
+        # `public_tiers` still decides: a confirmed council truck is not public
+        # here either, because `tier` came from privacy.tier_for(vclass) above.
+        if candidate and not operator_confirmed:
             c["why"] = (c.get("why") or "") + " - held for human review"
             tier = "private"
+        elif candidate:
+            c["why"] = (c.get("why") or "") + " - confirmed by the camera operator"
 
         # A camera node scores its own crop, so its GOVERNMENT candidates go
         # straight to the review pen for a human to confirm - captured here as a
@@ -2652,8 +2767,14 @@ class Handler(BaseHTTPRequestHandler):
         # it produces several completed tracks for one pass, and each posted its
         # own sighting - three dots on the map for one patrol car. Fold them.
         # See db.merge_window_row for why the test is deliberately blunt.
+        # 🚨 `candidate`, NOT `tier`. This read tier == "public" a few lines
+        # after tier was forced to "private", so it was dead code and the
+        # occluded-pass bug came straight back - now as THREE review cards for
+        # one patrol car, which a human then confirms three times onto the map.
+        # Only government candidates are folded: merging ordinary traffic by
+        # class and time window would be far too blunt.
         prior = (db.merge_window_row(nid, c["vclass"], ts)
-                 if tier == "public" else None)
+                 if candidate else None)
         if prior:
             db.bump_detections(prior["id"], ts, c["conf"])
             # Liveness is a SERVER observation: "this node spoke to me just

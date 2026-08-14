@@ -144,12 +144,42 @@ def publish_one(item: dict) -> None:
         conn = db.connect()
         conn.execute("UPDATE sightings SET snap=? WHERE id=?", (snap, sid))
         conn.commit()
+    # Same reason as reject_one: sync_review_labels reads the AUDIT table, so a
+    # confirmation with no audit row never becomes a training label. The web
+    # path has always written one; this path did not, so every CLI verdict -
+    # both directions - was invisible to training.
+    db.audit("review:confirm", str(sid), actor="box_review", ip="")
     _delete(*_review_paths(sid), *_inbox_paths(sid))
 
 
 def reject_one(sid: int) -> None:
-    """A human said a reviewed crop is not a government vehicle: drop the crop,
-    leave the row private (it was never published)."""
+    """A human said a reviewed crop is not a government vehicle.
+
+    🚨 "LEAVE THE ROW PRIVATE" WAS NOT ENOUGH, AND THE WEB PATH ALREADY KNEW IT.
+    This only unlinked the files. review_api.verdict('not') does two more things
+    for exactly this case, and they are not decoration:
+
+      * db.review_sighting(sid, 'retracted') - without it the row keeps
+        `reviewed IS NULL` AND keeps `vclass='police'`, so a vehicle a human
+        has just rejected is still returned by /api/sightings?vclass=police
+        until retention deletes it, and backfill_pen re-queues it on the next
+        sweep so the reviewer is asked again about a car they already ruled on.
+      * db.audit(...) - tools/sync_review_labels.py harvests training labels
+        FROM THE AUDIT TABLE, so a verdict cast through the CLI never became a
+        training label at all. Every rejection made here was invisible to the
+        thing that learns from rejections.
+
+    Two reviewer paths that disagree about what a verdict means is worse than
+    one path with a bug, because the disagreement is invisible from either side.
+    """
+    try:
+        db.review_sighting(sid, "retracted")
+    except Exception as exc:                                  # noqa: BLE001
+        # Never let the bookkeeping stop the crop being removed - but say so,
+        # because a silent failure here is what put the row back in the queue.
+        print(f"warning: could not record the retraction for {sid}: {exc}",
+              file=sys.stderr)
+    db.audit("review:reject", str(sid), actor="box_review", ip="")
     _delete(*_review_paths(sid), *_inbox_paths(sid))
 
 

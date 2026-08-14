@@ -592,10 +592,25 @@ def merge_window_row(node_id: str, vclass: str, ts: float,
     wrong. Over-counting police presence on a map whose only asset is
     truthfulness is worse than under-counting it, and the merged row keeps a
     detection count so the evidence is not lost.
+
+    🚨 AND THEN THE FIX FOR IT WENT DEAD, SILENTLY.
+    This filtered `tier = 'public'`, which was true when a confident government
+    call published immediately. It stopped being true when candidates started
+    being held for review: ingest now computes the tier, then forces it to
+    'private' so a person decides. Every candidate therefore failed this
+    predicate, no fragment ever matched, and #26974/5/6 came back - except now
+    they arrive as three separate cards in the review pen, so a human confirms
+    the same car three times onto the map.
+
+    The caller decides WHEN to merge (only for government candidates, never for
+    ordinary traffic - folding civilian passes by class and time would be far
+    too blunt). This function's job is to find the fragment, so it no longer
+    second-guesses the tier.
+    
     """
     row = connect().execute(
         """SELECT * FROM sightings
-           WHERE node_id = ? AND vclass = ? AND tier = 'public'
+           WHERE node_id = ? AND vclass = ?
              AND ts > ? AND ts <= ?
            ORDER BY ts DESC LIMIT 1""",
         (node_id, vclass, ts - window, ts)).fetchone()

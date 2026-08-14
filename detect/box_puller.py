@@ -78,6 +78,16 @@ MIN_CONF, MIN_MARGIN = 0.96, 0.90
 # --------------------------------------------------------------------------
 # Pulling: either a local staging dir, or the live box over ssh.
 # --------------------------------------------------------------------------
+class BoxUnreachable(RuntimeError):
+    """The inbox could not be read at all.
+
+    Deliberately distinct from "the inbox was empty". Those two states produced
+    identical output and identical exit codes, so nothing automated could tell a
+    broken puller from a quiet network - and the puller is the ONLY route a
+    phone contributor's crop has to a human.
+    """
+
+
 def pull(args) -> tuple[Path, bool]:
     """Return (dir holding the crops, is_local).
 
@@ -89,17 +99,37 @@ def pull(args) -> tuple[Path, bool]:
     if args.inbox:
         return Path(args.inbox), True
     tmp = Path(tempfile.mkdtemp(prefix="box_inbox_"))
+    # 🚨 "COULD NOT REACH THE BOX" AND "THE BOX HAS NOTHING" LOOKED IDENTICAL.
+    #
+    # The exit code was never checked and the remote command ends `|| true`, so
+    # any ssh failure - host down, key rejected, network gone - returned an
+    # empty directory that reads exactly like a healthy empty inbox. The puller
+    # then reported success and exited 0. Meanwhile mirror._prune_inbox deletes
+    # every phone contributor's crop after 12 hours, so a quiet failure here
+    # destroys their contributions unread: the sighting rows still land, but the
+    # crop, its scoring and its only route to review go dark.
+    #
+    # `|| true` stays - it is what stops an EMPTY inbox looking like an error -
+    # so the ssh exit code alone cannot distinguish the two. What can: ssh
+    # returns 255 for its own failures, and a reachable host with an empty
+    # directory still produces a valid (tiny) tar on stdout.
     proc = subprocess.run(
         ["ssh", "-i", args.key, "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
          "-o", "StrictHostKeyChecking=accept-new", args.box,
          f"tar -C {args.remote} -cf - . 2>/dev/null || true"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
-    if proc.stdout:
-        try:
-            subprocess.run(["tar", "-C", str(tmp), "-xf", "-"],
-                           input=proc.stdout, capture_output=True, timeout=60)
-        except Exception as exc:                              # noqa: BLE001
-            print(f"tar extract failed: {exc}", file=sys.stderr)
+    if proc.returncode != 0 or not proc.stdout:
+        err = (proc.stderr or b"").decode("utf-8", "replace").strip()[:200]
+        raise BoxUnreachable(
+            f"could not read the inbox from {args.box} "
+            f"(ssh exit {proc.returncode}): {err or 'no output'}")
+    try:
+        subprocess.run(["tar", "-C", str(tmp), "-xf", "-"],
+                       input=proc.stdout, capture_output=True, timeout=60,
+                       check=True)
+    except Exception as exc:                                  # noqa: BLE001
+        # An unreadable archive is also not an empty inbox.
+        raise BoxUnreachable(f"inbox transferred but could not be extracted: {exc}")
     return tmp, False
 
 
@@ -147,6 +177,8 @@ def run_once(vid: VehicleIdentifier, args) -> dict:
         metas = metas[:args.limit]
 
     publish, review, discard = [], [], []
+    # Crops that arrived corrupt. Counted, never destroyed - see below.
+    undecodable = 0
     for jm in metas:
         stem = jm.stem
         jpg_path = jm.with_suffix(".jpg")
@@ -164,7 +196,13 @@ def run_once(vid: VehicleIdentifier, args) -> dict:
         img = cv2.imdecode(np.frombuffer(jpg_path.read_bytes(), np.uint8),
                            cv2.IMREAD_COLOR)
         if img is None:
-            discard.append(sid)            # unreadable: drop it from the box too
+            # ⚠️ DO NOT DISCARD. `discard` is permanent - box_publish.reject_one
+            # unlinks the crop on the box - so a truncated transfer would
+            # destroy a perfectly good contribution and report it as "the head
+            # said ordinary". Leaving it alone costs one re-pull next cycle;
+            # discarding costs the contribution and the evidence that anything
+            # went wrong.
+            undecodable += 1
             continue
 
         r = vid.classify(img)
@@ -277,11 +315,13 @@ def run_once(vid: VehicleIdentifier, args) -> dict:
 
     if args.dry_run:
         return {"pulled": len(metas), "marked": len(publish),
-                "review": len(review), "discarded": len(discard), "dry": True}
+                "review": len(review), "discarded": len(discard),
+                "undecodable": undecodable, "dry": True}
 
     res = apply_verdict(args, publish, review, discard, src, is_local)
     return {"pulled": len(metas), "marked": len(publish),
-            "review": len(review), "discarded": len(discard), "box": res}
+            "review": len(review), "discarded": len(discard),
+            "undecodable": undecodable, "box": res}
 
 
 def main() -> None:
@@ -336,18 +376,46 @@ def main() -> None:
                      f"queued {box.get('reviewed', '?')} for review, "
                      f"discarded {box.get('discarded', '?')}"
                      + (f", ERRORS {box['errors']}" if box.get("errors") else ""))
+        if s.get("undecodable"):
+            # Corrupt crops are left on the box to be re-pulled, so a number
+            # that keeps growing means the transfer is damaging them.
+            extra += f", {s['undecodable']} UNDECODABLE (left on the box)"
         print(f"pulled {s['pulled']}, {s['marked']} publish, "
               f"{s.get('review', 0)} review, "
               f"{s['discarded']} discarded{' (dry run)' if s.get('dry') else ''}"
               f"{extra} at {time.strftime('%H:%M:%S')}")
 
+    # 🚨 AN UNREACHABLE BOX MUST BE LOUD AND MUST NOT EXIT 0.
+    # Both modes used to swallow it: a failed pull returned an empty directory,
+    # got reported as "pulled 0", and exited 0. Nothing supervising this - cron,
+    # a task scheduler, a human reading a log - could tell a dead puller from a
+    # quiet night, while the box's 12h inbox TTL quietly deleted the crops it
+    # was failing to collect.
     if args.interval and not args.once:
         print(f"polling the box every {args.interval:.0f}s; Ctrl-C to stop")
+        fails = 0
         while True:
-            report(run_once(vid, args))
+            try:
+                report(run_once(vid, args))
+                fails = 0
+            except BoxUnreachable as exc:
+                fails += 1
+                print(f"BOX UNREACHABLE ({fails} in a row): {exc}",
+                      file=sys.stderr)
+                # A blip is not an outage; a run of them is. Keep polling either
+                # way - stopping would guarantee the backlog is never collected.
+                if fails == 3:
+                    print("  the inbox has now been unreadable three times "
+                          "running. Crops on the box expire after 12 hours, so "
+                          "contributions are being lost while this persists.",
+                          file=sys.stderr)
             time.sleep(args.interval)
     else:
-        report(run_once(vid, args))
+        try:
+            report(run_once(vid, args))
+        except BoxUnreachable as exc:
+            print(f"BOX UNREACHABLE: {exc}", file=sys.stderr)
+            raise SystemExit(4)
 
 
 if __name__ == "__main__":
