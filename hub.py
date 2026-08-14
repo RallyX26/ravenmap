@@ -831,7 +831,55 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(review_api.list_tokens())
 
             if p == "/api/health":
-                return self._json({"ok": True, "version": VERSION, "ts": now()})
+                # 🚨 THIS ROUTE SAID "ok": true THROUGH A TWO-HOUR OUTAGE.
+                #
+                # It reported that the HTTP server was answering, which was
+                # true and useless: the process had exhausted its file
+                # descriptors, every other route was returning "unable to open
+                # database file", and the one endpoint a watchdog would poll
+                # was the one endpoint that touched nothing. A health check
+                # that cannot fail for the reason the service actually fails is
+                # worse than none, because it is believed.
+                #
+                # So it now does the two things it was missing:
+                #
+                #  1. TOUCHES THE DATABASE. `ok` means "this process can serve
+                #     a request", not "this process accepted a socket".
+                #  2. REPORTS HEADROOM, NOT JUST STATE. Descriptor exhaustion
+                #     is a RAMP - it climbed for roughly 45 minutes before the
+                #     cliff - so a watcher that only sees up/down learns about
+                #     it strictly too late. `fd_used_pct` is the leading
+                #     indicator; the crash is the lagging one.
+                #
+                # Counts of descriptors and threads say nothing about any
+                # vehicle or visitor, so this stays unauthenticated like the
+                # rest of the operational surface.
+                health = {"ok": True, "version": VERSION, "ts": now()}
+                try:
+                    db.connect().execute("SELECT 1").fetchone()
+                    health["db"] = "ok"
+                except Exception as exc:
+                    health["ok"] = False
+                    health["db"] = f"{type(exc).__name__}: {exc}"
+                try:
+                    import os as _os
+                    import resource
+                    soft, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+                    used = len(list(Path(f"/proc/{_os.getpid()}/fd").iterdir()))
+                    health["fd_used"] = used
+                    health["fd_limit"] = soft
+                    health["fd_used_pct"] = round(100.0 * used / soft, 1)
+                    health["threads"] = threading.active_count()
+                    # Degraded, not dead. Something is retaining descriptors
+                    # and there is still time to look at it.
+                    if used > soft * 0.8:
+                        health["ok"] = False
+                        health["warn"] = (f"{used}/{soft} file descriptors in "
+                                          f"use - approaching the limit, past "
+                                          f"which every route fails")
+                except Exception:
+                    pass          # not Linux, or no /proc: report what we have
+                return self._json(health, 200 if health["ok"] else 503)
 
             if p == "/api/policy":
                 # The privacy posture of this deployment, machine-readable.
