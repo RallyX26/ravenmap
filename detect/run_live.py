@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import socket
 import signal
 import sys
 import threading
@@ -42,7 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import classify              # noqa: E402
 import snapshot              # noqa: E402
-from core import DATA        # noqa: E402, NODE_UA
+from core import DATA, NODE_UA        # noqa: E402
 from detect import bank, visual    # noqa: E402
 from detect.grabber import FrameGrabber   # noqa: E402
 from detect.pipeline import (MIN_TRACK_FRAMES, TRACK_TIMEOUT_FRAMES,  # noqa: E402
@@ -461,7 +462,6 @@ def claim_single_instance(node_id: str, port_base: int = 47800) -> "socket.socke
     two cameras is still fine.
     """
     import hashlib
-    import socket
     # ⚠️ NOT builtin hash(). Python randomises string hashing per process
     # (PYTHONHASHSEED), so two processes asked for the same node id computed
     # two DIFFERENT ports, both bound happily, and the guard silently passed -
@@ -732,13 +732,22 @@ def post_one(vp, args, vid, ev=None, verdict=None, plate=None, agree=None,
         # two without searching the bank. See db.FIELDS.
         "bank_ref": stem,
     }
-    req = urllib.request.Request(
-        f"{args.hub}/api/sightings", method="POST",
-        data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json",
-                 "User-Agent": NODE_UA,
-                 "Authorization": f"Bearer {args.token}"})
+    # ⚠️ BUILDING THE REQUEST IS INSIDE THE try, AND THAT IS NOT PEDANTRY.
+    # It used to sit outside it, so anything that went wrong while ASSEMBLING
+    # the request - a bad header value, an un-encodable body, a missing name -
+    # escaped this function and killed the detector outright instead of costing
+    # one pass. That is exactly what happened when NODE_UA was added to a
+    # comment rather than the import list: a NameError on this line took the
+    # whole camera down, and the launcher then misreported it as "another
+    # detector is already running" because the exit code collided with the
+    # single-instance guard. One pass is an acceptable loss; the camera is not.
     try:
+        req = urllib.request.Request(
+            f"{args.hub}/api/sightings", method="POST",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json",
+                     "User-Agent": NODE_UA,
+                     "Authorization": f"Bearer {args.token}"})
         with urllib.request.urlopen(req, timeout=25) as r:
             out = json.loads(r.read())
             print("    posted:", out)

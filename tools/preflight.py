@@ -171,17 +171,52 @@ def check_syntax(changed: list[str]) -> None:
 
 
 def check_python(changed: list[str]) -> None:
+    """Compiles, AND every name it uses actually exists.
+
+    🚨 py_compile CANNOT CATCH A NameError, AND THAT GAP TOOK THE FLEET DOWN.
+    Adding a User-Agent to the node clients, a regex appended `, NODE_UA` after
+    an existing `# noqa: E402` comment - so the name landed INSIDE the comment
+    and was never imported. Every file compiled cleanly, preflight passed, it
+    deployed, and every fixed camera died with NameError on its first post. The
+    launcher then misreported it as "another detector is already running",
+    because the exit code collided with the single-instance guard.
+
+    Syntax was never the risk. An undefined name is, and it is exactly the class
+    a compile check is blind to. Only ERRORS fail the gate - unused imports and
+    unused locals are reported quietly, because a gate that cries wolf is a gate
+    people learn to skip.
+    """
     import py_compile
     any_py = False
-    for f in changed:
-        if not f.endswith(".py"):
-            continue
+    files = [f for f in changed if f.endswith(".py")]
+    for f in files:
         any_py = True
         try:
             py_compile.compile(str(ROOT / f), doraise=True)
             say("ok", f"{f} compiles")
         except Exception as exc:
             say("FAIL", f"{f}: {str(exc).splitlines()[0][:90]}")
+
+    if files:
+        try:
+            out = subprocess.run([sys.executable, "-m", "pyflakes", *files],
+                                 cwd=ROOT, capture_output=True, text=True,
+                                 encoding="utf-8", errors="replace")
+        except Exception as exc:
+            say("info", f"name check unavailable ({exc.__class__.__name__})")
+        else:
+            hard, soft = [], 0
+            for line in (out.stdout or "").splitlines():
+                if "undefined name" in line or "syntax" in line.lower():
+                    hard.append(line.strip())
+                elif line.strip():
+                    soft += 1
+            for h in hard:
+                say("FAIL", h[:110])
+            if not hard:
+                say("ok", f"no undefined names"
+                          + (f" ({soft} style note(s) ignored)" if soft else ""))
+
     if not any_py:
         say("skip", "no python changed")
 

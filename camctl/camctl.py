@@ -47,7 +47,7 @@ import sys                                        # noqa: E402
 sys.path.insert(0, str(HERE.parent))
 import db                                         # noqa: E402
 import labelbank                                  # noqa: E402
-from core import is_operator_addr                 # noqa: E402, NODE_UA
+from core import is_operator_addr, NODE_UA        # noqa: E402
 PRESETS = HERE / "presets.json"
 PORT = 8160
 
