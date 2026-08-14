@@ -1528,6 +1528,35 @@ class Handler(BaseHTTPRequestHandler):
                 # source is fixed here rather than taken from the body.
                 b["node_id"] = nd["id"]
                 b["source"] = "camera"
+
+                # 🚨 A BANKED CROP IS ALREADY THE VEHICLE, SO THERE IS NOTHING
+                # TO CROP TO - AND _ingest CORRECTLY REFUSES TO GUESS.
+                # It requires a `vehicle_box` because a camera normally posts a
+                # whole FRAME, and storing that uncropped would publish the
+                # street and the neighbours' houses. Right rule, wrong shape of
+                # input: what arrives here is the already-tight crop the
+                # labeller looked at. Without this the row is created with
+                # `snap: None` - a public claim with no photograph behind it,
+                # which is both less useful and less checkable.
+                #
+                # store_subresolution is the same call review_api._publish uses
+                # to attach a pen crop, for the same reason: the image is
+                # already small and already cropped, so it needs storing, not
+                # cropping. Sub-resolution is enforced inside it, so an
+                # oversized image is refused rather than quietly published.
+                if b.get("snap_b64"):
+                    try:
+                        b["snap"] = snapshot.store_subresolution(
+                            b["snap_b64"],
+                            {"ts": b.get("ts") or now(), "node_id": nd["id"],
+                             "node_name": nd.get("name") or "a camera",
+                             "tier": "public", "vclass": "police",
+                             "watermark": "CONFIRMED"})
+                    except Exception as exc:
+                        # The sighting is worth more than the picture. Losing
+                        # the image must not lose the report.
+                        print(f"[confirm] could not store crop: {exc}")
+                    b.pop("snap_b64", None)
                 db.audit("node_confirm", str(b.get("bank_ref") or "?"),
                          actor=f"camera {nd['id']}",
                          ip=privacy.audit_ip(self.client_ip))
