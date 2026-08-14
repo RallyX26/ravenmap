@@ -281,6 +281,34 @@ def redact(row: dict, viewer: str = "anon") -> dict:
 # Retention
 # --------------------------------------------------------------------------
 
+def _pen_ids() -> list:
+    """Sighting ids currently sitting in the review pen, awaiting a human.
+
+    Read from the pen directory rather than inferred from the row, because the
+    pen is the actual record of "somebody has been asked about this" - a row's
+    own columns cannot distinguish a candidate nobody queued from one a
+    reviewer is looking at right now.
+
+    Failing OPEN (empty list) on any error is deliberate: this guards a DELETE,
+    and the safe direction for an unreadable pen is to delete nothing extra,
+    not to delete everything. An empty list means the sweep behaves exactly as
+    it did before this existed.
+    """
+    try:
+        import mirror
+        if not mirror.REVIEW.exists():
+            return []
+        out = []
+        for j in mirror.REVIEW.glob("*.json"):
+            try:
+                out.append(int(j.stem))
+            except ValueError:
+                continue
+        return out
+    except Exception:
+        return []
+
+
 def purge_expired(conn) -> dict:
     """Delete sightings past their retention window. Safe to run often.
 
@@ -296,15 +324,39 @@ def purge_expired(conn) -> dict:
     priv_days = float(CONFIG.get("civilian_retention_days", 14) or 0)
     pub_days = float(CONFIG.get("public_retention_days", 0) or 0)
 
+    # 🚨 NEVER DELETE A ROW A HUMAN HAS BEEN ASKED ABOUT.
+    #
+    # Everything in the review pen is tier != 'public' by definition - that is
+    # what "awaiting a decision" means - so the private retention sweep was on
+    # a collision course with it. Nothing prunes the pen, so a card sits there
+    # indefinitely while its row is 14 days old and gets deleted underneath it.
+    #
+    # What the reviewer would then see is the worst part: a real crop, a
+    # confirm button, promote_sighting updating ZERO rows, the crop deleted, an
+    # audit entry written under their name, and {"ok": true} returned. Their
+    # judgement is destroyed and they are told it landed. That is a far worse
+    # outcome than keeping a row a few days past its window.
+    #
+    # Retention is a promise about vehicles nobody is looking at. A sighting a
+    # person has been asked to rule on is not that, and the pen is the record
+    # of having asked.
+    pending = _pen_ids()
+    keep_sql = ""
+    if pending:
+        keep_sql = " AND id NOT IN (%s)" % ",".join("?" * len(pending))
+
     doomed: list[str] = []
     if priv_days > 0:
         cutoff = now() - priv_days * 86400
+        args = (cutoff, *pending)
         rows = cur.execute(
-            "SELECT id, snap FROM sightings WHERE tier != 'public' AND ts < ?",
-            (cutoff,)).fetchall()
+            "SELECT id, snap FROM sightings WHERE tier != 'public' AND ts < ?"
+            + keep_sql, args).fetchall()
         doomed += [r["snap"] for r in rows if r["snap"]]
-        cur.execute("DELETE FROM sightings WHERE tier != 'public' AND ts < ?", (cutoff,))
+        cur.execute("DELETE FROM sightings WHERE tier != 'public' AND ts < ?"
+                    + keep_sql, args)
         report["private_deleted"] = cur.rowcount
+        report["held_for_review"] = len(pending)
 
     if pub_days > 0:
         cutoff = now() - pub_days * 86400

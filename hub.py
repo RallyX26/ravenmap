@@ -156,6 +156,13 @@ _PEAK = {"fd_pct": 0.0, "threads": 0}
 # So this is deliberately loose enough that it cannot be the thing that breaks
 # the site, and /api/health now PUBLISHES how many permits are in use and which
 # paths hold them (see _INFLIGHT_PATHS). Tune it from that, never from argument.
+# The window `since` timestamps are rounded to for caching. Must match
+# CACHE_BUCKET_S in public/app.js: the frontend rounds so its polls share a URL,
+# and the server rounds so a client that DOESN'T round cannot mint a new cache
+# key per request. Protection that depends on the client cooperating is not
+# protection.
+CACHE_BUCKET_S = 4
+
 MAX_REQUESTS = 200
 
 
@@ -414,6 +421,15 @@ class Handler(BaseHTTPRequestHandler):
         OPERATOR and per-user paths, which stay no-store below.
         """
         p = urlparse(self.path).path
+        # 🚨 NEVER PUT A LONG TTL ON A FAILURE.
+        # This decided purely from the PATH, so a tile that 404d - an upstream
+        # blip, or the tile-fetch bound shedding under load - was stamped
+        # "public, max-age=604800" exactly like a real tile. That burns a blank
+        # square into that visitor's browser for a WEEK, for a transient error
+        # that would have resolved on the next request. The status is part of
+        # what is cacheable, not just the path.
+        if getattr(self, "_status", 200) >= 400:
+            return "no-store"
         if p.startswith(("/vendor/", "/api/tile/")):
             # PINNED content only: the vendored detector runtime (a 10 MB model
             # + wasm + Leaflet) and basemap tiles. These do not change without a
@@ -456,6 +472,9 @@ class Handler(BaseHTTPRequestHandler):
         # the alternatives were both worse: allowing 'unsafe-inline' would make
         # the policy decorative, and moving the code out to four new files
         # would scatter page logic away from the page for a deployment detail.
+        # Recorded before headers are built so _cache_control can see it - a
+        # failure and a success must not get the same caching policy.
+        self._status = code
         self._nonce = secrets.token_urlsafe(12)
         # ⚠️ SUBSTITUTE BEFORE Content-Length IS COMPUTED.
         # The placeholder and the nonce are different lengths, so filling it in
@@ -794,6 +813,49 @@ class Handler(BaseHTTPRequestHandler):
     # key -> Event, held by whichever thread is currently computing it.
     _MICRO_FLIGHT: dict = {}
 
+    # What each cacheable route ACTUALLY reads. Anything else is noise and must
+    # not reach the cache key.
+    _MICRO_PARAMS = {
+        "/api/sightings":   ("since", "limit", "vclass", "bbox"),
+        "/api/leaderboard": ("hours",),
+    }
+
+    def _micro_key_for(self, path: str) -> str:
+        """Cache key from the path plus ONLY the parameters that change the answer.
+
+        🚨 THE KEY WAS THE WHOLE QUERY STRING, WHICH HANDS ANYONE A CACHE-BUSTER.
+        `?x=1`, `?x=2`, `?x=3` … are unlimited distinct keys on a route that
+        ignores `x` entirely. Every one misses, becomes its own single-flight
+        leader, takes an admission permit and does the full query - so the one
+        defence the origin has against a crowd could be switched off from a
+        browser address bar. The map is CORS-open and meant to be embedded, so
+        an embedder that does not bucket its `since` values does this by
+        accident rather than maliciously.
+
+        ⚠️ `since` is BUCKETED here as well as in the frontend. Relying on the
+        client to round it means the protection only exists for clients that
+        cooperate, which is not a protection.
+        """
+        from urllib.parse import parse_qs
+        names = self._MICRO_PARAMS.get(path)
+        if not names:
+            return path              # no parameters are read: one answer for all
+        q = parse_qs(urlparse(self.path).query)
+        bits = []
+        for n in names:
+            if n not in q:
+                continue
+            v = q[n][0]
+            if n == "since":
+                # Same bucket the cache TTL uses, so repeated polls land on one
+                # key instead of one per second.
+                try:
+                    v = str(int(float(v) // CACHE_BUCKET_S * CACHE_BUCKET_S))
+                except (TypeError, ValueError):
+                    continue
+            bits.append(f"{n}={v}")
+        return path + ("?" + "&".join(bits) if bits else "")
+
     def _micro_ttl(self) -> float:
         cc = self._cache_control()
         if "no-store" in cc:
@@ -810,7 +872,7 @@ class Handler(BaseHTTPRequestHandler):
         if not ttl:
             return self._gated(self._do_GET_inner, p[:48])
 
-        key = self.path
+        key = self._micro_key_for(p)
         hit = Handler._MICRO.get(key)
         if hit and time.time() - hit[0] < ttl:
             # Served without taking a permit at all: a memory read is not the
@@ -1890,8 +1952,19 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(404, "unknown node")
                 if not self._token_ok(nd):
                     return self._err(401, "bad node token")
+                # ⚠️ A PAUSED OR REVOKED NODE MUST BE TOLD, NOT COUNTED.
+                # It used to beat happily forever: counted as online, inflating
+                # heartbeats_total and the public "hours watched", while
+                # _ingest 403d every sighting it sent. The camera had no way to
+                # learn it had been switched off - the only endpoint it could
+                # reach kept answering {"ok": true}.
+                if nd["status"] != "active":
+                    return self._json({"ok": True, "posting": False,
+                                       "status": nd["status"],
+                                       "note": "this camera is not active, so "
+                                               "its sightings are refused"})
                 db.heartbeat(nd["id"])
-                return self._json({"ok": True, "ts": now()})
+                return self._json({"ok": True, "posting": True, "ts": now()})
 
             if p == "/api/review/edit":
                 # Operator fixes a cosmetic description (e.g. the detector called
@@ -2506,7 +2579,26 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as exc:
                     return self._err(400, f"snapshot rejected: {exc}")
 
-        ts = float(ev.get("ts") or now())
+        # 🚨 CLAMP THE NODE'S CLOCK. IT DECIDES RETENTION, ORDERING AND LIVENESS.
+        #
+        # This took the submitted value unchecked, and three separate systems
+        # read it afterwards. A camera running one hour slow has its sighting
+        # stored, penned, confirmed by a human and promoted to public - and then
+        # never drawn, because /api/sightings defaults to since = now() - 3600.
+        # Every counter reports success and the dot is simply not on the map.
+        # A back-dated row is also what the retention sweep deletes first, so a
+        # skewed clock can quietly feed evidence to the janitor.
+        #
+        # The node's claim is kept in the response rather than thrown away: the
+        # camera is the only party that can fix its own clock, and it cannot fix
+        # what it is never told. `clock_skew_s` is what a node should log loudly.
+        claimed = float(ev.get("ts") or now())
+        server_now = now()
+        skew = claimed - server_now
+        # A little slack for network delay and honest drift; beyond that the
+        # SERVER's clock wins, because it is the one every reader compares
+        # against.
+        ts = claimed if abs(skew) <= 120 else server_now
 
         # ⚠️ NEVER nd["lat"] / nd["lon"] HERE. Those are the camera's TRUE
         # coordinates, and /api/sightings serves whatever is stored to anyone.
@@ -2564,7 +2656,12 @@ class Handler(BaseHTTPRequestHandler):
                  if tier == "public" else None)
         if prior:
             db.bump_detections(prior["id"], ts, c["conf"])
-            db.heartbeat(nid, ts)
+            # Liveness is a SERVER observation: "this node spoke to me just
+            # now". Passing the node's own timestamp let a fast clock pin a
+            # dead camera online and a slow one flap a working camera offline,
+            # while /api/heartbeat recorded the same event correctly - so the
+            # two paths disagreed about the same node.
+            db.heartbeat(nid)
             return self._json({"id": prior["id"], "tier": tier,
                                "vclass": c["vclass"], "merged_into": prior["id"],
                                "why": "same pass as a sighting seconds earlier"})
@@ -2602,7 +2699,7 @@ class Handler(BaseHTTPRequestHandler):
         # A node that is posting is self-evidently awake, so a submission is
         # also a heartbeat. Detectors that never learn to beat still show
         # online while they are actually working.
-        db.heartbeat(nid, ts)
+        db.heartbeat(nid)
         FEED.publish(rec)
         # 🚨 TELL THE CAMERA ITS CROP IS WAITING ON A HUMAN.
         # A phone detects VEHICLES; the government call happens here, after the
@@ -2617,6 +2714,14 @@ class Handler(BaseHTTPRequestHandler):
         # the person who is standing there.
         out = {"id": rec["id"], "tier": tier, "vclass": c["vclass"],
                "why": c["why"], "parked": review_crop is not None}
+        if abs(skew) > 120:
+            # Said plainly, because the node cannot see this any other way and
+            # the consequence - its sightings landing outside every default
+            # time window - is invisible from its side.
+            out["clock_skew_s"] = round(skew, 1)
+            out["note"] = (f"your clock is {abs(skew):.0f}s "
+                           f"{'ahead of' if skew > 0 else 'behind'} the hub; "
+                           f"the server time was used instead")
         if dropped_image:
             out["image_dropped"] = dropped_image
         return self._json(out)

@@ -548,7 +548,16 @@ def stats() -> dict:
         # a network total: heartbeats were not always on, so a per-node count
         # would punish the cameras that were running before it existed.
         "heartbeats_total": one("SELECT COALESCE(SUM(beats), 0) FROM nodes"),
-        "nodes_online":   one("SELECT COUNT(*) FROM nodes WHERE last_beat > ?",
+        # 🚨 status='active' MATTERS HERE, AND ITS ABSENCE PRODUCED "15/12
+        # CAMERAS ONLINE". nodes_active filters on status one line above; this
+        # did not, and nothing stops a paused or revoked node from beating. So a
+        # camera the hub refuses to accept sightings from (_ingest 403s it) and
+        # omits from /api/nodes still counted as online, and kept inflating
+        # heartbeats_total - which is what the public "hours watched" figure is
+        # built from. A denominator that filters and a numerator that does not
+        # is how a ratio exceeds 1.
+        "nodes_online":   one("SELECT COUNT(*) FROM nodes "
+                              "WHERE status='active' AND last_beat > ?",
                               (now() - ONLINE_WINDOW_S,)),
         "sightings_24h":  one("SELECT COUNT(*) FROM sightings WHERE ts > ?", (day,)),
         "public_24h":     one("SELECT COUNT(*) FROM sightings WHERE tier='public' AND ts > ?", (day,)),
@@ -999,7 +1008,7 @@ def promote_sighting(sighting_id: int, vclass: str = "police",
     # this was written was a human acting deliberately; an automated caller has
     # to say so explicitly rather than inheriting the benefit of the doubt.
     conn = connect()
-    conn.execute("""UPDATE sightings
+    cur = conn.execute("""UPDATE sightings
                     SET tier='public', vclass=?, vclass_conf=?, vclass_why=?,
                         reviewed='confirmed', reviewed_at=?, decided_by=?
                     WHERE id=?""",
@@ -1007,6 +1016,19 @@ def promote_sighting(sighting_id: int, vclass: str = "police",
                   why or "confirmed by the camera operator as a public-tier vehicle",
                   now(), (decided_by or "human"), sighting_id))
     conn.commit()
+    # 🚨 A HUMAN'S JUDGEMENT MUST NEVER BE SILENTLY DISCARDED.
+    # Updating zero rows means the sighting is gone - the retention sweep can
+    # delete a row while its card still sits in the review pen. The reviewer
+    # sees a real crop, presses confirm, this UPDATE matches nothing, the crop
+    # is deleted, an audit line is written under their name, and the caller
+    # returns {"ok": true}. They are told their decision landed when it was
+    # destroyed. Raising is the only honest answer; the caller can decide what
+    # to tell them, but it must not be "done".
+    if cur.rowcount == 0:
+        raise LookupError(
+            f"sighting {sighting_id} no longer exists - nothing was published. "
+            f"It was most likely removed by the retention sweep while still in "
+            f"the review pen.")
 
 
 def review_stats() -> dict:

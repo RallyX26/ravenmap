@@ -409,7 +409,22 @@ def verdict(reviewer: dict, sid: int, call: str, ip: str = "") -> dict:
     if not may_touch(reviewer, sid):
         return {"ok": False, "error": "not your camera"}
     if call == "cop":
-        _publish(sid, reviewer, force_vclass="police")
+        # 🚨 TELL THE REVIEWER THE TRUTH IF THEIR DECISION CANNOT LAND.
+        # promote_sighting now raises when the row is gone, which happens when
+        # the retention sweep deletes a sighting whose card is still in the pen.
+        # Returning {"ok": true} there told a person their judgement had been
+        # recorded when it had been destroyed - and, worse, wrote an audit line
+        # under their name saying so. The card is cleared because it is now an
+        # orphan pointing at nothing, but the answer says plainly that nothing
+        # was published.
+        try:
+            _publish(sid, reviewer, force_vclass="police")
+        except LookupError as exc:
+            _delete_pen(sid)
+            db.audit("review:confirm_failed", str(sid), actor=who, ip=ip)
+            return {"ok": False, "id": sid, "error": str(exc),
+                    "note": "this card has been cleared - the vehicle it "
+                            "referred to is no longer in the database"}
         db.audit("review:confirm", str(sid), actor=who, ip=ip)
         return {"ok": True, "id": sid, "verdict": "cop"}
     if call == "gov":
