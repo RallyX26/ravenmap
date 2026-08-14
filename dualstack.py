@@ -25,7 +25,38 @@ IPv4 clients keep working unchanged and IPv6 clients stop waiting.
 from __future__ import annotations
 
 import socket
+import threading
 from http.server import ThreadingHTTPServer
+
+
+# 🚨 ADMISSION CONTROL. A thread-per-connection server with no ceiling does not
+# degrade under overload, it collapses - and the collapse feeds itself.
+#
+# Measured on the live box: with zero visitors on 443, Caddy held 1098
+# ESTABLISHED upstream connections, 195 in CLOSE-WAIT, 85 in SYN-SENT, and was
+# opening ~12 more per second. 588 Python threads on a 2-core box that also runs
+# a video encoder. Every one of those threads makes every other one slower, so
+# responses get later, so the proxy dials again. Nothing recovers from that on
+# its own; the watchdog restarted it three times in ten minutes and each time it
+# climbed straight back.
+#
+# 📌 The descriptor limit had been hiding this. At 1024 files the process died
+# at roughly 340 connections, which LOOKED like a leak bug and was ALSO an
+# accidental load shedder. Raising the limit to 65536 was correct and it removed
+# the brake, so the real ceiling - CPU - is now the one that binds.
+#
+# Refusing quickly is the kind thing to do. A 503 in 5ms lets the proxy retry
+# something that will work; a 40-second wait behind 500 thrashing threads
+# helps nobody and costs everybody.
+MAX_INFLIGHT = 48
+
+# How long a connection may sit idle before the server hangs up. Keep-alive is
+# worth having - it is why the per-thread database connection is cached - but an
+# idle connection still pins a thread, and Caddy's pool will happily hold
+# hundreds open. Without this the thread count only ever goes up.
+IDLE_TIMEOUT_S = 20
+
+_INFLIGHT = None      # created lazily so importing this module starts nothing
 
 
 class _ClosesDbPerThread:
@@ -53,9 +84,45 @@ class _ClosesDbPerThread:
     """
 
     def process_request_thread(self, request, client_address):
+        global _INFLIGHT
+        if _INFLIGHT is None:
+            _INFLIGHT = threading.Semaphore(MAX_INFLIGHT)
+
+        # An idle keep-alive connection still pins a thread. Without a timeout
+        # the only thing that ends one is the client, and a proxy's pool has no
+        # reason to hurry. This is what actually drains the thread count.
+        try:
+            request.settimeout(IDLE_TIMEOUT_S)
+        except Exception:
+            pass
+
+        # Non-blocking: if the server is already at its ceiling, say so NOW.
+        # Blocking here would just move the queue from the proxy into this
+        # process, where each waiter costs a thread - which is the problem.
+        if not _INFLIGHT.acquire(blocking=False):
+            try:
+                # Built rather than written out, so Content-Length cannot drift
+                # away from the body when someone edits the message. A wrong
+                # Content-Length on an overload response makes the proxy hang
+                # waiting for bytes that are not coming - turning load shedding
+                # into another way to be slow.
+                body = b'{"error": "busy - too many connections"}'
+                request.sendall(
+                    b"HTTP/1.1 503 Service Unavailable\r\n"
+                    b"Content-Type: application/json\r\n"
+                    b"Content-Length: " + str(len(body)).encode() + b"\r\n"
+                    b"Retry-After: 1\r\n"
+                    b"Connection: close\r\n\r\n" + body)
+            except Exception:
+                pass
+            finally:
+                self.shutdown_request(request)
+            return
+
         try:
             super().process_request_thread(request, client_address)
         finally:
+            _INFLIGHT.release()
             try:
                 import db
                 db.close_thread()
