@@ -58,7 +58,10 @@ any node mounted per the project's own aiming rule (aim DOWN the street).
 from __future__ import annotations
 
 import json
+import http.client
 import math
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -120,6 +123,44 @@ def _seg_points(a: tuple, b: tuple, step: float = 2.0) -> list[tuple[float, floa
 # Overpass
 # --------------------------------------------------------------------------
 
+class OverpassBusy(RuntimeError):
+    """Overpass answered, but said it could not do the work.
+
+    Distinct from "no roads here" on purpose: the two are byte-identical in the
+    response body apart from a `remark`, and confusing them poisons the cache
+    with an empty answer that never expires.
+    """
+
+
+# 🚨 NO urlopen INSIDE AN ADMISSION PERMIT WITHOUT A BOUND.
+# The tile proxy learned this the hard way (hub._TILE_FETCH): an unbounded
+# upstream call reached from a request handler turns somebody else's slow API
+# into this box's outage. Overpass is reached from /api/enroll, /api/sightings
+# and /api/drive/report, each holding a permit for up to 25 seconds.
+#
+# Overpass also rate-limits hard - a sweep of 18 nodes earned a 429 in under two
+# minutes - so a small number is right here. Callers that cannot get a slot
+# behave exactly as they do when Overpass is down, which is a path that already
+# had to work.
+_OVERPASS_SLOTS = threading.Semaphore(3)
+
+# Cells Overpass has recently refused, and until when.
+_FAIL_UNTIL: dict = {}
+_FAIL_TTL_S = 120.0
+
+
+def _fetch_ways_bounded(lat: float, lon: float):
+    """fetch_ways, but never more than _OVERPASS_SLOTS at once."""
+    if not _OVERPASS_SLOTS.acquire(timeout=1.0):
+        raise OverpassBusy("too many road lookups already in flight")
+    try:
+        # Shorter than the 25s default: this runs inside a request, and a
+        # visitor waiting 25 seconds for a road lookup has already been failed.
+        return fetch_ways(lat, lon, timeout=8.0)
+    finally:
+        _OVERPASS_SLOTS.release()
+
+
 def fetch_ways(lat: float, lon: float, timeout: float = 25.0) -> list[list[tuple]]:
     """Driveable road geometries near a point, as lists of (lat, lon).
 
@@ -138,6 +179,18 @@ def fetch_ways(lat: float, lon: float, timeout: float = 25.0) -> list[list[tuple
         headers={"User-Agent": "SparrowMap/0.1 (citizen ALPR; road snapping)"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         doc = json.loads(r.read().decode("utf-8"))
+
+    # 🚨 OVERPASS SIGNALS OVERLOAD AS HTTP 200 WITH AN EMPTY RESULT.
+    # The body comes back {"elements": [], "remark": "runtime error: Query timed
+    # out..."} - a successful-looking response meaning "ask again later". Read
+    # as data it says "there are no roads here", which then gets CACHED, and
+    # because sighting positions are frozen at ingest the dots placed during
+    # that window never self-heal. That is the "one dot in a park with dozens of
+    # passes behind it". A remark is an error; raise so the caller's except path
+    # and the negative cache handle it as one.
+    remark = doc.get("remark")
+    if remark and not doc.get("elements"):
+        raise OverpassBusy(str(remark)[:160])
 
     out: list = []
     fallback: list = []          # service roads and alleys, used only if out is empty
@@ -268,8 +321,11 @@ def span_on_named_road(lat: float, lon: float, reach_m: float,
     # this; a second entry point into the same API must too, or a partial sweep
     # leaves half the nodes moved and no clear record of which.
     try:
-        ways = fetch_ways(lat, lon)
-    except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
+        # Bounded: see _fetch_ways_bounded. Both of these are reached from a
+        # request handler holding an admission permit.
+        ways = _fetch_ways_bounded(lat, lon)
+    except (urllib.error.URLError, OSError, ValueError, KeyError,
+            http.client.HTTPException, OverpassBusy) as exc:
         print(f"[road] named-road lookup unavailable "
               f"({exc.__class__.__name__}: {exc}) - no span; retry later")
         return None
@@ -505,9 +561,28 @@ def snap_point(lat: float, lon: float, seed: str,
         if ways is None:
             if not online:
                 return None
-            ways = fetch_ways(lat, lon)
+            # 🚨 A FAILING CELL MUST NOT BE RETRIED ON EVERY REQUEST.
+            # Failures were never remembered, so a cell Overpass is refusing was
+            # re-fetched by every sighting from that camera - each one a 25s
+            # synchronous call holding an admission permit, all of them destined
+            # to fail the same way. The negative entry is short: long enough to
+            # stop the stampede, short enough that recovery is automatic.
+            until = _FAIL_UNTIL.get(key, 0.0)
+            if until > time.time():
+                return None
+            try:
+                ways = _fetch_ways_bounded(lat, lon)
+            except Exception:
+                _FAIL_UNTIL[key] = time.time() + _FAIL_TTL_S
+                raise
+            _FAIL_UNTIL.pop(key, None)
             if len(_WAYS_CACHE) >= _WAYS_CACHE_MAX:
-                _WAYS_CACHE.clear()      # bounded; a cold cell just refetches
+                # ⚠️ Evict HALF, not everything. clear() threw away every warm
+                # cell the moment the 65th arrived, so a network spread over
+                # more than _WAYS_CACHE_MAX cells thrashed to permanently empty
+                # and every node re-fetched constantly.
+                for k in list(_WAYS_CACHE)[:_WAYS_CACHE_MAX // 2]:
+                    _WAYS_CACHE.pop(k, None)
             _WAYS_CACHE[key] = ways
         if not ways:
             return None
@@ -516,7 +591,8 @@ def snap_point(lat: float, lon: float, seed: str,
         if not span or len(span) < 2:
             return None
         return point_on_span(span, seed)
-    except (urllib.error.URLError, OSError, ValueError, KeyError, TypeError):
+    except (urllib.error.URLError, OSError, ValueError, KeyError, TypeError,
+            http.client.HTTPException, OverpassBusy):
         return None
 
 
@@ -547,7 +623,9 @@ def resolve(lat: float, lon: float, heading: float, fov: float,
     """
     if online:
         try:
-            ways = fetch_ways(lat, lon)
+            # Bounded: see _fetch_ways_bounded. This is reached from
+            # POST /api/enroll while holding an admission permit.
+            ways = _fetch_ways_bounded(lat, lon)
             got = span_from_ways(lat, lon, heading, fov, reach_m, ways)
             if got:
                 return got
@@ -557,7 +635,8 @@ def resolve(lat: float, lon: float, heading: float, fov: float,
             got = span_nearest(lat, lon, ways)
             if got:
                 return got
-        except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
+        except (urllib.error.URLError, OSError, ValueError, KeyError,
+            http.client.HTTPException, OverpassBusy) as exc:
             # Worth saying loudly: this is recoverable (re-snap later) but only
             # if somebody knows it happened.
             print(f"[road] snap unavailable ({exc.__class__.__name__}: {exc}) - "

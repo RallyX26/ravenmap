@@ -901,9 +901,28 @@ def add_driver_report(lat: float, lon: float, kind: str = "police",
             lat, lon = _nodes.jitter_position(
                 lat, lon, float(CONFIG.get("node_position_jitter_m", 60)))
     except Exception:
-        # Never let a positioning failure store a raw coordinate. Rounding to
-        # 4 places is ~11 m and is the floor, not the plan.
-        lat, lon = round(lat, 4), round(lon, 4)
+        # 🚨 ROUNDING WAS NOT A FLOOR, IT WAS A HOLE.
+        # 4 decimal places is ~11 m - which is WEAKER than the 60 m jitter this
+        # same function applies when the road lookup merely returns nothing, and
+        # far weaker than the 80 m span every other position on the map gets.
+        # So the exception path published a reporter's position more precisely
+        # than the success path did, and the comment called that "the floor".
+        #
+        # It is reachable: road.fetch_ways does not catch http.client
+        # exceptions, so an Overpass IncompleteRead - ordinary under load -
+        # lands here rather than in the None branch below.
+        #
+        # Jitter, always. A positioning failure must never be the most revealing
+        # outcome available.
+        try:
+            import nodes as _nodes
+            lat, lon = _nodes.jitter_position(
+                lat, lon, float(CONFIG.get("node_position_jitter_m", 60)))
+        except Exception:
+            # Even the jitter helper failing must not publish a raw point.
+            # Two decimal places is ~1.1 km: useless for a live patrol alert,
+            # which is the correct way to fail.
+            lat, lon = round(lat, 2), round(lon, 2)
     lat, lon = round(lat, 6), round(lon, 6)
 
     conn = connect()

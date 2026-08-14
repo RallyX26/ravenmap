@@ -15,6 +15,7 @@ import json
 import mimetypes
 import re
 import secrets
+import socket
 import sys
 import queue
 import threading
@@ -751,8 +752,59 @@ class Handler(BaseHTTPRequestHandler):
         if n > self.MAX_BODY:
             self.close_connection = True
             return {}
+        # 🚨 A WALL-CLOCK DEADLINE, NOT JUST A PER-RECV TIMEOUT.
+        # The socket timeout (dualstack.IDLE_TIMEOUT_S) applies to each recv
+        # individually, so a client sending one byte every 19 seconds resets it
+        # forever and holds an admission permit for as long as it likes. A few
+        # hundred of those at ~10 B/s and every POST, every no-store route and
+        # all map data past its micro-TTL returns 503 - while the page shell and
+        # tiles keep serving, which makes it harder to diagnose rather than
+        # milder. This is a slow-loris on the one resource the whole site
+        # shares.
+        #
+        # Read in chunks against a total budget instead. A legitimate body here
+        # is a few hundred KB of JPEG from a camera on a domestic uplink, so ten
+        # seconds is generous; anything slower is not a camera.
+        # ⚠️ THE DEADLINE ONLY WORKS IF EACH READ RETURNS. Checking the clock
+        # between reads is not enough: rfile.read() blocks until it has the
+        # bytes, and every trickled byte resets the socket timeout, so the very
+        # first read never comes back and the deadline is never consulted. The
+        # socket timeout must be shortened for the duration of the body read so
+        # control returns to this loop regularly. (Found by
+        # tools/test_slowloris.py, which failed identically before and after the
+        # first version of this fix - a test earning its place.)
+        deadline = time.time() + 10.0
+        prev_timeout = None
         try:
-            return json.loads(self.rfile.read(n).decode("utf-8"))
+            prev_timeout = self.connection.gettimeout()
+            self.connection.settimeout(1.0)
+        except Exception:
+            pass
+        chunks, got = [], 0
+        try:
+            while got < n:
+                if time.time() > deadline:
+                    # The bytes cannot be left in the socket for the next
+                    # request on this connection.
+                    self.close_connection = True
+                    return {}
+                try:
+                    part = self.rfile.read(min(65536, n - got))
+                except (TimeoutError, socket.timeout, OSError):
+                    continue          # nothing yet; the deadline decides
+                if not part:
+                    self.close_connection = True
+                    return {}
+                chunks.append(part)
+                got += len(part)
+        finally:
+            try:
+                if prev_timeout is not None:
+                    self.connection.settimeout(prev_timeout)
+            except Exception:
+                pass
+        try:
+            return json.loads(b"".join(chunks).decode("utf-8"))
         except Exception:
             return {}
 
@@ -1055,12 +1107,20 @@ class Handler(BaseHTTPRequestHandler):
                 term = (q.get("q") or [""])[0].strip()[:120]
                 if len(term) < 3:
                     return self._json({"results": []})
-                if not rate_ok("/api/geocode", self.client_ip):
-                    return self._err(429, "too many searches right now; "
-                                          "try again in a moment")
+                # 🚨 CACHE FIRST, BUDGET SECOND. This spent the rate-limit
+                # token BEFORE looking in the cache, so repeated searches for
+                # the same place burned quota they never needed - and because
+                # Caddy strips XFF, client_ip is 127.0.0.1 for everyone and the
+                # 300/hour bucket is NETWORK-WIDE. A handful of people searching
+                # the same town could 429 the search box for the entire site
+                # while the answer sat in memory. The budget exists to protect
+                # NOMINATIM; a cache hit never touches Nominatim.
                 hit = _GEO_CACHE.get(term.lower())
                 if hit and now() - hit[0] < 86400:
                     return self._json({"results": hit[1]})
+                if not rate_ok("/api/geocode", self.client_ip):
+                    return self._err(429, "too many searches right now; "
+                                          "try again in a moment")
                 # hub.py imports urllib.parse only, so urllib.request has to
                 # be imported here. The first version assumed it was module-
                 # level and raised NameError - which the broad `except` below
@@ -2230,7 +2290,20 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/rv/login":
                 val = review_auth.login_value((self._body() or {}).get("token", ""))
                 if not val:
-                    time.sleep(0.3)          # slow blind guessing of a token
+                    # 🚨 NO SLEEP INSIDE AN ADMISSION PERMIT.
+                    # This slept 0.3s while holding one of the concurrency
+                    # permits, on an unauthenticated route with no rate budget -
+                    # so a few hundred empty POSTs could occupy the gate and
+                    # 503 the site. _body() returns {} on Content-Length 0, so
+                    # an EMPTY post reached the sleep.
+                    #
+                    # The delay is also unnecessary here. It exists to slow
+                    # blind guessing, and a reviewer token is 192 bits of
+                    # randomness: an attacker guessing at any rate a network
+                    # allows will not finish before the heat death of the sun.
+                    # Rate-limiting the ROUTE would be worse than useless -
+                    # Caddy strips XFF so the bucket is network-wide, and one
+                    # attacker would lock every reviewer out.
                     return self._err(401, "invalid token")
                 self._send(200, json.dumps({"ok": True}).encode(),
                            "application/json",
