@@ -102,6 +102,11 @@ VERSION = "0.1.0"
 _STARTED = time.time()
 _PEAK = {"fd_pct": 0.0, "threads": 0}
 
+# How many requests may be BEING SERVED at once. See Handler._INFLIGHT for why
+# this counts requests rather than connections - the two earlier attempts
+# counted connections and locked real visitors out of an idle box twice.
+MAX_REQUESTS = 32
+
 
 # ---------------------------------------------------------------------------
 # Live feed
@@ -287,7 +292,9 @@ class Handler(BaseHTTPRequestHandler):
     # every request slower without finishing any sooner - which is the collapse
     # this exists to prevent. Refusing in single-digit milliseconds lets the
     # proxy retry something that will work.
-    _INFLIGHT = threading.Semaphore(32)
+    # Named, module-level, so tools/test_overload.py can size its flood off the
+    # real number instead of a copy that silently drifts out of step.
+    _INFLIGHT = threading.Semaphore(MAX_REQUESTS)
 
     def handle_one_request(self):
         # The read that BLOCKS on an idle keep-alive connection happens inside
