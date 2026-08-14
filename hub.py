@@ -1080,6 +1080,16 @@ class Handler(BaseHTTPRequestHandler):
                     health["fd_peak_pct"] = _PEAK["fd_pct"]
                     health["threads_peak"] = _PEAK["threads"]
                     health["uptime_s"] = round(time.time() - _STARTED, 1)
+                    # Degraded, not dead. Something is retaining descriptors
+                    # and there is still time to look at it.
+                    if used > soft * 0.8:
+                        health["ok"] = False
+                        health["warn"] = (f"{used}/{soft} file descriptors in "
+                                          f"use - approaching the limit, past "
+                                          f"which every route fails")
+                except Exception:
+                    pass          # not Linux, or no /proc: report what we have
+
                 # 🚨 WHAT IS ACTUALLY HOLDING THE REQUEST PERMITS.
                 # Published because this limiter has now refused visitors on an
                 # idle box three times, and each diagnosis needed a live
@@ -1096,15 +1106,6 @@ class Handler(BaseHTTPRequestHandler):
                 health["inflight_now"] = [
                     {"path": lbl, "held_s": round(nowt - t0, 1)}
                     for lbl, t0 in sorted(holding, key=lambda x: x[1])[:8]]
-                    # Degraded, not dead. Something is retaining descriptors
-                    # and there is still time to look at it.
-                    if used > soft * 0.8:
-                        health["ok"] = False
-                        health["warn"] = (f"{used}/{soft} file descriptors in "
-                                          f"use - approaching the limit, past "
-                                          f"which every route fails")
-                except Exception:
-                    pass          # not Linux, or no /proc: report what we have
                 return self._json(health, 200 if health["ok"] else 503)
 
             if p == "/api/policy":
