@@ -972,6 +972,29 @@ def promote_sighting(sighting_id: int, vclass: str = "police",
     resurrect an identifier, which is the correct thing for this function to
     be incapable of.
     """
+    # 🚨 THE POLICY CHECK LIVES HERE, BECAUSE THIS IS THE ONLY CHOKEPOINT.
+    #
+    # This function wrote tier='public' unconditionally and never consulted
+    # `public_tiers`. Seven call sites reach it - node_label, review_api,
+    # hub, box_publish - and each was enforcing the rule separately, which
+    # means each could forget it separately. review_api already stopped
+    # publishing `gov` after gov_dot put bin lorries on a police map; the other
+    # paths were relying on their own copy of that judgement.
+    #
+    # A rule enforced in four places is a rule with four chances to be missed.
+    # The tier is decided by privacy.tier_for, the same function the ingest path
+    # uses, so there is exactly one answer to "may this class be public".
+    #
+    # ⚠️ Refuses rather than silently demoting. A caller asking to publish a
+    # council truck has a bug in it, and quietly storing something other than
+    # what it asked for would hide that bug rather than surface it.
+    import privacy
+    if privacy.tier_for(vclass) != "public":
+        raise ValueError(
+            f"refusing to publish vclass={vclass!r}: public_tiers is "
+            f"{CONFIG.get('public_tiers')}, so this class is private. "
+            f"Record the judgement instead (review_sighting).")
+
     # `decided_by` defaults to 'human' because every caller that existed when
     # this was written was a human acting deliberately; an automated caller has
     # to say so explicitly rather than inheriting the benefit of the doubt.
