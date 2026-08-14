@@ -78,7 +78,7 @@ def _crop_data_url() -> tuple[str, Image.Image]:
             + base64.b64encode(buf.getvalue()).decode()), img
 
 
-def main() -> int:
+def _check(stored: list) -> int:
     url, _orig = _crop_data_url()
     restore = _hide_cv2()
     try:
@@ -98,6 +98,7 @@ def main() -> int:
             print("      This is the bug: the caller swallows it and the "
                   "sighting is published with snap=None.")
             return 1
+        stored.append(name)
     finally:
         restore()
 
@@ -134,5 +135,37 @@ def main() -> int:
     return 0
 
 
+def _cleanup(name: str) -> None:
+    """Take the test's own crop back out of the live snapshot directory.
+
+    ⚠️ This writes into `snapshot.SNAPS`, which on the box is the directory the
+    public map serves. Deliberately - storing anywhere else would test a path
+    nothing uses - but a test that leaves rubbish in production is a test people
+    stop running. Removed whether it passed or failed.
+
+    📌 The first version of this caught `Exception` around a reference to
+    `snapshot`, which is imported inside `_check` and so was never a name here.
+    It raised NameError, the bare except ate it, and five test crops sat in the
+    live directory looking like evidence. A cleanup that cannot fail is a
+    cleanup that cannot be trusted - so the import is explicit and only the
+    unlink is forgiven.
+    """
+    import snapshot
+    try:
+        (Path(snapshot.SNAPS) / name).unlink(missing_ok=True)
+    except OSError as exc:
+        print(f"[test] could not remove {name}: {exc}")
+
+
+def main() -> int:
+    stored: list = []
+    try:
+        return _check(stored)
+    finally:
+        for n in stored:
+            _cleanup(n)
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
+
