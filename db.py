@@ -162,6 +162,23 @@ CREATE INDEX IF NOT EXISTS ix_driver_reports_exp ON driver_reports(expires);
 # a live database cannot drift apart.
 MIGRATIONS = [
     ("nodes", "last_beat", "REAL"),
+    # The town this camera is in, for the zoomed-out map.
+    #
+    # 🚨 A TOWN NAME IS A DELIBERATELY COARSE THING TO PUBLISH, AND THAT IS THE
+    # POINT. Zoomed out to a whole state, thirty 80 m road bands are sub-pixel
+    # smears that read as markers - the exact "a thing is at this spot"
+    # impression the corridor shape exists to avoid. "Brighton, 3 cameras" says
+    # what is actually known at that zoom and nothing more.
+    #
+    # It is also LESS revealing than what is already published: the watched span
+    # is a specific stretch of a specific street, and the town containing it is
+    # strictly coarser. This adds no exposure.
+    #
+    # ⚠️ Resolved from the JITTERED position, never the true one (see
+    # tools/backfill_places.py). A town lookup would survive the jitter anyway,
+    # but the rule that a camera's real coordinates are not sent to a third
+    # party has no exceptions worth making.
+    ("nodes", "place", "TEXT"),
     # 🚨 WHO put this on the public map: 'human' or 'auto'.
     #
     # `reviewed='confirmed'` was being read as "a person looked at this", and it

@@ -89,6 +89,8 @@ const state = {
   markers: new Map(),     // id -> leaflet marker
   traffic: new Map(),     // id -> {rec, marker}  (private tier: the live view)
   camLayer: L.layerGroup(),
+  placeLayer: L.layerGroup(),
+  places: null,
   pingLayer: L.layerGroup(),
   trafficLayer: L.layerGroup(),
   trailLayer: L.layerGroup(),
@@ -161,7 +163,9 @@ state.camLayer.addTo(map);
 // on a map the visitor had switched them off on.
 map.on('zoomend', () => {
   if (state.showCams && state.spans) drawSpans(state.spans);
+  drawPlaces();
 });
+state.placeLayer.addTo(map);
 state.trafficLayer.addTo(map);
 state.trailLayer.addTo(map);
 state.pingLayer.addTo(map);
@@ -637,6 +641,77 @@ async function loadCameras() {
   drawSpans(spans);
 }
 
+/* ---------------------------------------------------- towns, at low zoom -- */
+
+/* 🚨 THIS EXISTS BECAUSE A SPAN BECOMES A MARKER WHEN YOU ZOOM OUT.
+ * An 80 m watched span is 91 px at zoom 17 and under one pixel by zoom 12, so a
+ * state-wide view drew a scatter of tiny green smears - which read as "a thing
+ * is at this spot", the precise impression the corridor shape exists to
+ * prevent. Reported as: "it still looks too much like markers."
+ *
+ * A town badge is the honest unit at that zoom. It says what is actually known
+ * from ten miles up - somebody is watching in Brighton, and there are three
+ * cameras there - and it cannot be misread as a location, because a town is
+ * not a place a car was.
+ *
+ * It also publishes LESS than the map already does. A span names a stretch of a
+ * named street; the town containing it is strictly coarser. Nothing new is
+ * exposed by aggregating upward.
+ *
+ * The two layers never show together: below the threshold you get towns, above
+ * it you get the roads themselves. Showing both would put a badge on top of the
+ * detail it stands in for. */
+const PLACE_MAX_ZOOM = 13;
+
+async function loadPlaces() {
+  try {
+    const d = await (await fetch('/api/places')).json();
+    state.places = d.places || [];
+  } catch (e) {
+    state.places = [];      // a failed fetch draws nothing, never a guess
+  }
+  drawPlaces();
+}
+
+function drawPlaces() {
+  state.placeLayer.clearLayers();
+  if (!state.places || map.getZoom() > PLACE_MAX_ZOOM) return;
+
+  const G = '#3ddc97';
+  state.places.forEach((p) => {
+    // Area, not radius, tracks the count - a radius proportional to cameras
+    // makes three cameras look nine times one. Clamped so a single camera is
+    // still findable and a big town does not swallow the county.
+    const r = Math.max(9, Math.min(26, 7 + Math.sqrt(p.cameras) * 5));
+    const live = p.online > 0;
+
+    L.circleMarker([p.lat, p.lon], {
+      radius: r, color: G, weight: live ? 2 : 1.2,
+      opacity: live ? 0.85 : 0.45,
+      fillColor: G, fillOpacity: live ? 0.22 : 0.12,
+      // The badge stands for a whole town, so it must not behave like a
+      // sighting: no click-to-open, and it sits under the red dots.
+      interactive: true,
+    }).bindTooltip(
+      `<b>${esc(p.place)}</b><br>${p.cameras} camera${p.cameras === 1 ? '' : 's'}` +
+      (p.online ? ` &middot; <span style="color:${G}">${p.online} online</span>` : '') +
+      `<br><i style="opacity:.6">zoom in to see the watched roads</i>`,
+      { direction: 'top', offset: [0, -r] }
+    ).addTo(state.placeLayer);
+
+    // The count inside the badge, so the map is readable without hovering -
+    // which matters most on a phone, where there is no hover at all.
+    L.marker([p.lat, p.lon], {
+      interactive: false,
+      icon: L.divIcon({
+        className: 'placelabel',
+        html: `<span>${p.cameras}</span>`,
+        iconSize: [r * 2, r * 2], iconAnchor: [r, r],
+      }),
+    }).addTo(state.placeLayer);
+  });
+}
+
 /* 🚨 THE SPAN IS DRAWN TO SCALE, SO ZOOMING OUT DELETES IT.
  * An 80 m span is 91 px at zoom 17, 5.7 px at 13, and 0.7 px at zoom 10. The
  * previous rendering only survived down there BY ACCIDENT: `lineCap: 'round'`
@@ -944,6 +1019,10 @@ async function refresh() {
 
 refresh();
 loadCameras();
+// Towns are independent of the watched-roads toggle: they are what the map
+// shows INSTEAD of spans when zoomed out, not a second copy of them, so they
+// load whether or not the bands are switched on.
+loadPlaces();
 loadStats();
 applyConfiguredView();
 policyBanner();
@@ -1079,7 +1158,7 @@ setInterval(ageTraffic, 1000);    // the live traffic view
  * silently fell back to a full reload and threw away the map view every time,
  * which is the one thing the soft path exists to preserve. */
 window.sparrowRefresh = async () => {
-  await Promise.all([load(), loadCameras(), loadStats(), policyBanner()]);
+  await Promise.all([load(), loadCameras(), loadPlaces(), loadStats(), policyBanner()]);
 };
 
 /* ---- government plate search ------------------------------------------

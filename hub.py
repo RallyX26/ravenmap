@@ -321,6 +321,10 @@ class Handler(BaseHTTPRequestHandler):
     # shared cache collapses thousands of pollers into ~one origin fetch/window.
     _CACHEABLE_API = frozenset({"/api/sightings", "/api/stats", "/api/policy",
                                 "/api/nodes", "/api/leaderboard", "/api/health",
+                                # Identical for every viewer and it changes only
+                                # when a camera is added, so it is the cheapest
+                                # thing on the map to cache.
+                                "/api/places",
                                 "/api/heat"})
 
     def _cache_control(self) -> str:
@@ -768,6 +772,51 @@ class Handler(BaseHTTPRequestHandler):
                                if fips else None)}
                 _GEO_CACHE["rev:" + key] = (now(), out)
                 return self._json(out)
+
+            if p == "/api/places":
+                # Towns with cameras, for the zoomed-out map.
+                #
+                # 🚨 WHY THIS EXISTS: AT LOW ZOOM THE SPANS BECOME MARKERS.
+                # An 80 m watched span is 91 px at zoom 17 and under a pixel by
+                # zoom 12, so a national view renders thirty sub-pixel green
+                # smears - which read as "a thing is at this spot", the precise
+                # impression the corridor shape was drawn to prevent. A town
+                # badge says what is actually known at that zoom.
+                #
+                # It publishes LESS than the map already does: a watched span is
+                # a named stretch of a named street, and the town containing it
+                # is strictly coarser. No new exposure.
+                #
+                # ⚠️ The point is the mean of the JITTERED node positions, never
+                # the true ones, and it is only ever rendered as a town-sized
+                # badge - so it locates a town, which is what it claims.
+                places: dict = {}
+                for nd in db.nodes(active_only=True):
+                    name = (nd.get("place") or "").strip()
+                    if not name:
+                        continue          # unresolved: absent beats invented
+                    la, lo = nd.get("pub_lat"), nd.get("pub_lon")
+                    if la is None or lo is None:
+                        continue
+                    e = places.setdefault(name, {"place": name, "cameras": 0,
+                                                 "online": 0, "_la": 0.0,
+                                                 "_lo": 0.0})
+                    e["cameras"] += 1
+                    e["_la"] += la
+                    e["_lo"] += lo
+                    if nd.get("last_beat") and \
+                            now() - nd["last_beat"] < db.ONLINE_WINDOW_S:
+                        e["online"] += 1
+                out = []
+                for e in places.values():
+                    c = e.pop("cameras")
+                    out.append({"place": e["place"], "cameras": c,
+                                "online": e["online"],
+                                "lat": round(e.pop("_la") / c, 4),
+                                "lon": round(e.pop("_lo") / c, 4)})
+                out.sort(key=lambda x: -x["cameras"])
+                return self._json({"places": out,
+                                   "cameras_placed": sum(x["cameras"] for x in out)})
 
             if p == "/api/heat":
                 # Cumulative "everywhere a patrol has ever been confirmed",

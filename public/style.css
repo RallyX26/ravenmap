@@ -331,3 +331,12 @@ nav.modes .ic{display:block;font-size:15px;margin-bottom:2px;letter-spacing:0}
 .paneinner .back{display:none}          /* no "back to the map" - use the bar */
 
 nav .addcam{color:var(--cam);font-weight:600}
+
+/* The camera count inside a town badge, for the zoomed-out map.
+   pointer-events:none is load-bearing: the label sits exactly on top of the
+   circle that carries the tooltip, so without it the number would swallow
+   every hover and the badge would look inert. */
+.placelabel{display:flex;align-items:center;justify-content:center;
+  pointer-events:none;background:none;border:0}
+.placelabel span{font:700 12px var(--mono);color:var(--cam);
+  text-shadow:0 0 4px #000,0 0 2px #000}
