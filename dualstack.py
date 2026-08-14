@@ -68,7 +68,24 @@ from http.server import ThreadingHTTPServer
 # thrash 250 Python threads either. 250 sits far above real traffic and far
 # below the runaway, and IDLE_TIMEOUT_S is what keeps the steady state near the
 # bottom of that range rather than drifting up to the ceiling.
-MAX_INFLIGHT = 250
+#
+# 🚨 RAISED TO A BACKSTOP, BECAUSE GATING CONNECTIONS WAS THE WRONG IDEA TWICE.
+# At 48 it refused real visitors while idle. At 250 it refused them again the
+# moment Caddy's pool grew to 250 - measured live: threads pegged at 254 and
+# /api/health returning "busy - too many connections" while the box was fine.
+# Raising the number does not fix a limiter pointed at the wrong noun; it only
+# moves the point where it starts lying.
+#
+# A connection is not work. An idle keep-alive socket costs a thread and no CPU,
+# and it is a proxy's job to hold a pool of them. What must be bounded is
+# REQUESTS IN FLIGHT, and that gate lives in the handler (hub.Handler), after
+# the request line is read - so an idle connection waiting for its next request
+# holds nothing.
+#
+# What stays here is a genuine backstop against unbounded THREADS, set far above
+# anything real traffic produces. The measured collapse was 1098 connections;
+# normal is 32-64. IDLE_TIMEOUT_S is what actually keeps the steady state low.
+MAX_INFLIGHT = 1200
 
 # How long a connection may sit idle before the server hangs up. Keep-alive is
 # worth having - it is why the per-thread database connection is cached - but an

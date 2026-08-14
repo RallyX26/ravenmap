@@ -263,6 +263,53 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):        # quieter than the default
         pass
 
+    # 🚨 THE ADMISSION GATE, AND IT COUNTS REQUESTS - NOT CONNECTIONS.
+    #
+    # The first two attempts gated CONNECTIONS in the server (dualstack), and
+    # both refused real visitors while the box was idle: at a cap of 48 within
+    # minutes, and again at 250 as soon as Caddy's pool reached 250. Measured
+    # live the second time: 254 threads and /api/health answering "busy - too
+    # many connections" on a box at load 5 doing nothing.
+    #
+    # 📌 A connection is not work. With HTTP/1.1 keep-alive a proxy holds a pool
+    # of idle sockets open by design; each costs a thread and zero CPU. Counting
+    # them and calling it load meant the limiter was measuring the one thing that
+    # does not correlate with the resource it was protecting. Raising the number
+    # never fixes that - it just moves where it starts lying.
+    #
+    # Here, the permit is taken AFTER the request line has been read and released
+    # as soon as the response is written, so it measures exactly what it claims:
+    # requests being served at this instant. An idle keep-alive connection holds
+    # nothing and cannot lock anyone out.
+    #
+    # 32 is chosen against the machine, not the traffic: 2 vCPUs, shared. Beyond
+    # a couple of dozen concurrent handlers the GIL and the sqlite writer make
+    # every request slower without finishing any sooner - which is the collapse
+    # this exists to prevent. Refusing in single-digit milliseconds lets the
+    # proxy retry something that will work.
+    _INFLIGHT = threading.Semaphore(32)
+
+    def handle_one_request(self):
+        # The read that BLOCKS on an idle keep-alive connection happens inside
+        # the parent, before any handler runs. Wrapping the whole call would put
+        # us straight back to holding a permit for an idle socket, so the gate
+        # goes around the DISPATCH instead - see _dispatch_guarded below, which
+        # do_GET/do_POST route through.
+        return super().handle_one_request()
+
+    def _too_busy(self) -> None:
+        body = b'{"error": "busy - too many requests in flight"}'
+        try:
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Retry-After", "1")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception:
+            pass
+
     # Public read paths served IDENTICALLY to every anonymous viewer, so a short
     # shared cache collapses thousands of pollers into ~one origin fetch/window.
     _CACHEABLE_API = frozenset({"/api/sightings", "/api/stats", "/api/policy",
@@ -531,7 +578,27 @@ class Handler(BaseHTTPRequestHandler):
         return self.client_address[0]
 
     # -- routing --------------------------------------------------------
+    # Wrappers, not edits inside the handlers: both are hundreds of lines with
+    # many returns and their own try/except at the bottom, and a permit that
+    # leaks on one path takes the site down slowly. try/finally around a single
+    # call covers every exit including the 500 handler.
     def do_GET(self) -> None:
+        if not Handler._INFLIGHT.acquire(blocking=False):
+            return self._too_busy()
+        try:
+            return self._do_GET_inner()
+        finally:
+            Handler._INFLIGHT.release()
+
+    def do_POST(self) -> None:
+        if not Handler._INFLIGHT.acquire(blocking=False):
+            return self._too_busy()
+        try:
+            return self._do_POST_inner()
+        finally:
+            Handler._INFLIGHT.release()
+
+    def _do_GET_inner(self) -> None:
         try:
             u = urlparse(self.path)
             p, q = u.path, parse_qs(u.query)
@@ -1227,7 +1294,7 @@ class Handler(BaseHTTPRequestHandler):
                        "/api/rv/my-token", "/api/drive/report", "/api/drive/vote",
                        "/api/rv/retracted/delete"}
 
-    def do_POST(self) -> None:
+    def _do_POST_inner(self) -> None:
         try:
             p = urlparse(self.path).path
 
