@@ -28,7 +28,7 @@ import db
 import mirror
 import snapshot
 import review_auth
-from core import HELD, SNAPS
+from core import EVIDENCE, HELD, SNAPS
 
 
 def _pen_meta(sid: int) -> dict:
@@ -174,12 +174,29 @@ def queue(reviewer: dict, scope: str = "pool", limit: int = 60,
 
 
 def crop_bytes(sid: int) -> Optional[bytes]:
-    p = mirror.REVIEW / f"{int(sid)}.jpg"
-    if p.exists():
-        try:
-            return p.read_bytes()
-        except Exception:
-            return None
+    """The picture a reviewer judges by, and the one a confirmation publishes.
+
+    🚨 THE ORIGINAL FIRST, THE 200px PEN COPY ONLY AS A FALLBACK.
+    Both callers want the best picture that exists: the reviewer deciding
+    whether this is a patrol car, and `_publish`, which attaches whatever this
+    returns as the published photograph. Reading the pen copy meant every
+    confirmed sighting on the map was a 200px thumbnail of a car - the operator
+    marked one from the road and got a picture too small to show what he had
+    just seen - and the reviewer was judging livery at the same size.
+    Sub-resolution is a rule about PLATES on vehicles nobody has vouched for;
+    applying it to the government candidate itself destroyed the record.
+
+    core.EVIDENCE holds the full-resolution original for exactly as long as the
+    decision is outstanding, and only at home. When it is not there - a mirror,
+    a swept candidate, a reported item parked by `park_reported` - the pen copy
+    is still correct and still what gets used.
+    """
+    for p in (EVIDENCE / f"{int(sid)}.jpg", mirror.REVIEW / f"{int(sid)}.jpg"):
+        if p.exists():
+            try:
+                return p.read_bytes()
+            except Exception:
+                continue
     return None
 
 
@@ -622,6 +639,14 @@ def may_touch(reviewer: dict, sid: int) -> bool:
 def _delete_pen(sid: int) -> None:
     (mirror.REVIEW / f"{sid}.jpg").unlink(missing_ok=True)
     (mirror.REVIEW / f"{sid}.json").unlink(missing_ok=True)
+    # 🚨 AND THE UNREDACTED ORIGINAL, ON EVERY VERDICT.
+    # This function is the one path every outcome funnels through - confirm,
+    # confirm-as-gov, reject, and the orphan-clearing branch - which is exactly
+    # why the deletion belongs here rather than beside any one of them. The
+    # justification for holding a full-resolution plate at all is that somebody
+    # is about to look; the moment they have, it expires. `_publish` has
+    # already taken its copy through crop_bytes by the time it calls this.
+    (EVIDENCE / f"{sid}.jpg").unlink(missing_ok=True)
 
 
 def tighten(raw: bytes, box: Optional[dict]) -> bytes:
@@ -705,7 +730,7 @@ def _publish(sid: int, reviewer: dict, force_vclass: Optional[str] = None,
             # burned into the evidence every time round the report-confirm
             # loop. Everything else in the pen arrives unstamped and still
             # needs one.
-            snap = snapshot.store_subresolution(data_url, {
+            snap = snapshot.store_confirmed(data_url, {
                 "ts": meta.get("ts") or time.time(), "node_id": "review",
                 "node_name": meta.get("node_name") or "a camera",
                 "tier": "public", "vclass": vclass, "watermark": "CONFIRMED"},

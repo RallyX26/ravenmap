@@ -491,6 +491,67 @@ def downscale_to_subres(data_url: str) -> bytes:
     return buf.getvalue()
 
 
+def store_confirmed(data_url: str, meta: dict, stamp: bool = True) -> str:
+    """Store the photograph a REVIEWER has just vouched for.
+
+    🚨 THIS EXISTS BECAUSE `_publish` USED `store_subresolution`, WHICH REFUSES
+    ANYTHING OVER 200px. That was invisible while the only thing it was ever
+    handed was the 200px pen copy. The moment the reviewer's picture became the
+    full-resolution original it would have raised on every confirmation, and
+    `_publish` catches the failure and writes the raw bytes out itself - so the
+    map would have carried published photographs with no caption, no watermark
+    and no background strip, and nothing would have said so.
+
+    The input is already a crop of one vehicle, so the whole image IS the
+    subject and (0, 0, w, h) is the honest box - unlike a phone submission,
+    where that same call once stored the entire street.
+
+    Redaction does not apply: `meta["tier"]` is "public" here by definition,
+    which is the one case the plate is meant to survive. Nothing reaches this
+    function without a human having said so.
+    """
+    img = decode_upload(data_url)
+    name, _sha = store_crop(img, (0, 0, img.width, img.height), meta,
+                            stamp=stamp)
+    return name
+
+
+def crop_full(data_url: str, vehicle_box: tuple) -> bytes:
+    """Crop a camera node's frame to its vehicle and keep the resolution.
+
+    The sibling of `crop_to_subres`, and deliberately the same crop: the frame
+    is reduced to the vehicle box plus CROP_PAD, so the neighbours' houses and
+    everyone on the pavement are gone exactly as they are for the pen copy. The
+    ONLY difference is that this one does not then shrink the result to 200px.
+
+    That 200px is not a privacy measure aimed at the vehicle in the picture - it
+    is what destroys a PLATE. On a government candidate the plate is the thing
+    the public tier is for, and the livery is what the reviewer judges by, so
+    applying it here destroyed the evidence and the record in one step.
+
+    ⚠️ THE OUTPUT IS UNREDACTED AND FULL SIZE. It belongs in core.EVIDENCE and
+    nowhere else - never SNAPS, never a row's `snap`. See core.EVIDENCE for the
+    rails and for the cost of holding it at all.
+    """
+    import io
+    img = decode_upload(data_url)
+    x0, y0, x1, y1 = vehicle_box
+    pw, ph = (x1 - x0) * CROP_PAD, (y1 - y0) * CROP_PAD
+    box = (max(0, int(x0 - pw)), max(0, int(y0 - ph)),
+           min(img.width, int(x1 + pw)), min(img.height, int(y1 + ph)))
+    img = img.crop(box)
+    # Same ceiling every stored snapshot gets. Not a degradation of this one in
+    # particular: a published public-tier photograph is already capped here, so
+    # anything above it could never survive publication anyway.
+    if max(img.size) > MAX_EDGE:
+        s = MAX_EDGE / max(img.size)
+        img = img.resize((max(1, int(img.width * s)),
+                          max(1, int(img.height * s))), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "JPEG", quality=JPEG_QUALITY, optimize=True)
+    return buf.getvalue()
+
+
 def subres_from_stored(raw: bytes) -> bytes:
     """Shrink an ALREADY-STORED snapshot to review-pen resolution.
 

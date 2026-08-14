@@ -377,6 +377,20 @@ def purge_expired(conn) -> dict:
                 report["snaps_deleted"] += 1
         except Exception:
             pass
+
+    # 🚨 THE PEN EXEMPTION ABOVE HAS A SHARP EDGE NOW.
+    # `pending` keeps a candidate's ROW alive past the private window because a
+    # human has not answered - which is right, and which now also means an
+    # unredacted full-resolution original sits beside it for as long as nobody
+    # does. A queue that is never worked would have held those indefinitely
+    # under a rule written to protect the decision, not the picture. So the
+    # imagery expires on its own much shorter clock (core.EVIDENCE_TTL_S),
+    # independent of the row and independent of anyone remembering to look.
+    try:
+        import mirror
+        report["evidence_swept"] = mirror.evidence_sweep()
+    except Exception:
+        pass
     return report
 
 

@@ -20,6 +20,38 @@ work goes wrong.
 The third group is already the whole design. The first two were thinner than
 they should have been and are what this pass fixed.
 
+### The one place the third group is knowingly exposed
+
+A government CANDIDATE keeps a full-resolution, unredacted crop of the vehicle
+(`core.EVIDENCE`) from the moment it is classified until a human answers. The
+classifier runs near 95% precision, so roughly **one in twenty vehicles held
+there is an ordinary car**, and for as long as it waits its plate is legible in
+that file.
+
+This is a deliberate trade, not an oversight. The alternative is the behaviour
+it replaced: the plate regions were painted out and the crop shrunk to 200px
+*before* anyone was asked, which destroyed the door livery a reviewer judges by
+and the plate the public tier exists to publish - so the system degraded exactly
+the evidence needed to make the decision, and then published the degraded copy.
+A reviewer cannot judge a picture that has already been destroyed.
+
+What bounds it:
+
+* **no route serves that directory** - it is not `SNAPS`, so `/snap/<name>`
+  cannot reach it even if a filename leaks;
+* it is **never written to `sightings.snap`**, so it is on no public read path,
+  and `privacy.redact` already withholds a private row's photo from anon;
+* a reviewer reaches it only through the authenticated pen (`may_touch`);
+* it is **deleted on every verdict** - confirmed, gov, or rejected;
+* it is **swept after 72 hours** regardless (`core.EVIDENCE_TTL_S`), on its own
+  clock, so a queue nobody works cannot hold originals indefinitely under a rule
+  written to protect the decision rather than the picture;
+* **home only.** `mirror.evidence_write` refuses on a mirror, so the public box
+  never holds one.
+
+Nothing changes for a vehicle the classifier does not call government: its plate
+is still destroyed in the pixels at the camera, exactly as the row above says.
+
 ### Operators
 
 **What was leaking:** every public sighting carried `node_id`. Anyone could

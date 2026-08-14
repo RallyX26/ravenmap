@@ -2928,6 +2928,7 @@ class Handler(BaseHTTPRequestHandler):
         # looked at. `phone_node` is still excluded because it has its own route
         # - the inbox, which box_puller pulls and scores at home.
         review_crop = None
+        evidence_crop = None
         if (source != "phone_node" and mirror.relay_enabled()
                 and ev.get("snap_b64") and c["vclass"] in ("police", "gov_dot")):
             try:
@@ -2941,6 +2942,18 @@ class Handler(BaseHTTPRequestHandler):
                 if _vb:
                     review_crop = snapshot.crop_to_subres(ev["snap_b64"],
                                                           tuple(_vb))
+                    # And the same crop WITHOUT the 200px shrink, for the
+                    # reviewer and for whatever gets published if they say yes.
+                    # Built here because this is the last point the original
+                    # frame is still in hand - below, the mirror strips the
+                    # image and the redaction path rewrites it. Failing to
+                    # produce it must never cost the pen its card, so the pen
+                    # crop above is computed first and this cannot unset it.
+                    try:
+                        evidence_crop = snapshot.crop_full(ev["snap_b64"],
+                                                           tuple(_vb))
+                    except Exception:
+                        evidence_crop = None
                 else:
                     # No box means nothing to crop to. Park no picture rather
                     # than a bystander's - the same call the snapshot path
@@ -2993,11 +3006,22 @@ class Handler(BaseHTTPRequestHandler):
                     dropped_image = str(exc)
                 except Exception as exc:
                     return self._err(400, f"snapshot rejected: {exc}")
-            elif tier != "public" and not pbox:
+            elif tier != "public" and not pbox and not candidate:
                 # We cannot redact a plate we cannot locate, and a photograph of
                 # a car IS a photograph of its plate. So a private-tier image
                 # with no plate box is discarded rather than stored. The
                 # sighting itself still counts; only the picture is dropped.
+                #
+                # ⚠️ `not candidate` IS THE THIRD BEHAVIOUR THIS FILE LOST BY
+                # READING `tier` AFTER IT WAS FORCED TO PRIVATE. The two named
+                # above tier's rewrite are fragment merging and the pen write;
+                # this is the same mistake with the worst outcome. A marked
+                # patrol car whose plate the camera could not resolve - which is
+                # MOST of them, at 22px against the 60 an OCR needs - hit this
+                # branch and had its photograph thrown away for failing to
+                # locate a plate that was never going to be legible. The
+                # candidate's original is kept in core.EVIDENCE below instead,
+                # where the reviewer can actually see the livery.
                 dropped_image = "no plate box to redact on a private-tier image"
             elif source == "phone":
                 # A human aimed the camera; their framing IS the crop.
@@ -3147,6 +3171,14 @@ class Handler(BaseHTTPRequestHandler):
                 "ts": ts, "node_id": nid, "node_name": nd.get("name") or "",
                 "score": c.get("conf"), "vclass": c["vclass"],
                 "det_conf": ev.get("det_conf"), "body": ev.get("body")})
+            # The full-resolution original beside it, at home only. This is
+            # what the reviewer is shown and what a confirmation publishes, so
+            # the livery survives the wait and a plate is not destroyed for a
+            # vehicle whose plate is the entire point of the public tier.
+            # mirror.evidence_write refuses on a mirror; core.EVIDENCE carries
+            # the rails and the cost.
+            if evidence_crop is not None:
+                mirror.evidence_write(rec["id"], evidence_crop)
 
         # A node that is posting is self-evidently awake, so a submission is
         # also a heartbeat. Detectors that never learn to beat still show

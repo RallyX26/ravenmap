@@ -53,6 +53,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+import core
 from core import CONFIG, DATA
 
 # Where a mirror parks a phone contributor's crop for the home classifier to
@@ -197,6 +198,52 @@ def review_write(sighting_id: int, crop_bytes: bytes, meta: dict) -> Optional[st
         return stem
     except Exception:
         return None
+
+
+def evidence_write(sighting_id: int, full_bytes: bytes) -> Optional[str]:
+    """Keep a government candidate's full-resolution original until reviewed.
+
+    🚨 HOME ONLY, AND THE REFUSAL IS THE POINT. A mirror keeps claims and
+    photographs of PUBLISHED government vehicles - never un-degraded imagery of
+    whatever drove past, which is precisely what an unreviewed candidate is
+    until somebody looks. `may_store_image` already drops private-tier images on
+    a mirror for that reason; this is the same rule for the same reason, stated
+    where the second writer lives rather than assumed from the first.
+
+    Everything else about this file is described in core.EVIDENCE, including
+    why holding it is justified and what it costs.
+    """
+    if enabled():
+        return None
+    try:
+        core.EVIDENCE.mkdir(parents=True, exist_ok=True)
+        stem = str(int(sighting_id))
+        (core.EVIDENCE / f"{stem}.jpg").write_bytes(full_bytes)
+        return stem
+    except Exception:
+        return None
+
+
+def evidence_sweep(now_ts: Optional[float] = None) -> int:
+    """Destroy candidate originals nobody answered in time.
+
+    The retention sweep elsewhere runs on ROWS. This runs on FILES, because the
+    thing being bounded is un-degraded imagery on disk and a file that outlived
+    its row is exactly the case that needs catching - the same lesson as the
+    `/snap` file that outlived its sighting.
+    """
+    if not core.EVIDENCE.exists():
+        return 0
+    cut = (now_ts if now_ts is not None else time.time()) - core.EVIDENCE_TTL_S
+    gone = 0
+    for p in core.EVIDENCE.glob("*.jpg"):
+        try:
+            if p.stat().st_mtime < cut:
+                p.unlink(missing_ok=True)
+                gone += 1
+        except Exception:
+            continue
+    return gone
 
 
 def route_allowed(path: str) -> bool:

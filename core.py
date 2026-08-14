@@ -36,6 +36,44 @@ SNAPS = DATA / "snaps"
 # it back onto the map, restores it untouched, or deletes it for good.
 HELD = DATA / "held"
 
+# The full-resolution, UNREDACTED crop of a government CANDIDATE, kept only
+# until a human answers.
+#
+# 🚨 WHY THIS HAD TO EXIST. Ingest classifies a vehicle, then forces the tier
+# back to private so a person decides. Everything downstream reads `tier`, so a
+# patrol car awaiting review was handled as an ordinary civilian car and the
+# evidence was destroyed BEFORE the human was asked: its door livery was painted
+# out as a plate-shaped region, its photo was discarded outright when no plate
+# box was found, and the only surviving copy was the 200px pen crop - which is
+# what got published on confirm. The system was degrading exactly the thing it
+# needed in order to make, and then to support, the decision.
+#
+# Degradation is irreversible and the decision is deferred, so the original has
+# to outlive the wait. The rails that make that acceptable:
+#
+#   * NO ROUTE SERVES THIS DIRECTORY. Same rule as HELD. It is not SNAPS, so
+#     `/snap/<name>` cannot reach it even if a filename leaks.
+#   * It is never written to `sightings.snap`, so it is on no public read path.
+#   * A reviewer reaches it only through the authenticated pen (`may_touch`).
+#   * It is deleted the moment a verdict lands - confirmed or rejected - and
+#     swept after EVIDENCE_TTL_S if nobody ever answers.
+#   * HOME ONLY. A mirror carries claims, not un-degraded photographs of the
+#     street (mirror.evidence_write refuses).
+#
+# ⚠️ AND THE HONEST COST, WHICH IS REAL. The classifier runs near 95% precision,
+# so roughly one in twenty vehicles held here is NOT a government vehicle - an
+# ordinary car whose plate is legible in this file until somebody rejects it.
+# That is a deliberate trade the operator made knowingly: a reviewer cannot
+# judge a picture that has already been destroyed, and the harder the call the
+# better the picture needs to be. It is the reason for every rail above, and it
+# is why the sweep is aggressive rather than tidy.
+EVIDENCE = DATA / "evidence"
+
+# How long an unanswered candidate's original may sit there. Deliberately far
+# shorter than the 14-day private-tier retention: this is un-degraded imagery,
+# and the only thing justifying it is that somebody is about to look.
+EVIDENCE_TTL_S = 72 * 3600
+
 # 🚨 EVERY CLIENT THAT TALKS TO THE HUB MUST SAY WHO IT IS.
 #
 # Not politeness - it is load-bearing. The node clients sent no User-Agent at
