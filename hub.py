@@ -593,7 +593,31 @@ class Handler(BaseHTTPRequestHandler):
     # many returns and their own try/except at the bottom, and a permit that
     # leaks on one path takes the site down slowly. try/finally around a single
     # call covers every exit including the 500 handler.
+    # 🚨 TILES AND STATIC FILES ARE NOT GATED, AND THAT IS THE WHOLE POINT.
+    #
+    # The cap exists to bound work that costs CPU and the sqlite writer. A tile
+    # is the opposite: on a cache miss `_tile` fetches from the CDN and, as the
+    # note above RATE already said, "holds a worker thread up to 15s". Gating it
+    # meant a single visitor panning to a new area fired 20-40 tile misses that
+    # each took a permit and sat on it for fifteen seconds waiting on somebody
+    # else's network - so all 32 permits went to tiles and every real request
+    # got "busy - too many requests in flight". Reported as the map being down
+    # while /api/health, checked from elsewhere, answered 200 the whole time.
+    #
+    # 📌 The permit was measuring the wrong thing AGAIN - first connections
+    # instead of requests, now waiting instead of working. What must be bounded
+    # is work this box does, never time it spends waiting on someone else.
+    #
+    # Tiles are not unprotected: they carry their own budget (RATE
+    # "/api/tile" = 600/5min) which limits exactly the upstream amplification,
+    # and dualstack's thread ceiling plus the idle timeout still bound them.
+    # Static files under /static and /vendor are disk reads served from cache
+    # and a single page load pulls a dozen; gating those buys nothing either.
+    _UNGATED = ("/api/tile/", "/static/", "/vendor/")
+
     def do_GET(self) -> None:
+        if self.path.startswith(Handler._UNGATED):
+            return self._do_GET_inner()
         if not Handler._INFLIGHT.acquire(blocking=False):
             return self._too_busy()
         try:
