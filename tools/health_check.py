@@ -91,6 +91,7 @@ def save_state(s: dict) -> None:
 def check() -> dict:
     now = time.time()
     out = {"ts": now, "ok": True, "problems": [], "events": [], "nodes": []}
+    prev_uptime = (load_state() or {}).get("_uptime")
 
     # --- is the public map answering at all -------------------------------
     try:
@@ -108,12 +109,62 @@ def check() -> dict:
         out["problems"].append(f"/api/nodes failed: {exc}")
         return out
 
+    # --- the resource picture, which is where every outage actually showed --
+    # 🚨 THIS CHECKER NEVER POLLED /api/health. It watched cameras and sighting
+    # counts, which stayed healthy through every outage so far - the fd
+    # exhaustion, the request-gate misfires, the tile-janitor syscall storm.
+    # Each of those was visible in /api/health minutes before anyone noticed,
+    # and this file was looking the other way.
+    try:
+        h = get(f"{PUBLIC}/api/health")
+        out["health"] = h
+        if not h.get("ok"):
+            out["ok"] = False
+            out["problems"].append(
+                f"hub reports unhealthy: db={h.get('db')} "
+                f"{h.get('warn') or ''}".strip())
+        # A ramp, not a cliff - descriptor exhaustion climbed for 45 minutes
+        # before it took the site down.
+        if (h.get("fd_used_pct") or 0) > 50:
+            out["problems"].append(
+                f"file descriptors at {h['fd_used_pct']}% of the limit")
+        if (h.get("threads_peak") or 0) > 200:
+            out["problems"].append(
+                f"thread peak {h['threads_peak']} - connections are piling up")
+        # Upstream saturation is invisible in every other number.
+        if h.get("tile_fetch_free") == 0:
+            out["problems"].append("all tile-fetch slots busy - the basemap "
+                                   "will be blank for visitors")
+        if h.get("road_lookup_free") == 0:
+            out["problems"].append("road lookups saturated - enrolment and "
+                                   "drive reports will stall")
+        if (h.get("road_cells_failing") or 0) > 3:
+            out["problems"].append(
+                f"{h['road_cells_failing']} map cells failing to snap")
+        # A restart loop looks healthy at any single instant; only uptime shows it.
+        if (h.get("uptime_s") or 0) < 300 and prev_uptime is not None                 and prev_uptime < 300:
+            out["events"].append(
+                "the hub has restarted since the last check AND was young then "
+                "too - it is probably in a restart loop")
+        out["_uptime"] = h.get("uptime_s")
+    except Exception as exc:
+        out["problems"].append(f"/api/health failed: {exc}")
+
     prev = load_state()
     prev_nodes = {n["id"]: n for n in prev.get("nodes", [])}
 
     online_now = []
     for n in nodes:
-        nid, name = n["id"], n.get("name") or nid
+        # ⚠️ TWO STATEMENTS, NOT A TUPLE. This was
+        #     nid, name = n["id"], n.get("name") or nid
+        # and Python evaluates the whole right-hand side BEFORE assigning, so
+        # `nid` there is not this node's id. A nameless camera therefore either
+        # crashed this checker outright (if it was first in the list) or was
+        # silently reported under the PREVIOUS camera's name - a monitoring tool
+        # confidently mislabelling which camera is down. Found by pyflakes once
+        # preflight started checking for undefined names.
+        nid = n["id"]
+        name = n.get("name") or nid
         beat = n.get("last_beat")
         seen = n.get("last_seen")
         age = (now - beat) if beat else None

@@ -14,6 +14,8 @@ premise is not trusting whoever holds the database.
 
 from __future__ import annotations
 
+import re
+
 import base64
 import json
 import math
@@ -117,6 +119,14 @@ class NodeAuthError(Exception):
     """Re-enrolling an existing node without proving you own it."""
 
 
+def _clean_name(name: str) -> str:
+    """Strip markup and control characters from an operator-supplied name."""
+    s = str(name or "")[:80]
+    s = re.sub(r"[<>]", "", s)                      # no tags, anywhere
+    s = "".join(ch for ch in s if ch == "	" or ord(ch) >= 32)
+    return s.strip() or "Camera node"
+
+
 def enroll(name: str, lat: float, lon: float, pubkey: Optional[str] = None,
            heading: float = 0, fov: float = 60, reach_m: float = 45,
            kind: str = "fixed", contact: str = "", node_id: str = "",
@@ -139,6 +149,21 @@ def enroll(name: str, lat: float, lon: float, pubkey: Optional[str] = None,
     Both clients already sent the token when updating; only the server never
     looked at it.
     """
+    # 🚨 A NODE NAME IS PUBLIC AND OPERATOR-SUPPLIED. CLEAN IT AT THE SOURCE.
+    # Every current render path escapes it (esc() on the map, textContent on the
+    # review and retracted pages), so this is not a live hole - it is defence in
+    # depth against the mistake this codebase keeps making: a control applied to
+    # one representation and bypassed by another. A name reaches the map, the
+    # review app, the retracted shelf, health-check logs and any future export,
+    # and only one of those has to forget.
+    #
+    # Not hypothetical: a node is enrolled right now called "<h1>hello</h1>",
+    # so somebody is already testing this field.
+    #
+    # Markup characters and control characters go; the name itself is left
+    # otherwise intact, because a volunteer naming their camera should not have
+    # to think about our storage.
+    name = _clean_name(name)
     nid = node_id or ("n_" + secrets.token_hex(4))
     moved_from = None
     if node_id:

@@ -1508,6 +1508,23 @@ class Handler(BaseHTTPRequestHandler):
                 health["inflight"] = len(holding)
                 health["inflight_cap"] = MAX_REQUESTS
                 # Longest-held first: the one at the top is the one to blame.
+                # ⚠️ THE ONE RESOURCE THE LAST OUTAGE FIX INTRODUCED, AND THE
+                # ONLY ONE HEALTH DID NOT REPORT. Saturate these 12 permits and
+                # fds, threads and inflight all look perfectly normal while the
+                # map goes blank - a failure mode invisible to every existing
+                # number. Same for Overpass: a road lookup queue that is full
+                # stalls enrolment and drive reports with nothing else moving.
+                try:
+                    health["tile_fetch_free"] = _TILE_FETCH._value
+                    health["tile_fetch_cap"] = 12
+                except Exception:
+                    pass
+                try:
+                    import road as _road
+                    health["road_lookup_free"] = _road._OVERPASS_SLOTS._value
+                    health["road_cells_failing"] = len(_road._FAIL_UNTIL)
+                except Exception:
+                    pass
                 health["inflight_now"] = [
                     {"path": lbl, "held_s": round(nowt - t0, 1)}
                     for lbl, t0 in sorted(holding, key=lambda x: x[1])[:8]]
@@ -1786,8 +1803,17 @@ class Handler(BaseHTTPRequestHandler):
                 # plate" to disk. Someone checking on a patrol car that
                 # followed them home should leave no trace here.
                 out = _public_rows(rows)
+                # ⚠️ COMPUTED ONCE. This sat inside the loop and takes the WHOLE
+                # row set as its argument, so it was recomputed identically for
+                # every row - O(n squared) for a value that cannot vary between
+                # them. ~287ms at the 500-row cap, on a route that is no-store
+                # and therefore never absorbed by the cache. Latent only because
+                # the largest plate group is currently one row; public rows are
+                # served with their real plate_hash, so no alias is needed to
+                # drive the group size up.
+                score = classify.patrol_score(rows)
                 for r in out:
-                    r["patrol_score"] = classify.patrol_score(rows)
+                    r["patrol_score"] = score
                 return self._json(out)
 
             if p == "/api/leaderboard":

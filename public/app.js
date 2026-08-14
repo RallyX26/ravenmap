@@ -1266,6 +1266,21 @@ window.sparrowRefresh = async () => {
         fetch('/api/geocode?q=' + encodeURIComponent(q))
           .then((x) => x.json()).catch(() => ({ results: [] })),
       ]);
+      // 🚨 AN ERROR IS NOT AN EMPTY RESULT SET.
+      // The server answers a failed place lookup with {"error": ...} and no
+      // `results`, and this rendered that as "no matches" - so a Nominatim ban,
+      // a rate-limit or an upstream outage looked exactly like "that town isn't
+      // on the map". A person searching their own town would conclude the
+      // project does not cover them, and nothing anywhere would record a
+      // failure. The whole class of bug this codebase keeps finding: something
+      // broke, and the UI reported a confident, wrong answer instead.
+      const err = places.error || plates.error;
+      if (err && !(places.results || []).length && !(plates.results || []).length) {
+        box.innerHTML = `<div class="none">Search is temporarily unavailable`
+          + ` &mdash; ${esc(String(err).slice(0, 80))}</div>`;
+        box.style.display = '';
+        return;
+      }
       render(q, plates.results || [], places.results || []);
     } catch (err) {
       box.innerHTML = `<div class="none">Search unavailable.</div>`;
