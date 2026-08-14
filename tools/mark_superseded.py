@@ -86,12 +86,26 @@ def main() -> None:
             if old.get("superseded_by"):
                 continue
             d = _dist(old, newest)
-            ob, nb = old.get("last_beat") or 0, newest.get("last_beat") or 0
-            old_age, new_age = now - ob, now - nb
             if d > MAX_MOVE_M:
                 skipped.append(f"{nm}: {old['id']} is {d:.0f}m from "
                                f"{newest['id']} - too far, left alone")
                 continue
+            # 🚨 A NODE THAT NEVER BEAT WAS NEVER A CAMERA, SO IT CANNOT HAVE
+            # BEEN SUPERSEDED BY ONE.
+            # `last_beat or 0` reads "never started" as "last seen in 1970",
+            # which made every abandoned enrolment look infinitely stale and
+            # therefore retired. Five rows for one address were swept up that
+            # way - all of them enrolments that never sent a heartbeat, none of
+            # them a camera that moved. They are a different problem with a
+            # different fix, they are already absent from nodes_online because
+            # they never beat, and calling them superseded would put a wrong
+            # reason in the record to tidy a list.
+            if not old.get("last_beat"):
+                skipped.append(f"{nm}: {old['id']} never beat - never started, "
+                               f"not superseded")
+                continue
+            old_age = now - old["last_beat"]
+            new_age = now - (newest.get("last_beat") or 0)
             if not (old_age > new_age * QUIET_FACTOR and old_age > 600):
                 skipped.append(f"{nm}: {old['id']} still as active as "
                                f"{newest['id']} - left alone")
@@ -102,8 +116,12 @@ def main() -> None:
     print(f"rows to retire:   {len(retire)}\n")
     for old, new, d in retire:
         print(f"  {old['id']} -> {new['id']}  \"{(old.get('name') or '')[:34]}\"")
+        # Minutes, not hours. At 1 decimal place every handover inside an hour
+        # printed as "0.0h ago", which is how a row that had never beaten at
+        # all looked identical to one that beat seconds ago.
         print(f"      {d:.0f}m apart · old last beat "
-              f"{(now - (old.get('last_beat') or now))/3600:.1f}h ago · "
+              f"{(now - old['last_beat'])/60:.0f} min ago, new "
+              f"{(now - (new.get('last_beat') or now))/60:.0f} min ago · "
               f"{old.get('sightings') or 0} sightings stay with it")
     if skipped:
         print("\n  left alone:")
