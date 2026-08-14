@@ -66,6 +66,9 @@ TILE_CACHE_MAX = 20000
 _tile_count = None
 
 
+_tile_prune_lock = threading.Lock()
+
+
 def _tile_prune() -> None:
     """Keep the tile cache bounded, without stat-ing the tree on every hit.
 
@@ -73,25 +76,61 @@ def _tile_prune() -> None:
     write after start) or when the cap is reached. Walking the cache on every
     tile would turn a 2 ms disk read into a directory crawl at exactly the
     moment a viewer is dragging the map.
+
+    🚨 THAT IS EXACTLY WHAT IT DID, AND IT MELTED THE BOX.
+    Two faults, and they compounded. The prune walked and STAT-ED the whole
+    tree - sorted(rglob(...), key=st_mtime) over 20,000 files - and it ran
+    under no lock, so every tile thread that arrived while the cache sat at
+    capacity started its own full walk. Then it set the count back to None, so
+    the next write recounted the tree as well.
+
+    Measured mid-incident: the hub at 147% CPU with ONE request in flight, the
+    CPU 60% SYSTEM time (that is the stat() storm, not computation), load above
+    90, and the map timing out. Purging the CDN cache is what set it off: a cold
+    edge turns every tile into a MISS, every MISS into a write, and every write
+    into two directory crawls.
+
+    ⚠️ A CACHE JANITOR MUST NEVER COST MORE THAN THE CACHE SAVES. One thread
+    prunes and the rest carry on, the count is corrected in place instead of
+    being thrown away, and the pruning is amortised - it drops to a low-water
+    mark so the next few thousand writes cost nothing at all.
     """
     global _tile_count
-    if _tile_count is None:
-        _tile_count = sum(1 for _ in TILES.rglob("*.png"))
-    else:
-        _tile_count += 1
-    if _tile_count <= TILE_CACHE_MAX:
+    with _tile_prune_lock:
+        if _tile_count is None:
+            _tile_count = sum(1 for _ in TILES.rglob("*.png"))
+        else:
+            _tile_count += 1
+        if _tile_count <= TILE_CACHE_MAX:
+            return
+
+    # Only ONE pruner. Everyone else returns immediately and keeps serving:
+    # being slightly over the cap for a few seconds costs nothing, while a
+    # dozen concurrent tree walks costs the whole machine.
+    if not _tile_prune_lock.acquire(blocking=False):
         return
-    # Oldest first. Tiles are interchangeable and cheap to refetch, so there is
-    # no cleverness to buy here - unlike the crop bank, which prunes by whole
-    # DAYS because dropping the oldest crops first would bias the training set
-    # toward one time of day.
-    files = sorted(TILES.rglob("*.png"), key=lambda f: f.stat().st_mtime)
-    for f in files[:len(files) - TILE_CACHE_MAX + 1000]:
-        try:
-            f.unlink()
-        except OSError:
-            pass
-    _tile_count = None
+    try:
+        # Oldest first. Tiles are interchangeable and cheap to refetch, so there
+        # is no cleverness to buy here - unlike the crop bank, which prunes by
+        # whole DAYS because dropping the oldest crops first would bias the
+        # training set toward one time of day.
+        files = sorted(TILES.rglob("*.png"), key=lambda f: f.stat().st_mtime)
+        # Down to a LOW-WATER MARK, not to the cap. Trimming to exactly the cap
+        # leaves the next write over it again, which is how one expensive walk
+        # became an expensive walk per tile.
+        target = max(0, len(files) - int(TILE_CACHE_MAX * 0.8))
+        removed = 0
+        for f in files[:target]:
+            try:
+                f.unlink()
+                removed += 1
+            except OSError:
+                pass
+        # Corrected in place. Setting it to None forced a full recount on the
+        # very next write - a second crawl for every prune.
+        _tile_count = len(files) - removed
+    finally:
+        _tile_prune_lock.release()
 
 VERSION = "0.1.0"
 
