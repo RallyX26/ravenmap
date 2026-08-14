@@ -105,7 +105,18 @@ _PEAK = {"fd_pct": 0.0, "threads": 0}
 # How many requests may be BEING SERVED at once. See Handler._INFLIGHT for why
 # this counts requests rather than connections - the two earlier attempts
 # counted connections and locked real visitors out of an idle box twice.
-MAX_REQUESTS = 32
+#
+# 🚨 RAISED FROM 32 AFTER IT REFUSED REAL VISITORS A THIRD TIME, AND THE NUMBER
+# IS NOT THE LESSON. Three times now this gate has been set against a quantity I
+# had not measured: connections instead of requests, then 250 connections when
+# the steady state was already 32-64, then 32 requests while tile proxying held
+# permits for fifteen seconds each. Every time, the symptom was a 503 on an idle
+# box and every time I reasoned about the number instead of instrumenting it.
+#
+# So this is deliberately loose enough that it cannot be the thing that breaks
+# the site, and /api/health now PUBLISHES how many permits are in use and which
+# paths hold them (see _INFLIGHT_PATHS). Tune it from that, never from argument.
+MAX_REQUESTS = 200
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +306,12 @@ class Handler(BaseHTTPRequestHandler):
     # Named, module-level, so tools/test_overload.py can size its flood off the
     # real number instead of a copy that silently drifts out of step.
     _INFLIGHT = threading.Semaphore(MAX_REQUESTS)
+    # Who is holding a permit right now, and the worst hold time seen per path.
+    # Both are published by /api/health so the cap can be tuned from evidence.
+    _INFLIGHT_PATHS: dict = {}
+    _INFLIGHT_LOCK = threading.Lock()
+    _SLOW_HELD: dict = {}
+    _SLOW_S = 2.0
 
     def handle_one_request(self):
         # The read that BLOCKS on an idle keep-alive connection happens inside
@@ -615,23 +632,41 @@ class Handler(BaseHTTPRequestHandler):
     # and a single page load pulls a dozen; gating those buys nothing either.
     _UNGATED = ("/api/tile/", "/static/", "/vendor/")
 
+    def _gated(self, inner, label: str):
+        """Run a handler holding one permit, and RECORD that it holds it.
+
+        🚨 THE ACCOUNTING IS THE POINT, NOT THE CAP. Three separate times this
+        limiter refused visitors on an idle box, and every time the diagnosis
+        took a live investigation because nothing recorded what was actually
+        holding permits. A limiter that cannot say who is using it can only be
+        tuned by argument, and argument lost three times.
+        """
+        if not Handler._INFLIGHT.acquire(blocking=False):
+            return self._too_busy()
+        started = time.time()
+        with Handler._INFLIGHT_LOCK:
+            Handler._INFLIGHT_PATHS[id(self)] = (label, started)
+        try:
+            return inner()
+        finally:
+            Handler._INFLIGHT.release()
+            with Handler._INFLIGHT_LOCK:
+                Handler._INFLIGHT_PATHS.pop(id(self), None)
+                held = time.time() - started
+                if held > Handler._SLOW_S:
+                    # A permit held this long is the shape of every outage so
+                    # far: something waiting on a third party, not working.
+                    Handler._SLOW_HELD[label] = round(
+                        max(held, Handler._SLOW_HELD.get(label, 0)), 1)
+
     def do_GET(self) -> None:
         if self.path.startswith(Handler._UNGATED):
             return self._do_GET_inner()
-        if not Handler._INFLIGHT.acquire(blocking=False):
-            return self._too_busy()
-        try:
-            return self._do_GET_inner()
-        finally:
-            Handler._INFLIGHT.release()
+        return self._gated(self._do_GET_inner, self.path.split("?")[0][:48])
 
     def do_POST(self) -> None:
-        if not Handler._INFLIGHT.acquire(blocking=False):
-            return self._too_busy()
-        try:
-            return self._do_POST_inner()
-        finally:
-            Handler._INFLIGHT.release()
+        return self._gated(self._do_POST_inner,
+                           "POST " + self.path.split("?")[0][:42])
 
     def _do_GET_inner(self) -> None:
         try:
@@ -1045,6 +1080,22 @@ class Handler(BaseHTTPRequestHandler):
                     health["fd_peak_pct"] = _PEAK["fd_pct"]
                     health["threads_peak"] = _PEAK["threads"]
                     health["uptime_s"] = round(time.time() - _STARTED, 1)
+                # 🚨 WHAT IS ACTUALLY HOLDING THE REQUEST PERMITS.
+                # Published because this limiter has now refused visitors on an
+                # idle box three times, and each diagnosis needed a live
+                # investigation that this one field would have answered.
+                with Handler._INFLIGHT_LOCK:
+                    holding = list(Handler._INFLIGHT_PATHS.values())
+                    health["slowest_ever"] = dict(
+                        sorted(Handler._SLOW_HELD.items(),
+                               key=lambda kv: -kv[1])[:6])
+                nowt = time.time()
+                health["inflight"] = len(holding)
+                health["inflight_cap"] = MAX_REQUESTS
+                # Longest-held first: the one at the top is the one to blame.
+                health["inflight_now"] = [
+                    {"path": lbl, "held_s": round(nowt - t0, 1)}
+                    for lbl, t0 in sorted(holding, key=lambda x: x[1])[:8]]
                     # Degraded, not dead. Something is retaining descriptors
                     # and there is still time to look at it.
                     if used > soft * 0.8:
