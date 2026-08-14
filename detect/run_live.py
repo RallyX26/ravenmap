@@ -42,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import classify              # noqa: E402
 import snapshot              # noqa: E402
-from core import DATA        # noqa: E402
+from core import DATA        # noqa: E402, NODE_UA
 from detect import bank, visual    # noqa: E402
 from detect.grabber import FrameGrabber   # noqa: E402
 from detect.pipeline import (MIN_TRACK_FRAMES, TRACK_TIMEOUT_FRAMES,  # noqa: E402
@@ -525,7 +525,8 @@ def overlay_loop(args, stop) -> None:
                 req = urllib.request.Request(
                     f"{args.overlay}/api/detections", method="POST",
                     data=json.dumps(payload).encode(),
-                    headers={"Content-Type": "application/json"})
+                    headers={"Content-Type": "application/json",
+                 "User-Agent": NODE_UA})
                 urllib.request.urlopen(req, timeout=2).read()
             except Exception:
                 pass        # the overlay is a convenience; never a failure
@@ -592,6 +593,7 @@ def heartbeat_loop(args, stop) -> None:
             req = urllib.request.Request(
                 f"{args.hub}/api/heartbeat", method="POST", data=body,
                 headers={"Content-Type": "application/json",
+                 "User-Agent": NODE_UA,
                          "Authorization": f"Bearer {args.token}"})
             urllib.request.urlopen(req, timeout=10).read()
         except Exception as exc:
@@ -641,7 +643,8 @@ def push_confirm(args, stem: str, conf: float, published: bool) -> None:
             data=json.dumps({"day": time.strftime("%Y-%m-%d"), "stem": stem,
                              "conf": round(conf, 3), "ts": time.time(),
                              "published": bool(published)}).encode(),
-            headers={"Content-Type": "application/json"})
+            headers={"Content-Type": "application/json",
+                 "User-Agent": NODE_UA})
         urllib.request.urlopen(req, timeout=3).read()
     except Exception:
         pass        # a prompt nobody sees must never disturb the node
@@ -733,6 +736,7 @@ def post_one(vp, args, vid, ev=None, verdict=None, plate=None, agree=None,
         f"{args.hub}/api/sightings", method="POST",
         data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json",
+                 "User-Agent": NODE_UA,
                  "Authorization": f"Bearer {args.token}"})
     try:
         with urllib.request.urlopen(req, timeout=25) as r:

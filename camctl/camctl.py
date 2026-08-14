@@ -47,7 +47,7 @@ import sys                                        # noqa: E402
 sys.path.insert(0, str(HERE.parent))
 import db                                         # noqa: E402
 import labelbank                                  # noqa: E402
-from core import is_operator_addr                 # noqa: E402
+from core import is_operator_addr                 # noqa: E402, NODE_UA
 PRESETS = HERE / "presets.json"
 PORT = 8160
 
@@ -428,7 +428,8 @@ def enroll_with_hub(p: dict, hub: str = None) -> dict:
     req = urllib.request.Request(
         hub.rstrip("/") + "/api/enroll", method="POST",
         data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"})
+        headers={"Content-Type": "application/json",
+                 "User-Agent": NODE_UA})
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read())
 

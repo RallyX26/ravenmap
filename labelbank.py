@@ -39,7 +39,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from core import DATA
+from core import DATA, NODE_UA
 
 BANK = DATA / "training"
 # ⚠️ THE KEYS ARE STABLE, THE DISPLAY NAMES ARE NOT.
@@ -503,6 +503,7 @@ def _call_box(payload: dict, path: str = "/api/node/label") -> Optional[dict]:
         f"{hub}{path}", method="POST",
         data=json.dumps({**payload, "node_id": nid}).encode(),
         headers={"Content-Type": "application/json",
+                 "User-Agent": NODE_UA,
                  "Authorization": f"Bearer {tok}"})
     with urllib.request.urlopen(req, timeout=20) as r:
         return json.loads(r.read())

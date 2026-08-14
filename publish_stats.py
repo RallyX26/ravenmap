@@ -65,6 +65,12 @@ def send(url: str, token: str, body: dict) -> int:
     req = urllib.request.Request(
         url, data=json.dumps(body).encode(), method="POST",
         headers={"Content-Type": "application/json",
+                 # Identify the client. See core.NODE_UA - an unnamed client is
+                 # what Cloudflare's bot protection banned network-wide. This
+                 # module deliberately does not import core (it runs standalone
+                 # on the home hub), so the string is repeated rather than
+                 # dragging in a dependency for one header.
+                 "User-Agent": "SparrowMap-Node/1.0 (+https://sparrowmap.com)",
                  "Authorization": f"Bearer {token}"})
     with urllib.request.urlopen(req, timeout=20) as r:
         return r.status

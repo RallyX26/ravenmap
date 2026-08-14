@@ -20,6 +20,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 SNAPS = DATA / "snaps"
+
+# 🚨 EVERY CLIENT THAT TALKS TO THE HUB MUST SAY WHO IT IS.
+#
+# Not politeness - it is load-bearing. The node clients sent no User-Agent at
+# all, so urllib defaulted to "Python-urllib/3.x", and the moment Cloudflare was
+# put in front of map.sparrowmap.com its bot protection banned exactly that
+# signature: every camera POST came back 403 "error code: 1010" and never
+# reached the origin, while browser-based phone nodes carried on fine. Ingest
+# stopped network-wide and nothing said so, because a camera that cannot reach
+# the hub has nowhere to report that it cannot reach the hub.
+#
+# The server side of this project has always identified itself to third parties
+# (Overpass, Nominatim, the tile CDN, aircraft). The clients pointed at our OWN
+# hub were the ones that did not, which is backwards: those are the requests we
+# most need to be able to recognise, allow-list and debug.
+NODE_UA = "SparrowMap-Node/1.0 (+https://sparrowmap.com)"
 PUBLIC = ROOT / "public"
 DB_PATH = DATA / "sparrow.db"
 CONFIG_PATH = ROOT / "config.json"

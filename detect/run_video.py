@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import classify              # noqa: E402
 import privacy               # noqa: E402
 import snapshot              # noqa: E402
-from core import CONFIG, DATA  # noqa: E402
+from core import CONFIG, DATA  # noqa: E402, NODE_UA
 from detect import visual     # noqa: E402
 from detect.pipeline import run_video  # noqa: E402
 
@@ -160,6 +160,7 @@ def post(rows, passes, args) -> None:
             f"{args.hub}/api/sightings", method="POST",
             data=json.dumps(body).encode(),
             headers={"Content-Type": "application/json",
+                 "User-Agent": NODE_UA,
                      "Authorization": f"Bearer {args.token}"})
         try:
             with urllib.request.urlopen(req, timeout=20) as resp:
