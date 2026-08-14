@@ -97,3 +97,10 @@ brand/*.py
 testvideo/
 *.pt
 .wrangler/
+
+# Pre-edit snapshots. Harmless individually, but an untracked file that never
+# goes away leaves `git status` permanently dirty - and a dirty status is a
+# status nobody reads, which is how the box drifted for days without anyone
+# noticing. The live file is committed; the snapshot's content is in git
+# history if it is ever wanted.
+*.bak
