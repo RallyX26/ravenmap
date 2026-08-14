@@ -62,9 +62,11 @@ const CONTACT_EMAIL = "sparrowmap@icloud.com";
     + "color:#c7d2dc;font:15px/1.55 system-ui,sans-serif;box-shadow:0 24px 70px rgba(0,0,0,.6)");
   const h = mk("div", "Watch the watchers",
     "font-size:21px;font-weight:700;color:#fff;margin-bottom:10px");
+  // ⚠️ "PRIVATE plates", NOT "plates" - kept in step with public/app.js. A
+  // government plate is deliberately kept readable and searchable.
   const p = mk("div", "SparrowMap runs on volunteer cameras. Point a spare phone "
-    + "at a street and it maps the patrols that pass — plates destroyed on the "
-    + "device, never uploaded.", "color:#93a3b3;margin-bottom:20px");
+    + "at a street and it maps the patrols that pass. Private plates are "
+    + "destroyed on the device and never uploaded.", "color:#93a3b3;margin-bottom:20px");
   const add = mk("a", "Add a camera", "display:block;padding:14px;border-radius:11px;"
     + "background:#3b82f6;color:#fff;font-weight:600;text-decoration:none;margin-bottom:10px");
   add.href = APP_URL || "https://map.sparrowmap.com/app"; add.rel = "noopener";

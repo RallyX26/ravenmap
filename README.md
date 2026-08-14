@@ -55,11 +55,13 @@ record. A private person driving to work is not.
    plate text agrees. A single OCR slip must never be able to publish a
    stranger. `classify.py`.
 
-2. **The plate is destroyed in the image, not just in the database.** This is
-   the hole that sinks most designs: every plate reader photographs the plate,
-   so a private tier that keeps the photo keeps the plate. SparrowMap pixelates
-   and then bars the plate region before the JPEG is written.
-   `snapshot.redact_plate`.
+2. **A private plate is destroyed in the image, not just in the database.** This
+   is the hole that sinks most designs: every plate reader photographs the
+   plate, so a private tier that keeps the photo keeps the plate. SparrowMap
+   pixelates and then bars the plate region before the JPEG is written.
+   `snapshot.redact_plate`, gated on `tier != "public"` in `snapshot.py` - a
+   government plate stays legible in the snapshot on purpose, because that
+   photograph is the public record.
 
 3. **Snapshots are crops of the vehicle, not the frame.** The pedestrian, the
    house number, the kid in the yard are not in a tight crop of a car's rear

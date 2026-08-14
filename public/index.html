@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
-<link rel="stylesheet" href="/static/style.css?v=23">
+<link rel="stylesheet" href="/static/style.css?v=24">
 </head>
 <body>
 
@@ -60,6 +60,12 @@
       <button class="chip on" data-f="all">All</button>
       <button class="chip" data-f="police"   data-c="police">Government</button>
       <button class="chip" data-f="gov"      data-c="gov">Gov plate</button>
+      <!-- The inverse of "Government": the live road, with the records taken
+           off it. Nothing new is revealed - these are the same inert dots that
+           are already drawn under "All" - it just stops a handful of red
+           records from being the only thing the eye lands on when what you
+           want to see is whether the street is actually moving. -->
+      <button class="chip" data-f="traffic"  data-c="civilian">Traffic only</button>
       <button class="chip" data-f="none">None</button>
     </div>
 
@@ -67,6 +73,10 @@
       <label title="Applies to public sightings. Private traffic is live only and always fades after 45 seconds.">Show</label>
       <select id="window">
         <option value="0" selected>everything</option>
+        <!-- 5 minutes is shorter than nothing else here can usefully be: a
+             private pass has already faded at 45s, so this window only ever
+             narrows the PUBLIC tier, which is what the label says. -->
+        <option value="300">last 5 minutes</option>
         <option value="3600">last hour</option>
         <option value="21600">last 6 hours</option>
         <option value="86400">last 24 hours</option>
@@ -119,7 +129,7 @@
 
 <script src="/vendor/leaflet.js"></script>
 <script src="/static/transparency.js?v=18"></script>
-<script src="/static/app.js?v=35"></script>
+<script src="/static/app.js?v=36"></script>
 <script src="/static/refresh.js?v=18"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->

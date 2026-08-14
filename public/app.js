@@ -220,11 +220,24 @@ function pingStyle(s) {
   };
 }
 
+/* Whether a PUBLIC-tier record is drawn and listed.
+ *
+ * Private traffic never reaches here - drawSighting hands it to drawTraffic
+ * first - so "traffic" is expressed as "no public record passes", which is
+ * exactly what it means: the live road with the records taken off it. */
 function passes(s) {
   if (state.filter === 'none') return false;   // hide every vehicle marker
+  if (state.filter === 'traffic') return false;  // live passes only
   if (state.filter === 'all') return true;
   return s.vclass === state.filter;
 }
+
+/* True when the current filter is capable of showing a public record at all.
+ * Used to keep the "N more in the last 24h" nudge quiet when the records are
+ * hidden BY CHOICE - offering to widen the window is no help when the window
+ * is not what is hiding them, and it reads as the map arguing with itself. */
+const filterShowsPublic = () =>
+  state.filter !== 'none' && state.filter !== 'traffic';
 
 /* ------------------------------------------------------------- markers --- */
 
@@ -294,6 +307,7 @@ function redrawAll() {
   state.markers.clear();
   // None also clears the live-traffic layer (its dots are added outside this
   // pass and would otherwise linger until they faded on their own).
+  // "Traffic only" deliberately does NOT clear it - those dots are the view.
   if (state.filter === 'none') {
     state.trafficLayer.clearLayers();
     state.traffic.clear();
@@ -318,7 +332,9 @@ function renderList() {
   // trail, so a list row for it would be a row you cannot click carrying
   // nothing you can read - and listing them alongside records implies the
   // system holds something on them that it does not.
-  $('#listtitle').textContent = state.trackHash
+  $('#listtitle').textContent = state.filter === 'traffic'
+    ? 'Live traffic'
+    : state.trackHash
     ? `Trail · ${rows.length} sightings`
     // "sightings", not "vehicles" - the list has one row per PASS, and
               // without a plate there is no way to know how many vehicles that
@@ -338,7 +354,8 @@ function renderList() {
   const el = $('#windowhint');
   const hidden = (lastStats?.public_24h || 0) - rows.length;
   if (el) {
-    const show = !state.trackHash && hidden > 0 && state.windowS !== 0;
+    const show = !state.trackHash && hidden > 0 && state.windowS !== 0
+      && filterShowsPublic();
     el.style.display = show ? '' : 'none';
     if (show) {
       el.innerHTML = `${hidden} more public sighting${hidden === 1 ? '' : 's'}
@@ -349,6 +366,18 @@ function renderList() {
         load();
       };
     }
+  }
+
+  // Under "Traffic only" the list is empty BY DESIGN, and an empty list under a
+  // map full of moving dots reads as broken. Say why instead: a private pass has
+  // no plate, no id and no detail page, so there has never been anything to put
+  // in a row - which is the same point the tier itself is making.
+  if (state.filter === 'traffic') {
+    $('#list').innerHTML = `<li class="note">Private passes are not listed.
+      There is no plate, no id and no detail to show &mdash; the dot on the map
+      is the whole of what this system is allowed to know about one, and it
+      fades after ${TRAFFIC_FADE_S} seconds.</li>`;
+    return;
   }
 
   $('#list').innerHTML = rows.slice(0, 300).map((s) => `
@@ -1223,9 +1252,15 @@ function showIntro() {
   };
   const h = mk('div', 'Watch the watchers',
     { fontSize: '21px', fontWeight: '700', color: '#fff', marginBottom: '10px' });
+  // ⚠️ "PRIVATE plates", NOT "plates". A government plate is kept readable and
+  // searchable on purpose - that is the entire public tier - and snapshot.py
+  // redacts only when tier != "public". The unscoped version of this sentence
+  // promised something the system does not do and was never meant to do, which
+  // is a worse failure than promising nothing.
   const p = mk('div', 'SparrowMap runs on volunteer cameras. Point a spare phone '
-    + 'at a street and it maps the patrols that pass — plates destroyed on the '
-    + 'device, never uploaded.', { color: '#93a3b3', marginBottom: '20px' });
+    + 'at a street and it maps the patrols that pass. Private plates are '
+    + 'destroyed on the device and never uploaded.',
+    { color: '#93a3b3', marginBottom: '20px' });
   const add = mk('a', 'Add a camera', { display: 'block', padding: '14px',
     borderRadius: '11px', background: '#3b82f6', color: '#fff', fontWeight: '600',
     textDecoration: 'none', marginBottom: '10px' });

@@ -205,6 +205,14 @@ main{position:absolute; inset:52px 0 57px 0; display:flex}
 .list .who b.priv{font-weight:400; color:var(--dim); letter-spacing:.02em}
 .list .who span{display:block; font-size:10.5px; color:var(--dim2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .list .when{font:11px var(--mono); color:var(--dim2); flex:none}
+/* The one row that is prose rather than a record: shown under "Traffic only",
+   where an empty list is the correct output and needs to say so. Overrides the
+   row defaults - it is not clickable and must wrap. */
+.list li.note{
+  display:block; cursor:default; border-bottom:0; padding:10px 12px;
+  font-size:11.5px; line-height:1.55; color:var(--dim2);
+}
+.list li.note:hover{background:none}
 
 /* ---------- legend ---------- */
 .legend{

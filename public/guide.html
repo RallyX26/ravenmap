@@ -355,13 +355,18 @@ blockquote cite{display:block; margin-top:8px; font:11px var(--mono); font-style
       that would otherwise each become a &ldquo;sighting&rdquo;.</p>
     </li>
     <li>
-      <h4>The plate is destroyed in the image</h4>
+      <h4>A private plate is destroyed in the image</h4>
       <p>Every plate-shaped region is pixelated <em>and then</em> painted over
       with an opaque bar labelled <b>PLATE NOT STORED</b>. Pixelation alone is
       reversible on a fixed-layout character set &mdash; you can render every
       candidate, downsample, and compare &mdash; so the bar is what actually
       destroys it and the pixelation is what survives if the bar is ever
       removed.</p>
+      <p>This step is skipped for a <strong>government</strong> vehicle, and
+      that is deliberate rather than an oversight: its snapshot is the public
+      record, and a public record of a patrol car with the plate painted out
+      would prove nothing. The redaction is gated on the tier
+      (<code>snapshot.py</code>), so it runs for everybody else.</p>
       <p>Every candidate region is redacted, not just the best one. On a marked
       vehicle the door lettering is a bigger patch of white-on-dark than the
       plate, so &ldquo;the biggest one&rdquo; blacked out the livery and left the

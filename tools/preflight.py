@@ -51,6 +51,23 @@ PATTERNS = {
     "private key": r"BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY",
 }
 
+# 🚨 DELIBERATELY PUBLISHED, AND DELIBERATELY A LITERAL LIST.
+#
+# This check reads the WHOLE of every changed file rather than the diff, which
+# is the right call - a secret that was already committed is still a secret
+# that is published. But it means a file carrying the project's own contact
+# address can never pass again, and every future edit to the guide or the
+# landing page reports the same two "failures". A gate that fails on a clean
+# change is a gate people learn to run with --force in their head, and then it
+# is not protecting anything.
+#
+# So: exact strings only, never patterns. Anything that is not on this list is
+# still a failure. Adding to it should feel like a decision to publish,
+# because that is what it is.
+PUBLIC_OK = {
+    "sparrowmap@icloud.com",   # the project's own inbox, printed on /guide
+}
+
 ok = True
 
 
@@ -230,6 +247,8 @@ def check_personal_data(changed: list[str]) -> None:
         text = p.read_text(encoding="utf-8", errors="replace")
         for name, pat in PATTERNS.items():
             for m in re.finditer(pat, text):
+                if m.group(0) in PUBLIC_OK:
+                    continue
                 say("FAIL", f"{f}: possible {name}: {m.group(0)[:48]}")
                 hits += 1
     if not hits:
