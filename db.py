@@ -242,6 +242,20 @@ MIGRATIONS = [
     # When it was held, so the fix queue can show the oldest first - a held
     # photo is a sighting with its evidence missing, which is a debt.
     ("sightings", "held_at", "REAL"),
+    # 🚨 DOES THIS CAMERA'S OWNER AGREE TO PUBLISH THE STRETCH OF ROAD IT
+    # WATCHES? NULL/0 = no, and that is the deliberate default.
+    #
+    # The span was published for every camera unconditionally, on the argument
+    # that "people are entitled to know where they are recorded" - which is
+    # true, and which the owner was never asked about. An 80 m span on a NAMED
+    # road is coarse in a town and close to an address in the country: on a
+    # rural stretch where one house overlooks the road, the span plus the road
+    # name is that house. The person who accepted that exposure is the one
+    # volunteering the camera, and they were not consulted.
+    #
+    # Opt-IN rather than opt-out, because a default that publishes and waits to
+    # be corrected has already published. See /api/node/span.
+    ("nodes", "publish_span", "INTEGER"),
 ]
 
 # The setup funnel, in order. Progress only ever moves FORWARD through this
@@ -1025,6 +1039,14 @@ def set_sighting_desc(sighting_id: int, body: Optional[str] = None,
     args.append(sighting_id)
     conn = connect()
     conn.execute(f"UPDATE sightings SET {', '.join(sets)} WHERE id=?", args)
+    conn.commit()
+
+
+def set_publish_span(node_id: str, on: bool) -> None:
+    """Record whether this camera's owner agrees to publish its watched road."""
+    conn = connect()
+    conn.execute("UPDATE nodes SET publish_span=? WHERE id=?",
+                 (1 if on else 0, str(node_id)))
     conn.commit()
 
 

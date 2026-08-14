@@ -1309,6 +1309,11 @@ class Handler(BaseHTTPRequestHandler):
                     "road_name": nd.get("road_name"),
                     "span_source": nd.get("span_source"),
                     "span": node_mod.span_of(nd),
+                    # Whether the owner has agreed to publish that span. Sent so
+                    # the aim page can show the switch in its true position -
+                    # a consent control that renders "off" on every load is
+                    # indistinguishable from one that never saved.
+                    "publish_span": bool(nd.get("publish_span")),
                     "sightings": nd.get("sightings") or 0,
                     "last_seen": nd.get("last_seen"),
                 })
@@ -1793,14 +1798,34 @@ class Handler(BaseHTTPRequestHandler):
                     # from; with no origin point a cone cannot be drawn, and an
                     # aim vector is precisely what re-derives a camera from its
                     # span.
+                    # 🚨 THE SPAN IS THE OWNER'S TO PUBLISH, AND THEY WERE NEVER
+                    # ASKED.
+                    #
+                    # The line below used to read "Public, exact, and the ONLY
+                    # geometry a viewer gets - people are entitled to know where
+                    # they are recorded." The entitlement is real. The mistake
+                    # was deciding it on the volunteer's behalf: an 80 m span on
+                    # a NAMED road is coarse in a town and close to an address
+                    # in the country, and on a rural stretch overlooked by one
+                    # house, the span plus the road name IS that house.
+                    #
+                    # ⚠️ AND THE "watched roads" CHECKBOX WAS NEVER A CONTROL ON
+                    # THIS. It only decided whether the map DREW them; every
+                    # span was in this response for anyone who ran curl. That is
+                    # the same lesson three comments up - a control applied to
+                    # one representation is bypassed by the other - arriving
+                    # again, on the field those comments were protecting.
+                    #
+                    # So consent is checked HERE, at the point of publication.
+                    # road_name and span_source go with it: naming the street a
+                    # camera watches re-states most of the span in words.
+                    shares = bool(n.get("publish_span"))
                     rec = {
                         "id": n["id"], "name": n["name"],
                         "kind": n["kind"], "sightings": n["sightings"],
-                        # The stretch of road this camera covers. Public, exact,
-                        # and the ONLY geometry a viewer gets - people are
-                        # entitled to know where they are recorded.
-                        "span": span, "road_name": n["road_name"],
-                        "span_source": n["span_source"],
+                        "span": span if shares else None,
+                        "road_name": n["road_name"] if shares else None,
+                        "span_source": n["span_source"] if shares else None,
                         "last_seen": n["last_seen"], "last_beat": n["last_beat"],
                         # 'online' now means the node SAID SO. It used to mean
                         # 'a car drove past in the last 15 minutes', which
@@ -1903,7 +1928,8 @@ class Handler(BaseHTTPRequestHandler):
                        "/api/rv/login", "/api/rv/logout", "/api/rv/verdict",
                        "/api/rv/tokens/new", "/api/rv/tokens/revoke",
                        "/api/rv/my-token", "/api/drive/report", "/api/drive/vote",
-                       "/api/rv/retracted/delete", "/api/rv/held/fix"}
+                       "/api/rv/retracted/delete", "/api/rv/held/fix",
+                       "/api/node/span"}
 
     def _do_POST_inner(self) -> None:
         try:
@@ -2094,6 +2120,35 @@ class Handler(BaseHTTPRequestHandler):
                              actor=f"camera {nd['id']}",
                              ip=privacy.audit_ip(self.client_ip))
                 return self._json(out)
+
+            if p == "/api/node/span":
+                # The camera owner deciding whether the stretch of road their
+                # camera watches appears on the public map. Same node-token auth
+                # as /api/node/label, and for the same reason: this publishes
+                # something, so a tokenless node is not good enough.
+                #
+                # Only ever about THEIR node. There is no id to guess at here -
+                # the node is the one the token belongs to.
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if not nd.get("token"):
+                    return self._err(401, "this node has no token; re-enroll it")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                on = bool(b.get("publish"))
+                db.set_publish_span(nd["id"], on)
+                db.audit("node_span:" + ("publish" if on else "hide"),
+                         nd["id"], actor=f"camera {nd['id']}",
+                         ip=privacy.audit_ip(self.client_ip))
+                # Report whether there is actually a span to publish, so the
+                # camera page can say "on, but this camera has no road yet"
+                # instead of showing a switch that appears to do nothing.
+                return self._json({"ok": True, "publish": on,
+                                   "has_span": node_mod.span_of(db.node(nd["id"]))
+                                   is not None,
+                                   "road_name": (db.node(nd["id"]) or {}).get("road_name")})
 
             if p == "/api/node/confirm":
                 # 🚨 THE OPERATOR SAYING "YES, THAT WAS A PATROL CAR" ABOUT A

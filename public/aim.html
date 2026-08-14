@@ -45,6 +45,13 @@ button:disabled{opacity:.5}
 .msg.bad{border-color:#7a3030;background:#1a0f0f}
 .road{font-size:17px;font-weight:600;color:var(--go)}
 .hint{color:var(--dim);font-size:13px;margin:8px 0 0}
+.hint.warn{color:#e0b755;border:0;background:none;padding:0}
+.share{margin-top:14px;padding:12px 13px;border:1px solid var(--line);
+       border-radius:10px;background:rgba(255,255,255,.02)}
+.sharerow{display:flex;align-items:flex-start;gap:10px;cursor:pointer;
+          font-size:14.5px;line-height:1.45}
+.sharerow input{width:19px;height:19px;margin:1px 0 0;flex:0 0 auto}
+.share.on{border-color:#2f6b4f;background:rgba(61,220,151,.06)}
 .gate{padding:22px 16px;max-width:520px;margin:0 auto}
 input[type=password],input[type=text]{width:100%;padding:11px;border-radius:9px;
   border:1px solid var(--line);background:#0f141d;color:var(--ink);font:inherit}
@@ -121,10 +128,33 @@ input[type=password],input[type=text]{width:100%;padding:11px;border-radius:9px;
       <div id="msgtext">Current: <span id="curroad">not yet snapped to a road</span></div>
     </div>
 
-    <p class="hint">
-      Your camera's own position is never published. Only the stretch of road
-      it covers is, and only that stretch is what other people see.
-    </p>
+    <!-- 🚨 CONSENT, NOT A DISPLAY OPTION. This decides whether the watched
+         stretch of road is in /api/nodes at all, not whether the map draws it.
+         The old copy here told the owner their span "is" published, as a
+         statement of fact they had no say in. -->
+    <div class="share" id="sharebox">
+      <label class="sharerow">
+        <input type="checkbox" id="c_share">
+        <span><b>Show the road this camera watches on the public map</b></span>
+      </label>
+      <p class="hint" id="sharehint">
+        Off by default, and off is a fine choice. Your camera's own position is
+        never published either way, and turning this off does not stop the
+        camera contributing sightings.
+      </p>
+      <p class="hint">
+        <b>Why turning it on helps:</b> it is the honest half of the project.
+        Anyone can see exactly which stretch of road is being recorded, and
+        therefore where they are not. A map of patrols with no way to check
+        where the watching happens asks people to take it on trust.
+      </p>
+      <p class="hint warn" id="sharewarn">
+        <b>Why you might leave it off:</b> the stretch is a real, named piece of
+        road. In a town that tells nobody much. On a quiet road where yours is
+        the only house overlooking it, the road plus its name can point at your
+        home. If that describes where you are, leave this off.
+      </p>
+    </div>
   </div>
 </div>
 
@@ -213,6 +243,69 @@ function pointAt(latlng){
   draw();
 }
 
+/* The publish-my-road switch.
+
+   🚨 IT SAVES IMMEDIATELY AND REPORTS WHAT THE SERVER DID, rather than riding
+   along with "Save and check the road". A consent control that only takes
+   effect when you press an unrelated button somewhere else is a consent
+   control people believe they have set and have not - and the direction that
+   fails is publication.
+
+   On failure it snaps BACK to the server's last known answer. A checkbox left
+   sitting in the position the owner clicked, after the save was refused, is a
+   lie about what is public. */
+function wireShare(p){
+  var box = $('#c_share'), wrap = $('#sharebox'), hint = $('#sharehint');
+  if (!box) return;
+  var saved = !!p.publish_span;
+  box.checked = saved;
+  wrap.classList.toggle('on', saved);
+
+  function tell(on, note){
+    hint.innerHTML = on
+      ? 'On. The stretch of road is on the public map' +
+        (p.road_name ? ' as <span class="road">' + esc(p.road_name) + '</span>' : '') +
+        '. Turn it off at any time and it disappears from the map.' +
+        (note ? ' <b>' + esc(note) + '</b>' : '')
+      : 'Off. Nobody can see which road this camera watches, and your camera ' +
+        'still contributes sightings exactly as before.';
+  }
+  tell(saved);
+
+  box.addEventListener('change', function(){
+    var want = box.checked;
+    box.disabled = true;
+    // _token_ok reads the Authorization header, not the body. Sending it in
+    // the body would authenticate nothing and the route would 401.
+    fetch('/api/node/span', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json',
+                'Authorization': 'Bearer ' + (node && node.token ? node.token : '') },
+      body: JSON.stringify({ node_id: p.id, publish: want })
+    }).then(function(r){ return r.json(); }).then(function(j){
+      box.disabled = false;
+      if (!j || !j.ok){
+        box.checked = saved; wrap.classList.toggle('on', saved);
+        tell(saved, '');
+        say('That did not save: ' + ((j && j.error) || 'the server refused it') +
+            '. Nothing has changed.', 'warn');
+        return;
+      }
+      saved = !!j.publish;
+      box.checked = saved; wrap.classList.toggle('on', saved);
+      // has_span is the difference between "on" and "on, and there is
+      // something to show" - a switch that appears to do nothing otherwise.
+      tell(saved, saved && !j.has_span
+        ? 'This camera has no road worked out yet, so nothing will appear until ' +
+          'you set a direction and press Save.' : '');
+    }).catch(function(){
+      box.disabled = false;
+      box.checked = saved; wrap.classList.toggle('on', saved);
+      say('Could not reach the server. Nothing has changed.', 'warn');
+    });
+  });
+}
+
 function boot(p){
   place = p;
   pos = L.latLng(p.lat, p.lon);
@@ -231,6 +324,8 @@ function boot(p){
   if (p.span && p.span.length){
     span = L.polyline(p.span, { color:'#3ddc97', weight:4, opacity:.55 }).addTo(map);
   }
+
+  wireShare(p);
 
   if (p.kind === 'mobile'){
     $('#mobilewarn').classList.remove('hidden');
