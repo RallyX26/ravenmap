@@ -2102,8 +2102,19 @@ class Handler(BaseHTTPRequestHandler):
                 # oversized image is refused rather than quietly published.
                 if b.get("snap_b64"):
                     try:
+                        # ⚠️ DOWNSCALE FIRST. store_subresolution ENFORCES a
+                        # 200px longest edge and raises otherwise - correctly,
+                        # it is the guard that keeps a published crop
+                        # unidentifiable. Banked training crops are 512px wide,
+                        # so every operator confirmation hit that ValueError,
+                        # got caught by the except below, and the sighting was
+                        # created with snap=None: on the map, confirmed, with no
+                        # photograph behind it. The measurement, not the guess:
+                        # "sub-resolution submission is 512x229".
+                        import base64 as _b64
+                        _small = snapshot.downscale_to_subres(b["snap_b64"])
                         b["snap"] = snapshot.store_subresolution(
-                            b["snap_b64"],
+                            "data:image/jpeg;base64," + _b64.b64encode(_small).decode(),
                             {"ts": b.get("ts") or now(), "node_id": nd["id"],
                              "node_name": nd.get("name") or "a camera",
                              "tier": "public", "vclass": "police",
@@ -2686,6 +2697,14 @@ class Handler(BaseHTTPRequestHandler):
             tier = "private"
         elif candidate:
             c["why"] = (c.get("why") or "") + " - confirmed by the camera operator"
+            # 🚨 RECORD THE DECISION. A public row with reviewed IS NULL is
+            # indistinguishable from one that reached the map unreviewed, which
+            # is the single claim this project makes about itself - "nothing is
+            # published without a person". The audit checks for exactly this
+            # ("public tier with no human decision"), and it would have started
+            # counting these.
+            ev["_reviewed"] = "confirmed"
+            ev["_decided_by"] = "human"
 
         # A camera node scores its own crop, so its GOVERNMENT candidates go
         # straight to the review pen for a human to confirm - captured here as a
@@ -2858,6 +2877,7 @@ class Handler(BaseHTTPRequestHandler):
             "make": ev.get("make"), "model": ev.get("model"),
             "heading": ev.get("heading"), "speed_mph": ev.get("speed_mph"),
             "snap": ev.get("snap"), "source": ev.get("source", "camera"),
+            "reviewed": ev.get("_reviewed"), "decided_by": ev.get("_decided_by"),
             "bank_ref": (ev.get("bank_ref") or None),
             "sig_ok": 1 if sig_ok else 0,
         }

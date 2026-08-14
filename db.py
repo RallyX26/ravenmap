@@ -319,7 +319,15 @@ FIELDS = ("node_id", "ts", "lat", "lon", "tier", "plate_hash", "plate_text",
           # to search every sidecar once per sighting, which was over 300,000
           # file reads on a single page load and got worse every hour the node
           # ran. A join key belongs in the table that needs to join.
-          "bank_ref")
+          "bank_ref",
+          # Who decided, at INSERT time. Only ever set by the operator-confirm
+          # path, which is the one route where a person has already ruled before
+          # the row exists. Everything else leaves these NULL and earns them
+          # through promote_sighting/review_sighting. Without them here, an
+          # operator-confirmed row reached the public tier with reviewed IS NULL
+          # - indistinguishable from something published with nobody looking,
+          # which is the one claim this project makes about itself.
+          "reviewed", "decided_by")
 
 
 def insert_sighting(rec: dict) -> int:
