@@ -22,6 +22,21 @@ WorkingDirectory=/opt/sparrowmap
 # Loopback only. Caddy terminates TLS in front and proxies here; binding wider
 # would put the port on the internet past every header and rate limit.
 Environment=SPARROW_BIND=127.0.0.1
+# 🚨 WITHOUT THIS THE BOX CANNOT TELL YOU ANYTHING IS WRONG.
+#
+# Python block-buffers stdout when it is not a terminal, and systemd gives it a
+# pipe. So every `print()` in the hub sat in an 8 KB buffer instead of reaching
+# the journal, and a process that logs only when it is busy logs nothing at all
+# when it is stuck - which is the one moment the log is worth having.
+#
+# The cost was measured, not imagined. `/api/node/confirm` printed
+# "[confirm] could not store crop: ..." on every single operator confirmation
+# for a whole day; `journalctl -u sparrowmap | grep confirm` returned NOTHING,
+# so the obvious conclusion was that the code never ran, and the real fault
+# (snapshot.store_crop refusing without cv2) went unfound while sightings were
+# published with no photograph. A silent failure and a silent log are the same
+# bug twice.
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/sparrowmap/.venv/bin/python /opt/sparrowmap/hub.py
 Restart=on-failure
 RestartSec=3

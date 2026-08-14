@@ -154,16 +154,21 @@ def store_crop(frame: Image.Image, bbox: Optional[tuple], meta: dict,
         # Done AFTER the crop: segmentation runs on a much smaller image, and
         # the vehicle of interest is by construction the one in the middle.
         if CONFIG.get("strip_snapshot_background", True):
+            # 🚨 COMPUTED BEFORE THE TRY, BECAUSE THE FALLBACK NEEDS IT.
+            # Only the instance in the middle of the crop - a street scene holds
+            # several vehicles and this snapshot is about one of them. It used
+            # to be worked out after `import cv2`, which is the one line that
+            # fails; the no-cv2 path below would then have raised NameError on
+            # `centre` instead of masking anything, turning a fix into the same
+            # silent failure it was written to remove.
+            w2, h2 = img.width, img.height
+            centre = (w2 * 0.18, h2 * 0.18, w2 * 0.82, h2 * 0.82)
             try:
                 import cv2
                 import numpy as np
 
                 import isolate
-                w2, h2 = img.width, img.height
                 arr = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-                # Only the instance in the middle of the crop - a street scene
-                # holds several vehicles and this snapshot is about one of them.
-                centre = (w2 * 0.18, h2 * 0.18, w2 * 0.82, h2 * 0.82)
                 arr, method = isolate.strip(arr, centre)
                 img = Image.fromarray(cv2.cvtColor(arr, cv2.COLOR_BGR2RGB))
                 meta["_isolation"] = method
@@ -175,14 +180,46 @@ def store_crop(frame: Image.Image, bbox: Optional[tuple], meta: dict,
                     print(f"[snapshot] background only partly removed "
                           f"(method={method})")
             except ImportError as exc:
-                # Refuse rather than publish unmasked. Same posture as
-                # blur_faces: a privacy control that quietly no-ops is worse
-                # than not claiming to have one.
-                raise ValueError(
-                    f"cannot remove snapshot background ({exc}); refusing to "
-                    f"store an image that would show the camera's surroundings. "
-                    f"Set strip_snapshot_background=false to publish anyway."
-                ) from exc
+                # 🚨 THIS USED TO RAISE, AND ON THE ONE MACHINE THAT SERVES THE
+                # PUBLIC MAP IT RAISED EVERY SINGLE TIME.
+                #
+                # The mirror has Pillow and no OpenCV on purpose - the detector
+                # runs at home, the box carries claims (DEPLOY.md). So `import
+                # cv2` failed here for every stored image, this turned it into a
+                # ValueError, and `/api/node/confirm` caught it best-effort and
+                # created the sighting with `snap=None`: on the map, confirmed by
+                # a human, with no photograph behind it. The operator was told
+                # `{"ok": true}`. Measured on the box, not inferred - a real
+                # 512x229 banked crop through `store_subresolution` raises
+                # `No module named 'cv2'`, and 16,597 sightings carry 76 images,
+                # every one of them published from home.
+                #
+                # Refusing was written to stop an UNMASKED image reaching the
+                # public. It is still not allowed to. But there is a third
+                # option between "segment it" and "publish nothing", and this
+                # file already accepts it: `isolate.strip` falls back to method
+                # "box" - blank everything outside the vehicle's box - whenever
+                # segmentation fails. That fallback is pure geometry and needs
+                # no OpenCV at all, so do it in Pillow instead of giving up.
+                #
+                # ⚠️ It is a DOWNGRADE, and it goes down the same loud path as
+                # any other downgrade below: stamped into `_isolation`, printed,
+                # and never assumed. A "none" result is still a refusal, because
+                # an image nothing was done to must not be stored.
+                import isolate_pil
+                img, method = isolate_pil.strip_box(img, centre)
+                meta["_isolation"] = method
+                if method == "none":
+                    raise ValueError(
+                        f"cannot remove snapshot background ({exc}) and the "
+                        f"geometry fallback could not run either; refusing to "
+                        f"store an image that would show the camera's "
+                        f"surroundings. Set strip_snapshot_background=false to "
+                        f"publish anyway."
+                    ) from exc
+                print(f"[snapshot] no cv2 ({exc}); background removed by "
+                      f"geometry only (method={method}) - weaker than "
+                      f"segmentation, and it shows")
     elif CONFIG.get("crop_only", True):
         raise ValueError(
             "store_crop called with no vehicle box while crop_only is on. "
