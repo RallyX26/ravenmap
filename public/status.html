@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Status — SparrowMap</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body{overflow:auto}
+  .doc{max-width:760px; margin:0 auto; padding:34px 20px 90px}
+  h1{font-size:27px; margin:0 0 4px}
+  .sub{color:var(--dim2); margin:0 0 26px}
+  h2{font:600 11.5px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+     color:var(--dim2); margin:34px 0 12px}
+  .back{display:inline-block; margin-bottom:20px; font:11px var(--mono);
+        letter-spacing:.12em; text-transform:uppercase; color:var(--dim); text-decoration:none}
+  .back:hover{color:var(--ink)}
+
+  /* The verdict. Deliberately the loudest thing on the page, because it is the
+     whole answer: this page arrived, so the connection works. */
+  .verdict{border-radius:12px; padding:20px 22px; margin:0 0 22px;
+           border:1px solid var(--line2); background:#0b1a12;
+           border-color:#1e4630;}
+  .verdict b{display:block; font-size:20px; color:#5ee08a; margin-bottom:6px}
+  .verdict p{margin:0; font-size:13.5px; color:var(--dim); line-height:1.55}
+  .verdict .stamp{font:11.5px var(--mono); color:var(--dim2); margin-top:10px;
+                  display:block; letter-spacing:.04em}
+
+  .cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px}
+  .card{background:#0d1219; border:1px solid var(--line2); border-radius:9px; padding:13px 15px}
+  .card b{display:block; font:600 24px/1.1 var(--mono); letter-spacing:-.01em}
+  .card span{font-size:11px; color:var(--dim2); letter-spacing:.05em}
+  .card.bad b{color:var(--hot)}
+
+  p.body{font-size:13.5px; color:var(--dim); line-height:1.65}
+  .note{font-size:12.5px; color:var(--dim); background:#0a1018; border-left:2px solid var(--line2);
+        padding:11px 14px; border-radius:0 7px 7px 0; margin:14px 0; line-height:1.6}
+  ol.steps{font-size:13.5px; color:var(--dim); line-height:1.6; padding-left:20px}
+  ol.steps li{margin:9px 0}
+  ol.steps b{color:var(--ink)}
+  code{font-family:var(--mono); font-size:12px; background:#111823;
+       padding:1px 5px; border-radius:4px; color:var(--ink)}
+  .recheck{appearance:none; border:1px solid var(--line2); background:#141c28;
+           color:var(--ink); font:inherit; font-size:13px; padding:9px 15px;
+           border-radius:9px; cursor:pointer; margin-top:6px}
+  .recheck:hover{border-color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="doc">
+  <a class="back" href="/">&larr; back to the map</a>
+  <h1>Status</h1>
+  <p class="sub">Whether SparrowMap is up, and what to do if someone says it is not.</p>
+
+  <!-- 🚨 THE PAGE ARRIVING IS THE ARGUMENT.
+       This exists because someone posted a filter's block page as proof the
+       site was fake. A block page is served by software on the reader's own
+       device or network BEFORE the request reaches this server, so it is
+       evidence about their filter and nothing else - the request never got
+       here to be evidence about anything else.
+       So the top of this page states the one fact that cannot be argued with:
+       you are reading it, therefore you reached the server. -->
+  <div class="verdict" id="verdict">
+    <b id="vtitle">You reached SparrowMap.</b>
+    <p id="vbody">This page was served by the SparrowMap server itself. If you can
+       read this, your device, your network and your DNS all reached it.</p>
+    <span class="stamp" id="stamp">checking the live numbers&hellip;</span>
+  </div>
+
+  <h2>Right now</h2>
+  <div class="cards" id="cards"></div>
+  <button class="recheck" id="recheck">Check again</button>
+
+  <h2>&ldquo;It says the site is blocked&rdquo;</h2>
+  <p class="body">A page saying <i>access to this website is blocked</i> is not
+     coming from here. It is produced by something between you and us, and it is
+     shown <b>before</b> the request leaves your device or your network. This
+     server never sees it happen, which is exactly why it cannot tell you
+     anything about whether the site is real, up, or safe.</p>
+
+  <p class="body">The usual causes, in the order we actually see them:</p>
+  <ol class="steps">
+    <li><b>A VPN or DNS filtering app.</b> On iPhone these show a
+        <code>VPN</code> badge in the status bar even when they are only
+        filtering DNS. They block by category, and a site about government
+        vehicles is an easy category to catch.</li>
+    <li><b>Parental controls or &ldquo;web protection&rdquo;</b> on the phone,
+        the router, or bundled with antivirus.</li>
+    <li><b>A school, work or guest network.</b> These filter far more
+        aggressively than a home connection.</li>
+    <li><b>A carrier content filter</b>, which some prepaid plans turn on by
+        default.</li>
+  </ol>
+
+  <p class="body">Three checks, about thirty seconds:</p>
+  <ol class="steps">
+    <li>Turn the VPN or filtering app <b>off</b> and reload.</li>
+    <li>Switch from Wi-Fi to <b>mobile data</b> (or the other way round). If it
+        works on one and not the other, the network is the filter.</li>
+    <li>Try a different DNS such as <code>1.1.1.1</code>. SparrowMap resolves on
+        every major resolver including the filtered ones (Cloudflare Family,
+        Quad9, OpenDNS, AdGuard), so if yours does not answer, yours is
+        filtering it.</li>
+  </ol>
+
+  <p class="note"><b>If it still fails after all three, we want to know.</b> That
+     would be a real fault and not a filter. Say what you saw and roughly where
+     you are, at <a href="mailto:sparrowmap@icloud.com">sparrowmap@icloud.com</a>.
+     We cannot look it up for you: this project keeps no record of who visits,
+     which is a deliberate choice and the reason we have to ask.</p>
+
+  <h2>What this page is not</h2>
+  <p class="body">It is not a claim that the site can never be down. It is a live
+     read of this server at the moment you loaded it, so it can be wrong the
+     moment after. The numbers above come from <code>/api/health</code> and
+     <code>/api/stats</code> on this same machine, and anyone can fetch them
+     directly rather than take this page's word for it.</p>
+</div>
+
+<script nonce="@@NONCE@@">
+(function(){
+  "use strict";
+  var $ = function(s){ return document.querySelector(s); };
+
+  function fmtUptime(s){
+    s = Math.max(0, Math.round(s || 0));
+    var d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
+    if (d) return d + "d " + h + "h";
+    if (h) return h + "h " + m + "m";
+    return m + "m";
+  }
+
+  function card(value, label, bad){
+    return '<div class="card' + (bad ? ' bad' : '') + '"><b>' + value +
+           '</b><span>' + label + '</span></div>';
+  }
+
+  function check(){
+    $("#stamp").textContent = "checking the live numbers…";
+    var t0 = Date.now();
+    // Both are public, cheap and already edge-cached. Nothing here is written
+    // down: reading this page leaves no record, same as reading the map.
+    Promise.all([
+      fetch("/api/health", {cache: "no-store"}).then(function(r){ return r.json(); }),
+      fetch("/api/stats",  {cache: "no-store"}).then(function(r){ return r.json(); })
+    ]).then(function(res){
+      var h = res[0], s = res[1], ms = Date.now() - t0;
+      var cards = "";
+      cards += card(ms + " ms", "your round trip to this server");
+      cards += card(fmtUptime(h.uptime_s), "server uptime");
+      cards += card((s.nodes_online || 0) + "/" + (s.nodes_active || 0), "cameras online");
+      cards += card((s.sightings_24h || 0).toLocaleString(), "passes seen in 24h");
+      $("#cards").innerHTML = cards;
+
+      // The server's own clock, not the browser's. A reader comparing the two
+      // is checking that this came from somewhere else rather than from a
+      // cached copy of a page that once said everything was fine.
+      var when = new Date((h.ts || Date.now()/1000) * 1000);
+      $("#stamp").textContent = "server answered at " + when.toISOString().replace("T"," ").slice(0,19)
+                              + " UTC · database " + (h.db || "?")
+                              + " · version " + (h.version || "?");
+
+      if (!h.ok || h.db !== "ok") {
+        $("#verdict").style.background = "#1a0f0b";
+        $("#verdict").style.borderColor = "#5a2a1e";
+        $("#vtitle").style.color = "#ff9d7a";
+        $("#vtitle").textContent = "You reached SparrowMap, but it is unhealthy.";
+        $("#vbody").textContent = "Your connection is fine. The server answered and "
+          + "reported a problem with itself, which is our fault and not yours.";
+      }
+    }).catch(function(){
+      // Reaching this page but not the API is a real and specific state: worth
+      // saying precisely rather than falling back to a generic error.
+      $("#stamp").textContent = "this page loaded, but its live data request did not "
+        + "come back. That points at something filtering requests rather than pages.";
+      $("#cards").innerHTML = card("—", "could not read the live numbers", true);
+    });
+  }
+
+  $("#recheck").addEventListener("click", check);
+  check();
+})();
+</script>
+<script src="/static/refresh.js"></script>
+</body>
+</html>

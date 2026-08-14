@@ -505,7 +505,7 @@ class Handler(BaseHTTPRequestHandler):
                 return "public, max-age=4"    # live map: fresh within a few s
             return "public, max-age=15"
         if p == "/" or p.endswith(".html") or p in (
-                "/about", "/transparency", "/app", "/node", "/key"):
+                "/about", "/transparency", "/status", "/app", "/node", "/key"):
             return "public, max-age=60"        # page shells: reuse, revalidate
         # /api/plate search, /api/track, /api/sighting/<id>, operator routes,
         # /api/live, /api/audit - anything per-user or a lookup - is never cached.
@@ -1070,6 +1070,12 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/":                 return self._file(PUBLIC / "index.html")
             if p == "/about":            return self._file(PUBLIC / "about.html")
             if p == "/transparency":     return self._file(PUBLIC / "transparency.html")
+            # 🚨 THE ANSWER TO "YOUR SITE IS BLOCKED, SO IT IS FAKE".
+            # A filter's block page is served before the request ever leaves the
+            # reader's device, so it is evidence about their filter and nothing
+            # else. This page exists so the reply is a link rather than an
+            # argument: if they can read it, they reached the server.
+            if p == "/status":          return self._file(PUBLIC / "status.html")
             # What a node costs in compute, and how to measure your own board
             # rather than take this page's word for it.
             if p == "/hardware":         return self._file(PUBLIC / "hardware.html")
