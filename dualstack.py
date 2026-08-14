@@ -28,7 +28,42 @@ import socket
 from http.server import ThreadingHTTPServer
 
 
-class DualStackServer(ThreadingHTTPServer):
+class _ClosesDbPerThread:
+    """Close this thread's sqlite connection when the thread finishes.
+
+    🚨 WITHOUT THIS THE PUBLIC SITE DIES ROUGHLY EVERY 45 MINUTES.
+
+    ThreadingHTTPServer runs one thread per CONNECTION, and db.connect() caches
+    one sqlite connection per thread because sqlite objects are not
+    thread-portable. Both halves are correct on their own; together they leak
+    two file descriptors (the db and its -wal) per visitor, because nothing
+    closed the connection when the thread ended. At 1024 open files every route
+    starts failing with "unable to open database file" and never recovers.
+
+    The close belongs HERE rather than in the handler because a keep-alive
+    thread serves many requests on one connection: closing per REQUEST would
+    throw away the cache this design exists to provide, and closing per THREAD
+    is exactly the lifetime db.connect() ties itself to.
+
+    Mixed into both server classes deliberately. The box binds 127.0.0.1 behind
+    Caddy and therefore uses the IPv4 `_Queued` class below, never
+    DualStackServer - fixing only the dual-stack one would have fixed
+    everything except the server that was actually falling over. That exact
+    mistake has already been made once here (see request_queue_size).
+    """
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            try:
+                import db
+                db.close_thread()
+            except Exception:
+                pass      # a hub that cannot import db has bigger problems
+
+
+class DualStackServer(_ClosesDbPerThread, ThreadingHTTPServer):
     """Listens on :: for both IPv6 and IPv4 (falls back to IPv4 if unavailable)."""
 
     address_family = socket.AF_INET6
@@ -99,7 +134,7 @@ def serve(handler, port: int, host: str = "::"):
         # behind Caddy, so it never touches DualStackServer - raising the
         # backlog only on that class would have fixed everything except the
         # server that was actually dropping cameras.
-        class _Queued(ThreadingHTTPServer):
+        class _Queued(_ClosesDbPerThread, ThreadingHTTPServer):
             request_queue_size = DualStackServer.request_queue_size
         try:
             srv = _Queued((host, port), handler)
@@ -117,8 +152,13 @@ def serve(handler, port: int, host: str = "::"):
                 f"-State Listen | %{{ Stop-Process -Id $_.OwningProcess }}")
         try:
             # Only reached for a wildcard request, so widening to 0.0.0.0 is
-            # what was asked for rather than a surprise.
-            srv = ThreadingHTTPServer(("0.0.0.0", port), handler)
+            # what was asked for rather than a surprise. Still needs the
+            # per-thread close: a fallback path that leaks descriptors is a
+            # fallback path that dies after 45 minutes.
+            class _V4(_ClosesDbPerThread, ThreadingHTTPServer):
+                request_queue_size = DualStackServer.request_queue_size
+
+            srv = _V4(("0.0.0.0", port), handler)
         except OSError:
             raise SystemExit(f"cannot bind port {port}: {exc}")
         srv.daemon_threads = True

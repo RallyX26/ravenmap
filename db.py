@@ -234,7 +234,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
 
 def connect() -> sqlite3.Connection:
-    """One connection per thread. sqlite objects are not thread-portable."""
+    """One connection per thread. sqlite objects are not thread-portable.
+
+    🚨 WHOEVER CREATES THE THREAD MUST CALL close_thread() WHEN IT ENDS.
+    See the note there - not doing so took the public site down repeatedly.
+    """
     conn = getattr(_local, "conn", None)
     if conn is None:
         conn = sqlite3.connect(DB_PATH, timeout=15.0)
@@ -243,6 +247,42 @@ def connect() -> sqlite3.Connection:
         _migrate(conn)
         _local.conn = conn
     return conn
+
+
+def close_thread() -> None:
+    """Release this thread's connection. Safe to call when there isn't one.
+
+    🚨 THIS IS WHY THE SITE KEPT GOING DOWN, AND IT LOOKED LIKE A DEAD DATABASE.
+
+    `connect()` caches one sqlite connection per thread, which is correct -
+    sqlite objects are not thread-portable. ThreadingHTTPServer creates a NEW
+    THREAD PER CONNECTION, so every visitor minted a connection, and nothing
+    ever closed them: when the thread ended the Connection was not collected
+    promptly, so its two file descriptors (the db and its -wal) stayed open.
+
+    They accumulate until the process hits its open-file limit - 1024 by
+    default - and from that moment EVERY route fails, permanently, with
+
+        sqlite3.OperationalError: unable to open database file
+
+    which reads like the database is missing or unreadable. It is neither. The
+    file is fine; the process simply cannot open anything else. Measured on the
+    live box mid-outage: 10 live threads, 1011 descriptors on sparrow.db and
+    sparrow.db-wal, disk 25% full, permissions correct.
+
+    📌 It took about 45 minutes of ordinary public traffic to reach the limit,
+    and 105,768 of those errors had been logged in four days. It stayed hidden
+    because a restart resets the count and the box was being restarted often -
+    every deploy silently "fixed" it for another 45 minutes. The first time it
+    went two hours without a restart, the site was simply down.
+    """
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        _local.conn = None
+        try:
+            conn.close()
+        except Exception:
+            pass          # already closed, or closing from the wrong thread
 
 
 def init() -> None:
