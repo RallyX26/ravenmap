@@ -197,6 +197,50 @@ def bank_pass(vp, evidence: dict, verdict: dict,
         return None
 
 
+# Newest-first day directories, cached briefly. The bank is one directory per
+# day, so "which day is this crop in" is a very small search - but only if you
+# look in day order instead of walking every file.
+_DAYS_CACHE: list = []
+_DAYS_AT = 0.0
+
+
+def _day_dirs() -> list:
+    global _DAYS_CACHE, _DAYS_AT
+    import time as _t
+    if _t.time() - _DAYS_AT > 30 or not _DAYS_CACHE:
+        try:
+            _DAYS_CACHE = sorted((d for d in BANK.iterdir() if d.is_dir()),
+                                 key=lambda d: d.name, reverse=True)
+        except Exception:
+            _DAYS_CACHE = []
+        _DAYS_AT = _t.time()
+    return _DAYS_CACHE
+
+
+def _find_sidecar(stem: str):
+    """Path to a crop's sidecar, without walking the whole bank.
+
+    🚨 rglob(f"{stem}.json") WALKS EVERY FILE TO FIND ONE.
+    The bank holds ~48,000 sidecars across day folders, and three separate
+    functions did this per VEHICLE PASS - so a busy road cost hundreds of
+    thousands of directory entries a minute, and the review page (which does up
+    to 400 of these per load) has already hung on it once.
+
+    A crop's sidecar lives in exactly one day directory, and every caller here
+    is looking for one that was banked seconds ago. Checking the newest days
+    directly answers it in one or two stat() calls; the walk stays as a
+    fallback so an old stem is still found.
+    """
+    for d in _day_dirs():
+        cand = d / f"{stem}.json"
+        if cand.exists():
+            return cand
+    _j = _find_sidecar(stem)
+    for j in ([_j] if _j else []):
+        return j
+    return None
+
+
 def note_not_posted(stem: str, reason: str) -> None:
     """Record WHY this crop never became a sighting.
 
@@ -218,7 +262,8 @@ def note_not_posted(stem: str, reason: str) -> None:
     """
     if not stem:
         return
-    for j in BANK.rglob(f"{stem}.json"):
+    _j = _find_sidecar(stem)
+    for j in ([_j] if _j else []):
         try:
             d = json.loads(j.read_text(encoding="utf-8"))
             if d.get("sighting_id"):
@@ -237,7 +282,8 @@ def link_sighting(stem: str, sighting_id: int) -> None:
     it a correction on the map fixes one row and teaches the system nothing,
     which is how a project ends up making the same mistake for months.
     """
-    for j in BANK.rglob(f"{stem}.json"):
+    _j = _find_sidecar(stem)
+    for j in ([_j] if _j else []):
         try:
             d = json.loads(j.read_text(encoding="utf-8"))
             d["sighting_id"] = int(sighting_id)
@@ -256,7 +302,8 @@ def sidecar(stem: str) -> Optional[Path]:
     """
     if not stem:
         return None
-    for j in BANK.rglob(f"{stem}.json"):
+    _j = _find_sidecar(stem)
+    for j in ([_j] if _j else []):
         return j
     return None
 
