@@ -1,0 +1,50 @@
+# The systemd unit the public box runs.
+#
+# 🚨 THIS FILE EXISTS BECAUSE THE UNIT USED TO LIVE ONLY ON THE BOX.
+# Nothing in the repo described how the service was actually run, so its
+# settings could not be reviewed, diffed or rebuilt - and one of those settings
+# was quietly capping the whole site (see LimitNOFILE below). A deployment
+# detail that only exists on the machine is a deployment detail nobody can
+# check.
+#
+# Install:
+#   sudo cp deploy/sparrowmap.service /etc/systemd/system/sparrowmap.service
+#   sudo systemctl daemon-reload && sudo systemctl restart sparrowmap.service
+
+[Unit]
+Description=SparrowMap public mirror
+After=network.target
+
+[Service]
+User=sparrow
+Group=sparrow
+WorkingDirectory=/opt/sparrowmap
+# Loopback only. Caddy terminates TLS in front and proxies here; binding wider
+# would put the port on the internet past every header and rate limit.
+Environment=SPARROW_BIND=127.0.0.1
+ExecStart=/opt/sparrowmap/.venv/bin/python /opt/sparrowmap/hub.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+# 🚨 THE DEFAULT IS 1024 AND IT TOOK THE SITE DOWN.
+#
+# This is a THREAD-PER-CONNECTION server: every live connection costs a socket
+# plus, because sqlite objects are not thread-portable, that thread's own
+# database connection - which is two more descriptors (the db and its -wal).
+# So ordinary concurrency costs roughly three descriptors per visitor, and 1024
+# is reached at a few hundred of them.
+#
+# A descriptor leak was the proximate cause (fixed: db.close_thread, called
+# from the server when a request thread ends), but the ceiling was the reason
+# the leak was fatal rather than merely untidy. Measured after the fix, peaks
+# of ~740 descriptors and ~230 threads occur during normal traffic - which is
+# healthy behaviour that was sitting at 72% of the old limit.
+#
+# Past the limit EVERY route fails with "unable to open database file", which
+# reads like a broken database and is nothing of the sort.
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
