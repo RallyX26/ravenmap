@@ -116,7 +116,7 @@
   "use strict";
   var $ = function(s){ return document.querySelector(s); };
   var WKEY = "sparrow_rv_wallet";
-  var token = null, items = [], cur = null;
+  var token = null, items = [], cur = null, checkedScopes = "";
 
   /* 🚨 TRY EVERY TOKEN, NOT JUST THE FIRST ONE IN THE WALLET.
      The wallet holds one entry per camera plus, usually, a pool token, in
@@ -125,15 +125,27 @@
      own-scope camera token is told it is "not signed in" while the pool token
      that would have worked sits in the same list. The failure is silent and
      looks exactly like a broken page. */
-  function walletTokens(){
+  function wallet(){
     var w = [];
     try { w = JSON.parse(localStorage.getItem(WKEY) || "[]"); } catch(e) { w = []; }
-    return w.map(function(e){ return e.token; }).filter(Boolean);
+    return w.filter(function(e){ return e && e.token; });
   }
-  function api(path, opts){
+  function walletTokens(){ return wallet().map(function(e){ return e.token; }); }
+  function describeWallet(){
+    var w = wallet();
+    if(!w.length) return "";
+    var pool = w.filter(function(e){ return e.scope === "pool"; }).length;
+    var own  = w.length - pool;
+    var bits = [];
+    if(pool) bits.push(pool + " pool token" + (pool > 1 ? "s" : ""));
+    if(own)  bits.push(own  + " own-camera token" + (own  > 1 ? "s" : ""));
+    return bits.join(" and ");
+  }
+  function api(path, opts, tok){
     opts = opts || {};
     opts.headers = Object.assign({}, opts.headers);
-    if(token) opts.headers["Authorization"] = "Bearer " + token;
+    tok = tok || token;
+    if(tok) opts.headers["Authorization"] = "Bearer " + tok;
     if(opts.body && typeof opts.body !== "string"){
       opts.body = JSON.stringify(opts.body);
       opts.headers["Content-Type"] = "application/json";
@@ -234,7 +246,7 @@
   // An <img> cannot carry a bearer header, so the photo is fetched and shown as
   // a blob - the same approach the review app uses for pen crops.
   function loadPhoto(it, img, ph){
-    api(it.photo).then(function(r){
+    api(it.photo, {}, it._token).then(function(r){
       if(!r.ok) throw 0;
       return r.blob();
     }).then(function(b){
@@ -251,7 +263,7 @@
     var payload = Object.assign({ id: cur.id, action: action }, body || {});
     Array.prototype.forEach.call(document.querySelectorAll("button.b"),
       function(b){ b.disabled = true; });
-    api("/api/rv/held/fix", { method:"POST", body: payload })
+    api("/api/rv/held/fix", { method:"POST", body: payload }, cur._token)
       .then(function(r){ return r.json(); })
       .then(function(j){
         if(j && j.ok){
@@ -277,9 +289,17 @@
     clearSel();
     $("#count").textContent = items.length + (items.length === 1 ? " waiting" : " waiting");
     if(!items.length){
+      // 🚨 SAY WHAT WAS ACTUALLY ASKED. "Nothing held" and "your tokens cannot
+      // see it" look identical from here, and the second one is what happens
+      // when you report someone else's camera's photo - the normal case. Naming
+      // the tokens that were checked is the difference between a done queue and
+      // a queue you are locked out of without being told.
       message("Nothing held",
-              "No photograph is waiting to be fixed. Anything flagged as showing "
-              + "a person lands here, already off the map.");
+              "No photograph is waiting to be fixed on the "
+              + (checkedScopes || "reviewer token(s)")
+              + " in this browser. Anything flagged as showing a person lands "
+              + "here, already off the map. A photo from a camera that is not "
+              + "yours needs a pool token to work on.");
       return;
     }
     cur = items[0];
@@ -381,24 +401,50 @@
     loadPhoto(cur, img, ph);
   }
 
-  function tryToken(list, i){
-    if(i >= list.length){
-      message("Not signed in",
-              "None of the reviewer tokens in this browser was accepted. Open the "
-              + "review app first, then come back.");
-      return;
-    }
-    token = list[i];
-    api("/api/rv/held").then(function(r){
-      if(r.status === 401 || r.status === 403){ tryToken(list, i + 1); return null; }
-      if(!r.ok) throw 0;
-      return r.json();
-    }).then(function(j){
-      if(!j) return;
-      items = j.items || [];
-      render();
-    }).catch(function(){
-      message("Could not load", "The server did not answer. Try again in a moment.");
+  /* 🚨 ASK EVERY TOKEN AND MERGE. STOPPING AT THE FIRST ONE THAT WORKS IS A BUG.
+     This page used to walk the wallet until a token was not 401/403 and then
+     use that one alone. An OWN-scope token is not rejected - it authenticates
+     perfectly and returns an EMPTY queue, because the held photo belongs to
+     somebody else's camera. So the page stopped on it, rendered "Nothing held",
+     and never asked the pool token sitting next to it in the same wallet.
+
+     He hit this within minutes of the deploy: reported the arm-and-watch photo,
+     opened the fix page on his phone, and the phone's own-camera token answered
+     first. The server was right the whole time - a pool query returned the item
+     - which is exactly why "nothing here" is the most dangerous empty state in
+     this app. It is indistinguishable from "your token cannot see it".
+
+     📌 The person who reports a photo is usually NOT the owner of the camera
+     that took it, so this is the normal case, not the edge case.
+
+     Each item carries the token that produced it (`_token`), because the photo
+     fetch and the verdict must go back on the SAME token - a pool item actioned
+     with an own-scope token is a 'not your camera' refusal. Same reason rv.html
+     keeps a token per queue entry. */
+  function loadAll(list){
+    var seen = {}, merged = [], denied = 0, ok = 0;
+    return Promise.all(list.map(function(tok){
+      return api("/api/rv/held", {}, tok)
+        .then(function(r){
+          if(r.status === 401 || r.status === 403){ denied++; return null; }
+          if(!r.ok) throw 0;
+          return r.json();
+        })
+        .then(function(j){
+          if(!j) return;
+          ok++;
+          (j.items || []).forEach(function(it){
+            // First token to report an item wins it. Ties are only possible
+            // between two tokens that can both act on it, so either is correct.
+            if(seen[it.id]) return;
+            seen[it.id] = 1;
+            it._token = tok;
+            merged.push(it);
+          });
+        })
+        .catch(function(){ /* one bad token must not empty the whole page */ });
+    })).then(function(){
+      return { items: merged, anyAccepted: ok > 0, denied: denied };
     });
   }
 
@@ -409,7 +455,19 @@
               "Open the review app first so this browser holds your token, then come back.");
       return;
     }
-    tryToken(list, 0);
+    checkedScopes = describeWallet();
+    loadAll(list).then(function(res){
+      if(!res.anyAccepted){
+        message("Not signed in",
+                "None of the " + list.length + " reviewer token(s) in this browser "
+                + "was accepted. Open the review app first, then come back.");
+        return;
+      }
+      items = res.items;
+      render();
+    }).catch(function(){
+      message("Could not load", "The server did not answer. Try again in a moment.");
+    });
   }
 
   start_();
