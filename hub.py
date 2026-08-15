@@ -646,10 +646,37 @@ class Handler(BaseHTTPRequestHandler):
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
+        # 🚨 A HEAD RESPONSE CARRIES THE HEADERS AND NOT THE BODY.
+        # Writing one anyway desynchronises a keep-alive connection: the client
+        # reads our body as the start of its NEXT response. See do_HEAD.
+        if getattr(self, "_head_only", False):
+            return
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
             pass
+
+    def do_HEAD(self) -> None:
+        """HEAD, which this server answered with 501 for its whole life.
+
+        🚨 IT LOOKS LIKE AN EDGE CASE AND IS NOT. BaseHTTPRequestHandler has no
+        default do_HEAD, so every HEAD got "501 Unsupported method" - and HEAD is
+        what link checkers, uptime monitors, CDNs and link-preview crawlers use
+        BEFORE they fetch anything. A site that 501s them looks broken to
+        exactly the tools that decide whether a shared link is worth showing,
+        which matters most at the moment a link is spreading.
+
+        Found by my own test doing `curl -I` and reading 501 as a broken route.
+
+        Handled by running the ordinary GET path and dropping the body in
+        _send, so a HEAD can never disagree with the GET it describes - the
+        status, the headers and the Content-Length are all the real ones.
+        """
+        self._head_only = True
+        try:
+            self.do_GET()
+        finally:
+            self._head_only = False
 
     def _tile(self, path: str) -> None:
         """Serve one basemap tile, from disk if we already have it.
