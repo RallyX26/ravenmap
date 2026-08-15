@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>SparrowMap — sign in to your camera</title>
+<title>SparrowMap — sign in</title>
 <link rel="icon" href="/static/favicon.ico">
 <link rel="stylesheet" href="/static/style.css?v=27">
 <style>
@@ -34,17 +34,19 @@ a{color:var(--blue)}
 .pick:hover{border-color:var(--blue)}
 </style></head><body>
 <div class="card">
-  <h1>Sign in to your camera</h1>
+  <h1>Sign in</h1>
   <!-- 🚨 THE FIRST LINE HAS TO KILL THE FEAR. Somebody arrives here because
        their camera "got deleted", and it was not - the phone lost the key. If
        the page does not say so immediately they will set up a second camera,
        which is the thing that actually caused the mess. -->
   <p><b>Nothing was deleted.</b> Your camera, its history and its watched road
      are all still here — this browser just lost the key that opens it. Paste
-     the key and you are back in.</p>
+     the key and you are back in.<br>
+     <span style="color:#7d8ea1">A <b>reviewer token</b> works here too — same
+     box, and it takes you to your review queue.</span></p>
 
   <textarea id="k" spellcheck="false" autocapitalize="off" autocomplete="off"
-    placeholder="Paste your key link, or n_1a2b3c4d.YourKeyHere"></textarea>
+    placeholder="Paste your camera key or your reviewer token"></textarea>
 
   <!-- 🚨 THE KEY CAN BE SAVED TO A PHONE, SO IT HAS TO BE READABLE BACK OFF ONE.
        The key page offers "save a key file" and a QR to photograph, and both
@@ -71,8 +73,12 @@ a{color:var(--blue)}
     and we hold no email or account to prove it was yours. Set the camera up
     again from <a href="/app">the camera page</a> and it will start a fresh
     node. Its old sightings stay on the map under the old camera.<br><br>
-    Looking for the <a href="/rv">review page</a> instead? That takes a reviewer
-    token, not this key.
+    <b>Lost your reviewer token?</b> You do not need it. Sign in with your
+    <b>camera key</b> above and this page sets your review queue up for you —
+    it issues a fresh token and retires the old one. A reviewer token is stored
+    scrambled, so nobody (us included) can ever read your old one back to you;
+    a new one is the only way, and it takes no extra step.<br><br>
+    Have the reviewer token itself? Paste it in the same box — it works too.
   </div>
 </div>
 <script src="/static/copy.js?v=1"></script>
@@ -106,11 +112,123 @@ a{color:var(--blue)}
     return null;
   }
 
+  /* 🔑 ONE BOX, TWO CREDENTIALS.
+   *
+   * A camera key and a reviewer token are different things that a volunteer
+   * holds at the same time, was handed within a minute of each other, and has
+   * no reason to have kept apart. Asking "which kind is this?" before letting
+   * them paste it puts the burden of our data model on the person who just
+   * wants back in - and gets answered wrong, at which point a perfectly good
+   * credential is rejected.
+   *
+   * They are told apart by SHAPE, not by asking: a camera key is
+   * `n_<id>.<token>` or a link containing one; anything else that looks like a
+   * credential is tried as a reviewer token. Each is verified against its own
+   * route before anything is stored, and each lands on the page it belongs to.
+   */
+  function looksLikeToken(raw) {
+    var t = String(raw || "").trim();
+    // No spaces, long enough to be a secret, and the alphabet review_auth mints
+    // from. Deliberately loose: the server is the judge, this only decides
+    // WHICH server route gets asked.
+    return /^[A-Za-z0-9_\-]{16,128}$/.test(t) ? t : null;
+  }
+
+  function signInReviewer(tok) {
+    btn.disabled = true;
+    say("Checking…");
+    fetch("/api/rv/me", { headers: { "Authorization": "Bearer " + tok } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.ok) {
+          btn.disabled = false;
+          say("That was not accepted as a camera key or a reviewer token. "
+            + "Check it was copied whole.", false);
+          return;
+        }
+        // ⚠️ WRITE THE WALLET /rv ALREADY READS, not a second store of the
+        // same fact. rv.html keeps [{token,label,scope,nodes}] under
+        // sparrow_rv_wallet and merges every entry into one queue; inventing a
+        // parallel key here would sign somebody in on a page that then showed
+        // them nothing.
+        var wallet = [];
+        try { wallet = JSON.parse(localStorage.getItem("sparrow_rv_wallet") || "[]"); }
+        catch (e) { wallet = []; }
+        if (!wallet.some(function (e) { return e.token === tok; })) {
+          wallet.push({ token: tok, label: d.label || "camera",
+                        scope: d.scope || "own", nodes: d.nodes || [] });
+        }
+        try { localStorage.setItem("sparrow_rv_wallet", JSON.stringify(wallet)); }
+        catch (e) {
+          btn.disabled = false;
+          say("This browser will not let the page remember anything — private "
+            + "browsing blocks it.", false);
+          return;
+        }
+        var done = function () {
+          say("Signed in as reviewer “" + (d.label || "camera")
+            + "”. Taking you to your queue…", true);
+          setTimeout(function () { location.href = "/rv"; }, 900);
+        };
+        if (navigator.storage && navigator.storage.persist) {
+          navigator.storage.persist().then(done, done);
+        } else { done(); }
+      }).catch(function () {
+        btn.disabled = false;
+        say("Could not reach SparrowMap. Check your connection and try again.",
+            false);
+      });
+  }
+
+  /* Fetch (or reissue) this camera's reviewer token and put it in the wallet
+   * /rv reads. `regenerate` is the honest call when the camera has one already:
+   * the stored form is a hash, so there is nothing to hand back, and a person
+   * who has just proved they own the camera needs a WORKING token more than
+   * they need the unusable old one to keep existing. The route revokes the old
+   * one as it mints - a token that was lost to somebody else must not stay
+   * live. */
+  function addReviewerFor(k, next) {
+    var body = { node_id: k.id, scope: "own" };
+    var hdrs = { "Content-Type": "application/json",
+                 "Authorization": "Bearer " + k.token };
+    var store = function (tok, label) {
+      var w = [];
+      try { w = JSON.parse(localStorage.getItem("sparrow_rv_wallet") || "[]"); }
+      catch (e) { w = []; }
+      if (!w.some(function (e) { return e.token === tok; })) {
+        w.push({ token: tok, label: label || "camera", scope: "own",
+                 nodes: [k.id] });
+      }
+      try { localStorage.setItem("sparrow_rv_wallet", JSON.stringify(w)); }
+      catch (e) {}
+    };
+    fetch("/api/rv/my-token", { method: "POST", headers: hdrs,
+                                body: JSON.stringify(body) })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (d && d.review_token) { store(d.review_token, d.label); next(true); return; }
+        // Already minted and unshowable - replace it, since they have just
+        // proved ownership with the stronger credential.
+        body.regenerate = true;
+        return fetch("/api/rv/my-token", { method: "POST", headers: hdrs,
+                                           body: JSON.stringify(body) })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d2) {
+            if (d2 && d2.review_token) { store(d2.review_token, d2.label); next(true); }
+            else next(false);
+          });
+      })
+      .catch(function () { next(false); });
+  }
+
   function signIn() {
     var k = parse($("#k").value);
     if (!k) {
-      say("That does not look like a key. It should contain something like "
-        + "n_1a2b3c4d.…  — paste the whole link if you have it.", false);
+      var tok = looksLikeToken($("#k").value);
+      if (tok) { signInReviewer(tok); return; }
+      say("That does not look like a key or a token. A camera key contains "
+        + "something like n_1a2b3c4d.… — paste the whole link if you have it.",
+        false);
       return;
     }
     btn.disabled = true;
@@ -153,9 +271,33 @@ a{color:var(--blue)}
       // which is exactly how the key was lost in the first place - so signing
       // in without asking for persistence would just start the same 7-day
       // clock again.
+      /* 🔑 ONE CREDENTIAL RESTORES EVERYTHING, BECAUSE MOST PEOPLE HERE
+       * ARE NOT TECHNICAL AND SHOULD NEVER MEET A SECOND TOKEN.
+       *
+       * A volunteer holds two secrets they did not ask for: the camera key and
+       * a reviewer token. Signing the camera back in and then leaving the
+       * review queue locked is a second dead end with a second thing to paste,
+       * and the reviewer token is the one they are LEAST likely to still have -
+       * it is stored only as a hash, so it can never be shown to them again.
+       *
+       * The camera key is the root credential: this same request proves it, and
+       * that key already lets the holder publish sightings as this camera. So
+       * asking for their reviewer token on their behalf grants nothing new, and
+       * turns "sign in twice with two different secrets" into "sign in once".
+       * Best effort - the camera is already signed in by this point and a
+       * failure here must never take that away. */
+      var goApp = function () {
+        setTimeout(function () { location.href = "/app"; }, 1100);
+      };
       var done = function () {
-        say("Signed in as “" + (res.d.name || k.id) + "”. Taking you there…", true);
-        setTimeout(function () { location.href = "/app"; }, 900);
+        say("Signed in as “" + (res.d.name || k.id) + "”. Setting up your "
+          + "review queue…", true);
+        addReviewerFor(k, function (got) {
+          say("Signed in as “" + (res.d.name || k.id) + "”."
+            + (got ? " Your review queue is ready too." : "")
+            + " Taking you there…", true);
+          goApp();
+        });
       };
       if (navigator.storage && navigator.storage.persist) {
         navigator.storage.persist().then(done, done);
