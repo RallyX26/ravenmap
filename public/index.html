@@ -70,8 +70,11 @@
     </div>
 
     <div class="win">
-      <label title="Applies to public sightings. Private traffic is live only and always fades after 45 seconds.">Show</label>
-      <select id="window">
+      <!-- The word "Show" was pure decoration - the dropdown says "everything"
+           / "last hour" and reads fine alone - and it was taking room the
+           checkboxes beside it needed, cutting one off on a narrow panel. The
+           tooltip it carried moves onto the control it was describing. -->
+      <select id="window" title="Applies to public sightings. Private traffic is live only and always fades after 45 seconds.">
         <option value="0" selected>everything</option>
         <!-- 5 minutes is shorter than nothing else here can usefully be: a
              private pass has already faded at 45s, so this window only ever
@@ -136,10 +139,10 @@
      miss the calls that fail first, which are the ones that matter. -->
 <script src="/static/offline.js?v=1"></script>
 <script src="/vendor/leaflet.js"></script>
-<script src="/static/transparency.js?v=18"></script>
+<script src="/static/transparency.js?v=19"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
 <script src="/static/sitenav.js?v=17"></script>
-<script src="/static/app.js?v=47"></script>
+<script src="/static/app.js?v=48"></script>
 <script src="/static/refresh.js?v=18"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->

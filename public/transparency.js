@@ -21,7 +21,18 @@ window.sparrowTransparency = async function () {
     civilian_retention_days: ['Private sightings deleted after', (v) => `${v} days`],
     public_retention_days:   ['Public sightings deleted after', (v) => v ? `${v} days` : 'never (public record)'],
     pepper_rotation_days:    ['Hash key rotated every', (v) => `${v} days`],
-    node_position_jitter_m:  ['Camera positions published to within', (v) => `${v} m`],
+    /* 🚨 THIS LINE BECAME UNTRUE THE DAY PUBLIC TRAFFIC CAMERAS WERE ADDED.
+     * It said, flatly, that camera positions are published only to within the
+     * jitter. That is still exactly right for every VOLUNTEER camera - the
+     * whole reason the jitter exists is that a volunteer's camera position
+     * describes their house - and it is now wrong as a blanket statement,
+     * because government traffic cameras publish their own exact coordinates
+     * and SparrowMap passes them straight through.
+     *
+     * On the one page whose entire purpose is that its claims can be checked,
+     * a sentence that is 95% true is worse than a longer one that is true. */
+    node_position_jitter_m:  ['Volunteer camera positions published to within',
+                              (v) => `${v} m`],
     min_plate_confidence:    ['Minimum plate confidence to record', (v) => v],
     public_threshold:        ['Confidence needed to publish a plate', (v) => v],
     private_plate_lookup:    ['Can anyone look up a private plate?', (v) => v ? 'YES' : 'no'],
@@ -45,6 +56,27 @@ window.sparrowTransparency = async function () {
       [(s.sightings_24h - s.public_24h).toLocaleString(), 'private passes, no plate kept'],
       [s.vehicles_24h.toLocaleString(), 'distinct vehicles'],
     ].map(([b, t]) => `<div class="card"><b>${b}</b><span>${t}</span></div>`).join('');
+
+    /* Sources, stated plainly. Somebody reading this page is deciding whether
+     * to believe the map, and "where do these sightings come from" is the
+     * first thing they need - especially now that not all of them come from
+     * volunteers. Counted live rather than asserted, so it cannot drift. */
+    try {
+      const nodes = await fetch('/api/nodes').then(r => r.json());
+      const pub = nodes.filter(n => n.kind === 'public_cam');
+      const note = $('#sources');
+      if (note) {
+        note.innerHTML = pub.length
+          ? `<b>${pub.length}</b> of the cameras feeding this map are <b>public `
+            + `government traffic cameras</b>, read from feeds their transport `
+            + `authority publishes. They are marked as such on the map and in `
+            + `the API (<code>kind=public_cam</code>), and their exact position `
+            + `is shown because the authority publishes it. Every other camera `
+            + `is a volunteer's, and its position is never published.`
+          : `Every camera feeding this map is a volunteer's, and no camera `
+            + `position is published.`;
+      }
+    } catch (e) { /* the table below still stands on its own */ }
 
     $('#policy').innerHTML = '<tr><th>Setting</th><th>Value</th></tr>' +
       Object.entries(LABELS).map(([k, [lab, fmt]]) => {
