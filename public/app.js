@@ -92,6 +92,9 @@ const state = {
   // that this is a network rather than one street - but they are the first
   // thing in the way when you zoom into a road, so the answer is remembered.
   showPlaces: true,
+  // Public traffic cameras: a different kind of coverage from a volunteer's
+  // camera, so it gets its own switch. See the checkbox in index.html.
+  showPubCams: true,
   sightings: new Map(),   // id -> record  (public tier: the records)
   markers: new Map(),     // id -> leaflet marker
   traffic: new Map(),     // id -> {rec, marker}  (private tier: the live view)
@@ -919,8 +922,13 @@ async function loadCameras() {
    * which dots are that and which are a government camera we are reading.
    */
   state.publicCamLayer = state.publicCamLayer || L.layerGroup().addTo(map);
+  // Clear FIRST, then bail - returning early would leave the markers drawn
+  // after the box is unticked and the toggle would look dead until a reload.
   state.publicCamLayer.clearLayers();
-  cams.filter((c) => c.kind === 'public_cam' && c.lat != null).forEach((c) => {
+  // A guard, NOT an early return: returning here would abandon loadCameras
+  // before it draws the watched-road spans and picks the opening view, so
+  // unticking one checkbox would quietly break two unrelated things.
+  if (state.showPubCams) cams.filter((c) => c.kind === 'public_cam' && c.lat != null).forEach((c) => {
     L.marker([c.lat, c.lon], {
       icon: L.divIcon({
         className: '', iconSize: [18, 18], iconAnchor: [9, 9],
@@ -1192,6 +1200,22 @@ if (_showplaces) {
     try { localStorage.setItem(SHOWPLACES_KEY, state.showPlaces ? '1' : '0'); }
     catch (err) { /* not remembering is survivable; not drawing is not */ }
     drawPlaces();
+  };
+}
+
+const SHOWPUBCAMS_KEY = 'sparrow.showPubCams';
+try {
+  const saved = localStorage.getItem(SHOWPUBCAMS_KEY);
+  if (saved !== null) state.showPubCams = saved === '1';
+} catch (err) { /* the default stands */ }
+const _showpubcams = $('#showpubcams');
+if (_showpubcams) {
+  _showpubcams.checked = state.showPubCams;
+  _showpubcams.onchange = (e) => {
+    state.showPubCams = e.target.checked;
+    try { localStorage.setItem(SHOWPUBCAMS_KEY, state.showPubCams ? '1' : '0'); }
+    catch (err) { /* not remembering is survivable */ }
+    loadCameras();
   };
 }
 
