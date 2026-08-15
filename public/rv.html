@@ -369,7 +369,7 @@
 
 <div id="toasts"></div>
 
-<script src="/static/keyimport.js?v=4"></script>
+<script src="/static/keyimport.js?v=5"></script>
 <script>
 (function(){
   "use strict";
@@ -1346,6 +1346,34 @@
     return tok;
   }
 
+  /* 🔑 THE CAMERA ON THIS DEVICE IS ALREADY A SIGN-IN. USE IT.
+   *
+   * Reported: "sign in page works, then it makes me sign in again at review
+   * page and doesn't work. i should not have to sign in twice."
+   *
+   * Exactly right, and the cause is two stores that never knew about each
+   * other. /signin writes the camera key to localStorage["sparrow.node"];
+   * this page reads localStorage["sparrow_rv_wallet"]. Signing in on one did
+   * nothing for the other, so a person who had just proved who they were was
+   * asked to prove it again with a different secret - which is the second
+   * secret we have spent all day removing.
+   *
+   * The server now accepts a camera key as a review credential, so the key
+   * sitting on this device IS the sign-in. Nothing new is trusted: it is the
+   * same secret, checked the same way, by the same endpoint.
+   *
+   * ⚠️ Only when the wallet is empty. Somebody who has deliberately added
+   * tokens for several cameras must not have this one shoved to the front of
+   * their list on every load.
+   */
+  function keyFromDevice(){
+    try{
+      var n = JSON.parse(localStorage.getItem("sparrow.node") || "null");
+      if(n && n.id && n.token) return n.id + "." + n.token;
+    }catch(e){}
+    return null;
+  }
+
   function boot(){
     wallet = loadWallet();
     var urlTok = tokenFromUrl();
@@ -1383,7 +1411,24 @@
     // have no way to tell that the page simply has no token of its kind - the
     // silent-empty-state failure this codebase keeps finding. Ask for the
     // right token instead.
-    if(!scoped().length){ show("add"); dressHeader(); $("#first-token").focus(); return; }
+    if(!scoped().length){
+      // Before asking for a credential, check whether this device already
+      // holds one. See keyFromDevice: signing in twice was the complaint.
+      var devKey = wallet.length ? null : keyFromDevice();
+      if(devKey){
+        addToken(devKey, function(){
+          if(scoped().length){ start(); }
+          else { show("add"); dressHeader(); }
+        }, function(){
+          // The device key did not work - it may be from another deployment,
+          // or the camera may have been removed. Ask, and say nothing about it
+          // beyond that, because the person did nothing wrong.
+          show("add"); dressHeader();
+        });
+        return;
+      }
+      show("add"); dressHeader(); $("#first-token").focus(); return;
+    }
     start();
   }
   boot();
