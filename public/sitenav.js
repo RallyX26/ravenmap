@@ -1,3 +1,9 @@
+    /* ⚠️ Leaflet's controls were briefly pulled in here and that was wrong.
+     * The heat, locate and fit-the-map buttons act ON the map and are placed
+     * relative to it; lifting them into a site-wide row separates a control
+     * from the thing it controls, and leaves them stranded on pages with no
+     * map at all. They keep their corner. */
+
 /* The bottom bar, defined ONCE and dropped on every page.
  *
  * 🚨 WHY THIS EXISTS. The shared review pool had no way out. rv.html carries a
@@ -74,8 +80,47 @@
        "watched roads" checkbox - the corner is only one control tall before it
        runs into the page. Side by side, both sit in the strip above the panel
        and nothing below is covered. */
-    ".swtools{position:fixed;z-index:9001;right:12px;display:flex;",
-    "  flex-direction:row;align-items:center;gap:8px}",
+    ".swtools{display:flex;flex-direction:row;align-items:center;gap:8px}",
+    /* 🚨 THE CORNERS ARE STACKS NOW, AND THAT IS THE WHOLE FIX.
+       Five separate overlap reports came from five floating controls that each
+       positioned THEMSELVES against the same two corners from a different file:
+       sitenav's Sign in pill, the bug button, refresh.js (right:12px, and it
+       MOVES to the bottom below 860px), install.js (right:12px, bottom:70px -
+       six pixels from refresh's 64px, so they drew on top of each other), and
+       Leaflet's own heat button. Every fix so far has been a sixth guess at the
+       offsets, which is why a new pair collided each time.
+       A flex column cannot overlap its own children. So the corner became a
+       real container that everything is MOVED INTO, and the only numbers left
+       to measure are where each container starts - two, instead of one per
+       control per page. Anything floating added later joins the stack and is
+       laid out for free. */
+    /* 🚨 THE TOOLS ARE PART OF THE HEADER NOW, NOT FLOATING OVER THE PAGE.
+       Six overlap reports, and every one of them was the same mistake wearing
+       a different hat: a control positioned OVER the page cannot know what is
+       underneath it. Stacking them fixed the controls colliding with EACH
+       OTHER, and the very next screenshot showed the stack sitting on the
+       Transparency heading and the search box instead - because a stack still
+       floats, and floating is the bug.
+       An element in normal flow reserves its own space. The header grows by a
+       row, everything below it moves down, and there is no page, no width and
+       no future control where that can overlap anything. app.js publishes the
+       header's measured height as --headh and the map sizes itself from it, so
+       the extra row is accounted for everywhere without a second number.
+       ⚠️ Map controls are NOT in here. Leaflet's own buttons belong over the
+       map - a map is a canvas, and covering a patch of it is what a map control
+       is for. This row is for the controls that belong to the SITE. */
+    ".swbar{display:flex;align-items:center;justify-content:flex-end;gap:8px;",
+    "  flex:1 0 100%;order:99;padding:2px 0 2px}",
+    "#swTR,#swBR{position:fixed;display:flex;flex-direction:column;",
+    "  align-items:flex-end;gap:8px;pointer-events:none}",
+    "#swTR{z-index:9001}#swBR{z-index:1250;right:12px}",
+    /* The children gave up their own placement when they joined. !important
+       because refresh.js and install.js still ship the stylesheets that put
+       them in a corner, and they are right to - those rules are what position
+       them on a page that has no stack. */
+    "#swTR>*,#swBR>*{pointer-events:auto;position:relative !important;",
+    "  top:auto !important;right:auto !important;bottom:auto !important;",
+    "  left:auto !important;margin:0 !important;float:none !important}",
     ".swtoplink{display:inline-flex !important;align-items:center;gap:6px;",
     "  white-space:nowrap;padding:7px 12px;border-radius:999px;",
     "  text-decoration:none;background:#141c28;border:1px solid #2a3547;",
@@ -334,61 +379,80 @@
      *                 size, same gap, same right edge, so they read as one set
      *                 rather than three things that happened to land nearby.
      */
-    col.style.right = "12px";
-    col.style.top = "calc(" + top + "px + env(safe-area-inset-top))";
-
-    // Start the map stack under whatever Leaflet has put in its top-right
-    // corner, so our buttons continue that column instead of colliding with it.
-    /* 🚨 START BELOW THE CORNER COLUMN, NOT LEVEL WITH IT.
-       This defaulted stackTop to the column's own top, which is only correct on
-       a page that HAS a Leaflet control to sit under. On /rv there is no map,
-       so the bug button was placed at exactly the same coordinates as the Sign
-       in pill and the two drew on top of each other. Reported.
-       The floor is now the column itself; a Leaflet stack, where one exists,
-       pushes it further down. */
-    var colBox = col.getBoundingClientRect();
-    var stackTop = Math.round(colBox.bottom) + 8;
-    var lt = document.querySelector(".leaflet-top.leaflet-right");
-    if (lt) {
-      var lb = lt.getBoundingClientRect();
-      if (lb.height > 0) stackTop = Math.max(stackTop, Math.round(lb.bottom) + 8);
+    /* ------------------------------------------------------------------
+     * Build the two stacks, then place only the stacks.
+     * ------------------------------------------------------------------ */
+    function stack(id) {
+      var el = document.getElementById(id);
+      if (!el) {
+        el = document.createElement("div");
+        el.id = id;
+        document.body.appendChild(el);
+      }
+      return el;
     }
-    /* 🚨 ALIGN TO LEAFLET'S BUTTON, NOT TO MY OWN IDEA OF THE MARGIN.
-       Leaflet insets its controls by 10px and this column computed 12px from
-       the panel, so the heat button sat 2px right of the two below it - close
-       enough to look like a mistake rather than a choice, which is exactly what
-       it was. Reading the real edge means the three stay flush whatever Leaflet
-       decides its margin is. */
-    var lctl = document.querySelector(".leaflet-top.leaflet-right .leaflet-control")
-            || document.querySelector("#heatBtn");
-    if (lctl) {
-      var cr = lctl.getBoundingClientRect();
-      if (cr.width > 0) right = Math.round(window.innerWidth - cr.right);
+    function adopt(box, el) {
+      if (!el) return;
+      if (el.parentNode !== box) box.appendChild(el);
     }
 
-    var bug = document.querySelector(".swbug");
-    var GAP = 8, SIZE = 44;
-    if (bug) {
-      bug.style.right = right + "px";
-      bug.style.top = "calc(" + stackTop + "px + env(safe-area-inset-top))";
-    }
-    /* Refresh sits under the bug, on the same right edge. Only while it is a
-     * TOP-corner button - below 860px refresh.js moves it to the bottom right
-     * on purpose, and that placement is better than anything invented here. */
-    if (ref) {
-      var rb = ref.getBoundingClientRect();
-      if (rb.height > 0 && rb.top < window.innerHeight / 2) {
-        ref.style.right = right + "px";
-        ref.style.top = "calc(" + (stackTop + (bug ? SIZE + GAP : 0))
-                      + "px + env(safe-area-inset-top))";
-      } else {
-        ref.style.top = "";
-        ref.style.right = "";
-        // With refresh at the bottom, the bug button is the whole stack.
-        if (bug) bug.style.top = "calc(" + stackTop
-                               + "px + env(safe-area-inset-top))";
+    var TR = stack("swTR"), BR = stack("swBR");
+
+    /* The header row, where it exists. Every page that has a header gets one;
+     * a page without one falls back to the corner stack below, which is still
+     * better than each control choosing for itself. */
+    var head = document.querySelector("header.bar, header");
+    var bar = null;
+    if (head) {
+      bar = head.querySelector(".swbar");
+      if (!bar) {
+        bar = document.createElement("div");
+        bar.className = "swbar";
+        head.appendChild(bar);
       }
     }
+
+    /* Order top to bottom: the control someone is HUNTING for goes first.
+     * Sign in is the way back to a camera a volunteer thinks they have lost;
+     * refresh is what you reach for only once something already looks wrong. */
+    var site = bar || TR;
+    adopt(site, col);
+
+    /* Leaflet's own controls join the same column rather than being dodged.
+     * Reading their edge and stacking under it - the previous approach - only
+     * works while Leaflet keeps its margin and its corner, and put the heat
+     * button 2px out of line the one time it did not. Moving them in makes the
+     * alignment structural. Re-runs of this function re-adopt anything Leaflet
+     * has added since, which is why the map's own buttons stay in the set. */
+    var lt = document.querySelector(".leaflet-top.leaflet-right");
+    if (lt) {
+      [].slice.call(lt.children).forEach(function (c) { adopt(TR, c); });
+    }
+
+    adopt(site, document.querySelector(".swbug"));
+
+    /* 🚨 REFRESH AND THE INSTALL BANNER GO TO THE SAME CORNER, SO THEY GO TO
+     * THE SAME STACK. This is the pair in the screenshot: "Add to home screen"
+     * drawn straight through the refresh button, because 70px and 64px are not
+     * far enough apart to be two rows. Whichever corner refresh has chosen for
+     * this width, the banner is now directly above it and never on it. */
+    adopt(site, ref);
+    adopt(BR, document.querySelector(".instwrap"));
+
+    TR.style.right = right + "px";
+    TR.style.top = "calc(" + top + "px + env(safe-area-inset-top))";
+    TR.style.display = TR.children.length ? "flex" : "none";
+
+    /* The bottom stack clears the nav bar by measuring it, because the nav is
+     * the one piece of furniture that is genuinely a fixed height per page. */
+    var navh = 0;
+    var nav = document.querySelector("nav.sitenav");
+    if (nav) {
+      var nb = nav.getBoundingClientRect();
+      if (nb.height > 0) navh = Math.round(nb.height);
+    }
+    BR.style.bottom = "calc(" + (navh + 10) + "px + env(safe-area-inset-bottom))";
+    BR.style.display = BR.children.length ? "flex" : "none";
   }
 
   /* ⚠️ NOT ON /drive. Driving mode already has its own control rail down the

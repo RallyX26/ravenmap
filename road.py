@@ -62,12 +62,13 @@ import http.client
 import math
 import threading
 import time
+from pathlib import Path
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Optional
 
-from core import angle_diff, bearing_deg, haversine_m
+from core import DATA, angle_diff, bearing_deg, haversine_m
 
 # The published span is never shorter than this. See the module docstring:
 # it is what stops the span's midpoint from localising the camera. Chosen to
@@ -575,6 +576,55 @@ def span_from_travel(lat: float, lon: float, ways: list, axis_deg: float,
 _WAYS_CACHE: dict[tuple[int, int], list] = {}
 _WAYS_CACHE_MAX = 64
 
+# 🚨 ROADS DO NOT MOVE, SO THIS MUST NOT DIE WITH THE PROCESS.
+#
+# The cache above is memory only and holds 64 cells. Every restart emptied it,
+# and after a restart the FIRST sighting from each area needs a live Overpass
+# query - which rate limits, times out, and was measured failing on all three
+# mirrors within a minute of succeeding on one.
+#
+# When that query fails, snap_point returns None and a mobile sighting is
+# published wherever the 60 m privacy jitter put it: a park, a back garden, the
+# wrong street. Reported from the road - patrol cars scattered east of Bridge
+# Street that all belonged on South Main. It looked like a projection bug and it
+# was a cold cache plus a flaky third party.
+#
+# A disk cache makes the failure survivable instead of silent. A cell fetched
+# once is answerable for ever, the map stops depending on Overpass being up at
+# the exact second a car goes past, and the load on somebody else's free service
+# drops to one query per area for the life of the deployment.
+_WAYS_DIR = DATA / "roadcache"
+_WAYS_DISK_TTL_S = 180 * 24 * 3600     # roads change, just not this week
+
+
+def _disk_path(key: tuple) -> Path:
+    return _WAYS_DIR / f"{key[0]}_{key[1]}.json"
+
+
+def _disk_get(key: tuple) -> Optional[list]:
+    p = _disk_path(key)
+    try:
+        if not p.exists():
+            return None
+        if time.time() - p.stat().st_mtime > _WAYS_DISK_TTL_S:
+            return None
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        # Stored as lists; the rest of this module expects tuples.
+        return [[tuple(pt) for pt in way] for way in raw]
+    except Exception:
+        return None
+
+
+def _disk_put(key: tuple, ways: list) -> None:
+    try:
+        _WAYS_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = _disk_path(key).with_suffix(".tmp")
+        tmp.write_text(json.dumps([[list(pt) for pt in way] for way in ways]),
+                       encoding="utf-8")
+        tmp.replace(_disk_path(key))
+    except Exception:
+        pass          # a cache that cannot be written is not an error
+
 
 def _cell(lat: float, lon: float) -> tuple[int, int]:
     dlon = GRID_DEG / max(math.cos(math.radians(lat)), 1e-6)
@@ -607,6 +657,12 @@ def ways_for_cell(lat: float, lon: float, online: bool = True,
     ways = _WAYS_CACHE.get(key)
     if ways is not None:
         return ways
+    # Disk before network. This is the line that stops a restart costing every
+    # area its road data, and it costs a single file read.
+    ways = _disk_get(key)
+    if ways is not None:
+        _WAYS_CACHE[key] = ways
+        return ways
     if not online:
         return None
     # 🚨 A FAILING CELL MUST NOT BE RETRIED ON EVERY REQUEST.
@@ -631,6 +687,7 @@ def ways_for_cell(lat: float, lon: float, online: bool = True,
         for k in list(_WAYS_CACHE)[:_WAYS_CACHE_MAX // 2]:
             _WAYS_CACHE.pop(k, None)
     _WAYS_CACHE[key] = ways
+    _disk_put(key, ways)
     return ways
 
 
