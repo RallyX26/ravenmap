@@ -164,7 +164,14 @@ a{color:var(--blue)}
   <img src="/static/mark.png" class="mark" alt="SparrowMap" width="28" height="28">
   <div><b>SPARROWMAP</b><span class="who" id="who">no camera on this device</span></div>
   <span class="sp"></span>
-  <a href="/" style="color:var(--dim2);text-decoration:none;font:600 12px ui-monospace,Consolas,monospace;padding:5px 10px;border:1px solid var(--line);border-radius:7px;margin-right:8px;white-space:nowrap" title="Back to the map">&larr; Map</a>
+  <!-- 🚨 NAVIGATION BELONGS IN THE BAR, THE ACCOUNT ACTION BELONGS UP HERE.
+       This slot held "← Map", which made it the only page on the site where
+       getting back to the map was a header link rather than an item in the
+       bottom bar - one page, one exception, one thing to learn twice. Map has
+       moved down into the bar with Setup / Watch / Key / Review, and this slot
+       now carries the thing a person needs when the app says it has no camera:
+       the way back INTO one. -->
+  <a href="/signin" style="color:#cfe3f5;text-decoration:none;font:600 12px ui-monospace,Consolas,monospace;padding:5px 10px;border:1px solid var(--line2);border-radius:7px;margin-right:8px;white-space:nowrap;background:#141c28" title="Sign in to a camera you already have">&#128273; Sign in</a>
   <span class="pill" id="netpill"><i class="dot" id="netdot"></i><span id="nettext">idle</span></span>
 </header>
 
@@ -356,6 +363,10 @@ a{color:var(--blue)}
        bar deliberately dims - it read as an alert, not a tab. This one is a
        text glyph and takes the same colour as everything else in the row. -->
   <a href="/rv" class="modelink"><span class="ic">&#10003;</span>Review</a>
+  <!-- Map lives here now rather than in the header, so this bar reads the same
+       way the shared bottom bar does everywhere else: every destination in one
+       row, in the same place, whichever page you are on. -->
+  <a href="/" class="modelink"><span class="ic">&#128506;</span>Map</a>
 </nav>
 
 <script src="/vendor/ort.wasm.min.js"></script>
