@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import concurrent.futures as cf
 import io
 import json
 import sys
@@ -260,17 +261,42 @@ def cmd_run(args) -> int:
         print("no enrolled cameras - run survey then enrol first")
         return 1
     sess, size = load_model()
-    print(f"polling {len(cams)} camera(s) every {POLL_S:.0f}s "
+    # 🚨 WHY THREADS AND NOT A GPU.
+    #
+    # Measured before spending anything: a camera costs 0.36s of NETWORK and
+    # 0.07s of inference. Fetching them one at a time made a cycle take 55s
+    # against a 20s target with only 18 cameras, and it looked exactly like
+    # being compute-bound - the machine was busy, the cycle was late, and the
+    # obvious read was "we need a GPU". 83% of that time was a socket waiting,
+    # and one camera timing out held up all seventeen others.
+    #
+    # So the fix is concurrency, not hardware. Fetch in parallel, infer in
+    # series: inference is the cheap part and keeping it single-threaded means
+    # one ONNX session, no locking, and no surprise memory growth.
+    #
+    # Headroom after this: 0.07s per frame is about 14 cameras a second on one
+    # core, so a 20s cycle covers roughly 280 cameras before compute matters
+    # at all. The next wall is politeness to the camera operators, not silicon.
+    workers = min(32, max(4, len(cams)))
+    pool = cf.ThreadPoolExecutor(max_workers=workers)
+    print(f"polling {len(cams)} camera(s) every {POLL_S:.0f}s, {workers} at a time "
           f"(vehicles must be >= {MIN_VEHICLE_PX}px)\n")
     sent = skipped = 0
     seen_last = {}
+
+    def grab(c):
+        """Fetch one camera. Returns (cam, image or None, error)."""
+        try:
+            return c, Image.open(io.BytesIO(fetch(c["url"]))).convert("RGB"), None
+        except Exception as exc:
+            return c, None, f"{type(exc).__name__}: {str(exc)[:40]}"
+
     try:
         while True:
-            for c in cams:
-                try:
-                    img = Image.open(io.BytesIO(fetch(c["url"]))).convert("RGB")
-                except Exception as exc:
-                    print(f"  {c['name'][:34]:<36} unreachable ({str(exc)[:30]})")
+            cycle_started = time.time()
+            for c, img, err in pool.map(grab, cams):
+                if err:
+                    print(f"  {c['name'][:34]:<36} unreachable ({err})")
                     continue
                 boxes = detect(sess, size, img)
                 # 🚨 ONLY VEHICLES BIG ENOUGH TO BE JUDGED. A snapshot of a
@@ -320,7 +346,10 @@ def cmd_run(args) -> int:
                     print(f"  ERR   {c['name'][:34]:<36} {type(exc).__name__}: {str(exc)[:50]}")
                 if args.once:
                     continue
-            print(f"  -- cycle done: {sent} sent, {skipped} too small --", flush=True)
+            took = time.time() - cycle_started
+            print(f"  -- cycle done in {took:.1f}s: {sent} sent, {skipped} too "
+                  f"small --" + ("  ⚠ SLOWER THAN THE POLL INTERVAL"
+                                 if took > POLL_S else ""), flush=True)
             if args.once:
                 return 0
             time.sleep(POLL_S)
