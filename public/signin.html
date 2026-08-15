@@ -331,27 +331,98 @@ a{color:var(--blue)}
    * failing with "no key found" and leaving somebody staring at a photo that
    * plainly contains their key.
    */
-  function fromImage(file) {
-    if (!("BarcodeDetector" in window)) {
-      say("This browser cannot read QR codes from a photo. Open the photo on "
-        + "another device and scan it with that phone's camera, or paste the "
-        + "key above.", false);
+  /* 🚨 BarcodeDetector IS NOT ON IPHONE, AND THAT KILLED THIS FEATURE OUTRIGHT.
+   *
+   * The first version relied on it and told anyone without it to go and use a
+   * different device. A volunteer hit exactly that, on an iPhone, holding a
+   * screenshot of their own QR code: "This browser cannot read QR codes from a
+   * photo." Safari has no BarcodeDetector at all and neither does Firefox, so
+   * the one path that exists specifically for a photo you cannot scan - you
+   * cannot point a phone's camera at its own screen - was dead for most of the
+   * phones people actually own.
+   *
+   * A capability check is not a feature. jsQR is vendored (MIT, pure JS, no
+   * network of its own) and decodes it everywhere, and it is loaded ONLY when
+   * somebody actually picks an image - 46 KB gzipped is worth nothing to the
+   * people who never use this, and everything to the one who does. */
+  var jsqrLoading = null;
+  function loadJsQR() {
+    if (window.jsQR) return Promise.resolve(window.jsQR);
+    if (jsqrLoading) return jsqrLoading;
+    jsqrLoading = new Promise(function (res, rej) {
+      var sc = document.createElement("script");
+      sc.src = "/vendor/jsqr.min.js";
+      sc.onload = function () { res(window.jsQR); };
+      sc.onerror = function () { rej(new Error("decoder")); };
+      document.head.appendChild(sc);
+    });
+    return jsqrLoading;
+  }
+
+  function decodeWithJsQR(file) {
+    return loadJsQR().then(function (jsQR) {
+      return new Promise(function (res, rej) {
+        var url = URL.createObjectURL(file);
+        var img = new Image();
+        img.onload = function () {
+          // ⚠️ CAP THE PIXELS. A modern phone photo is 12 megapixels; decoding
+          // that whole grid locks the tab for seconds on the exact device this
+          // is for. A QR in a screenshot survives a downscale to 1600px on the
+          // long edge, which is roughly 20x fewer pixels to walk.
+          var s = Math.min(1, 1600 / Math.max(img.width, img.height));
+          var w = Math.max(1, Math.round(img.width * s));
+          var h = Math.max(1, Math.round(img.height * s));
+          var cv = document.createElement("canvas");
+          cv.width = w; cv.height = h;
+          var cx = cv.getContext("2d", { willReadFrequently: true });
+          cx.drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(url);
+          var px;
+          try { px = cx.getImageData(0, 0, w, h); }
+          catch (e) { rej(e); return; }
+          // attemptBoth: a QR photographed off a dark screen, or a screenshot of
+          // this site's own dark key page, arrives inverted.
+          var r = jsQR(px.data, w, h, { inversionAttempts: "attemptBoth" });
+          res(r && r.data ? r.data : null);
+        };
+        img.onerror = function () { URL.revokeObjectURL(url); rej(new Error("image")); };
+        img.src = url;
+      });
+    });
+  }
+
+  function useDecoded(raw) {
+    var k = raw && parse(raw);
+    if (!k) {
+      say("No SparrowMap key found in that picture. Make sure the whole QR code "
+        + "is in the shot and not cropped or blurred.", false);
       return;
     }
+    $("#k").value = k.id + "." + k.token;   // the key, not the raw QR payload
+    signIn();
+  }
+
+  function fromImage(file) {
     say("Reading the QR code…");
-    createImageBitmap(file).then(function (bmp) {
-      return new window.BarcodeDetector({ formats: ["qr_code"] }).detect(bmp);
-    }).then(function (codes) {
-      var hit = null;
-      (codes || []).forEach(function (c) { if (!hit && parse(c.rawValue)) hit = c.rawValue; });
-      if (!hit) {
-        say("No SparrowMap key found in that picture. Make sure the whole QR "
-          + "code is in frame and not cropped.", false);
-        return;
-      }
-      var k = parse(hit);
-      $("#k").value = k.id + "." + k.token;   // the key, not the raw QR payload
-      signIn();
+    // The browser's own decoder when it has one - it is faster and costs no
+    // download - and the vendored one everywhere else. Same outcome either way,
+    // which is the point.
+    var native = ("BarcodeDetector" in window)
+      ? createImageBitmap(file)
+          .then(function (bmp) {
+            return new window.BarcodeDetector({ formats: ["qr_code"] }).detect(bmp);
+          })
+          .then(function (codes) {
+            var hit = null;
+            (codes || []).forEach(function (c) { if (!hit && parse(c.rawValue)) hit = c.rawValue; });
+            return hit;
+          })
+          .catch(function () { return null; })
+      : Promise.resolve(null);
+
+    native.then(function (hit) {
+      if (hit) { useDecoded(hit); return; }
+      return decodeWithJsQR(file).then(useDecoded);
     }).catch(function () {
       say("Could not read that image. Try the key file instead, or paste the "
         + "key above.", false);
