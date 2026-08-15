@@ -329,6 +329,18 @@
       var lb = lt.getBoundingClientRect();
       if (lb.height > 0) stackTop = Math.round(lb.bottom) + 8;
     }
+    /* 🚨 ALIGN TO LEAFLET'S BUTTON, NOT TO MY OWN IDEA OF THE MARGIN.
+       Leaflet insets its controls by 10px and this column computed 12px from
+       the panel, so the heat button sat 2px right of the two below it - close
+       enough to look like a mistake rather than a choice, which is exactly what
+       it was. Reading the real edge means the three stay flush whatever Leaflet
+       decides its margin is. */
+    var lctl = document.querySelector(".leaflet-top.leaflet-right .leaflet-control")
+            || document.querySelector("#heatBtn");
+    if (lctl) {
+      var cr = lctl.getBoundingClientRect();
+      if (cr.width > 0) right = Math.round(window.innerWidth - cr.right);
+    }
 
     var bug = document.querySelector(".swbug");
     var GAP = 8, SIZE = 44;
