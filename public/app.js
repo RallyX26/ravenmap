@@ -94,8 +94,24 @@ const state = {
   showPlaces: true,
   // Public traffic cameras: a different kind of coverage from a volunteer's
   // camera, so it gets its own switch. See the checkbox in index.html.
-  showPubCams: true,
-  showAircraft: false,
+  //
+  // 🚨 DEFAULT OFF SINCE THE FLEET REACHED 4,434. At eighteen cameras this was
+  // a handful of squares; at four thousand it is four thousand Leaflet markers
+  // built on every load, and he reported the map as laggy the moment it was
+  // switched on. The layer is worth having and is one click away - it is just
+  // not what the map should be doing before anybody asks. See the viewport
+  // bound on /api/nodes, which is the other half of this.
+  showPubCams: false,
+  // 🚁 TWO AIRCRAFT SWITCHES, NOT ONE, AND THAT IS THE WHOLE POINT.
+  //
+  // "Government" is a registration category, and most of what falls in it is
+  // universities and agricultural agencies - the FAA's own field, not a claim
+  // this project makes. Drawn under one "aircraft" toggle they were
+  // indistinguishable from a sheriff's helicopter unless you opened the popup,
+  // which is exactly backwards for the one question people come here to ask.
+  // Separated, "is that police" has an answer you can read off the map.
+  showAircraft: false,        // law-enforcement registrations
+  showAircraftGov: false,     // other government registrations, and circling
   sightings: new Map(),   // id -> record  (public tier: the records)
   markers: new Map(),     // id -> leaflet marker
   traffic: new Map(),     // id -> {rec, marker}  (private tier: the live view)
@@ -1266,10 +1282,14 @@ const airLayer = L.layerGroup().addTo(map);
 let _airTimer = null, _airBusy = false;
 
 function airIcon(a) {
-  // An orbit is the headline, so it gets the colour and a ring; a government
-  // registration that is merely transiting is a fact, not an event.
+  // 🚨 COLOUR ANSWERS "IS IT POLICE", BECAUSE THAT IS THE QUESTION.
+  //
+  // It used to answer "is it circling", which meant a sheriff's helicopter in
+  // transit and a university survey plane were the same colour, and a circling
+  // crop duster was the reddest thing on the map. The ring still marks an
+  // orbit - that is behaviour and worth seeing - but the colour is ownership.
   const orbit = !!a.orbit;
-  const col = orbit ? '#ff3b47' : (a.law_enforcement ? '#ffb547' : '#7fb4ff');
+  const col = a.law_enforcement ? '#ff3b47' : (orbit ? '#ffb547' : '#7fb4ff');
   const rot = Math.round(a.track || 0);
   return L.divIcon({
     className: 'airmark',
@@ -1295,8 +1315,15 @@ function airPopup(a) {
       + (d.path_km ? ` — flew ${Math.round(d.path_km)} km and stayed within `
                    + `${(d.net_km || 0).toFixed(1)} km` : ''));
   }
-  if (a.law_enforcement) bits.push('<b>Law enforcement</b> registration');
-  else if (a.gov) bits.push('<b>Government</b> registration');
+  // ⚠️ SAY "NOT LAW ENFORCEMENT" OUT LOUD. Most government registrations are
+  // universities and agricultural agencies, and leaving that implied is how
+  // somebody reads a university survey plane as a police aircraft. The map
+  // exists to let people check things, so the negative has to be stated.
+  if (a.law_enforcement) {
+    bits.push('<b style="color:#ff3b47">Law enforcement</b> registration');
+  } else if (a.gov) {
+    bits.push('<b>Government</b> registration — <b>not</b> law enforcement');
+  }
   if (a.owner) bits.push(esc(a.owner));
   if (a.alt_m != null) bits.push(`${Math.round(a.alt_m * 3.28084).toLocaleString()} ft`);
   return `<div class="pop"><h4>${esc(a.call || a.n_number || a.icao)}</h4>`
@@ -1305,12 +1332,22 @@ function airPopup(a) {
        + `broadcast publicly. SparrowMap does not track aircraft.</div></div>`;
 }
 
+// 🚨 WHICH SWITCH OWNS AN AIRCRAFT. Law enforcement wins outright, so a
+// sheriff's helicopter is never hidden behind the "other government" box no
+// matter what else is true of it. Everything else the layer draws - other
+// government registrations, and anything CIRCLING regardless of who owns it -
+// belongs to the second box. An aircraft that is neither is not drawn at all.
+function airIsPolice(a) { return !!a.law_enforcement; }
+function airIsOther(a) { return !a.law_enforcement && (!!a.gov || !!a.orbit); }
+
 function drawAircraft(list) {
   airLayer.clearLayers();
-  if (!state.showAircraft) return;
+  if (!state.showAircraft && !state.showAircraftGov) return;
   (list || []).forEach((a) => {
     if (a.lat == null || a.lon == null) return;
-    if (!(a.orbit || a.gov || a.law_enforcement)) return;
+    const show = (state.showAircraft && airIsPolice(a))
+              || (state.showAircraftGov && airIsOther(a));
+    if (!show) return;
     L.marker([a.lat, a.lon], { icon: airIcon(a), zIndexOffset: 400 })
       .bindPopup(airPopup(a))
       .addTo(airLayer);
@@ -1318,7 +1355,10 @@ function drawAircraft(list) {
 }
 
 function loadAircraft() {
-  if (!state.showAircraft) { airLayer.clearLayers(); return; }
+  if (!state.showAircraft && !state.showAircraftGov) {
+    airLayer.clearLayers();
+    return;
+  }
   if (_airBusy) return;                 // a slow answer must not stack up
   _airBusy = true;
   const b = map.getBounds();
@@ -1331,25 +1371,36 @@ function loadAircraft() {
     .then(() => { _airBusy = false; });
 }
 
-try {
-  const saved = localStorage.getItem(AIR_KEY);
-  if (saved !== null) state.showAircraft = saved === '1';
-} catch (err) { /* the default stands */ }
-const _showair = $('#showair');
-if (_showair) {
-  _showair.checked = state.showAircraft;
-  _showair.onchange = (e) => {
-    state.showAircraft = e.target.checked;
-    try { localStorage.setItem(AIR_KEY, state.showAircraft ? '1' : '0'); }
+const AIRGOV_KEY = 'sparrow.showAircraftGov';
+function _wireAir(sel, key, prop) {
+  try {
+    const saved = localStorage.getItem(key);
+    if (saved !== null) state[prop] = saved === '1';
+  } catch (err) { /* the default stands */ }
+  const el = $(sel);
+  if (!el) return;
+  el.checked = state[prop];
+  el.onchange = (e) => {
+    state[prop] = e.target.checked;
+    try { localStorage.setItem(key, state[prop] ? '1' : '0'); }
     catch (err) { /* not remembering is survivable */ }
-    if (state.showAircraft) loadAircraft(); else airLayer.clearLayers();
+    // ⚠️ Always redraw, never just clear: turning one box off must leave the
+    // OTHER box's aircraft on the map. Clearing the layer here is what makes a
+    // shared layer with two switches go wrong.
+    loadAircraft();
+    if (!state.showAircraft && !state.showAircraftGov) airLayer.clearLayers();
   };
 }
+_wireAir('#showair', AIR_KEY, 'showAircraft');
+_wireAir('#showairgov', AIRGOV_KEY, 'showAircraftGov');
+
 // Slow on purpose - see the note above about whose service this is.
 if (_airTimer) clearInterval(_airTimer);
 _airTimer = setInterval(loadAircraft, 30000);
-map.on('moveend', () => { if (state.showAircraft) loadAircraft(); });
-if (state.showAircraft) loadAircraft();
+map.on('moveend', () => {
+  if (state.showAircraft || state.showAircraftGov) loadAircraft();
+});
+if (state.showAircraft || state.showAircraftGov) loadAircraft();
 
 /* The View button: open the chips, close them, and keep the label honest.
  *
