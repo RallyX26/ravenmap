@@ -64,12 +64,24 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
 /* ---- the mode bar, which IS the program ------------------------------- */
 nav.modes{flex:0 0 auto;display:flex;gap:0;background:#0d1219;
   border-top:1px solid var(--line)}
-nav.modes button{flex:1;background:none;border:0;color:var(--dim2);cursor:pointer;
+/* 🚨 ONE RULE FOR EVERY ITEM IN THE BAR, INCLUDING THE ONE THAT IS A LINK.
+   Every rule here was written as `nav.modes button`, so the Review item - an
+   <a>, because it navigates away rather than switching mode - matched none of
+   them. It fell back to the browser's default anchor: underlined, link-blue,
+   inline, no flex share and no safe-area padding, so on a phone it sat off the
+   right edge of a bar whose other three items were perfectly spaced. The
+   selector, not the markup, was the bug: it described the tag it expected
+   instead of the thing it meant. */
+nav.modes button,nav.modes a.modelink{
+  flex:1;background:none;border:0;color:var(--dim2);cursor:pointer;
   padding:11px 4px calc(11px + env(safe-area-inset-bottom));
   font:600 10.5px var(--mono);letter-spacing:.09em;text-transform:uppercase;
-  border-top:2px solid transparent;-webkit-tap-highlight-color:transparent}
+  border-top:2px solid transparent;-webkit-tap-highlight-color:transparent;
+  /* An anchor is inline and left-aligned by default; a button is neither. */
+  display:block;text-align:center;text-decoration:none;min-width:0}
 nav.modes button.on{color:var(--ink);border-top-color:var(--blue);background:#111621}
 nav.modes button:disabled{opacity:.3;cursor:default}
+nav.modes a.modelink:active{color:var(--ink);background:#111621}
 nav.modes .ic{display:block;font-size:16px;margin-bottom:3px;letter-spacing:0}
 
 h1{font-size:19px;margin:2px 0 4px}
@@ -320,7 +332,11 @@ a{color:var(--blue)}
   <button data-m="key" disabled><span class="ic">&#128273;</span>Key</button>
   <!-- Always present, not just in the one-time banner after a token is minted.
        The banner is a notification; this is a way back. -->
-  <a href="/rv" class="modelink"><span class="ic">&#9989;</span>Review</a>
+  <!-- ✓ rather than ✅: the emoji check renders as a bright green tile that
+       ignores `color`, so it stayed fully saturated next to three icons the
+       bar deliberately dims - it read as an alert, not a tab. This one is a
+       text glyph and takes the same colour as everything else in the row. -->
+  <a href="/rv" class="modelink"><span class="ic">&#10003;</span>Review</a>
 </nav>
 
 <script src="/vendor/ort.wasm.min.js"></script>

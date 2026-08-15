@@ -717,62 +717,106 @@ def _publish(sid: int, reviewer: dict, force_vclass: Optional[str] = None,
 
     # Attach the pen crop as the published photo (plate-less already).
     crop = tighten(crop_bytes(sid), crop_box)
-    snap = None
-    if crop:
-        try:
-            data_url = "data:image/jpeg;base64," + base64.b64encode(crop).decode()
-            # 🚨 A REPORTED ITEM IS ALREADY STAMPED. park_reported builds its
-            # pen crop with subres_from_stored, i.e. from the file the map was
-            # already serving, and that file was captioned when it was first
-            # stored. Stamping it again lands the second caption on top of the
-            # first at the same size and position, so it does not look like a
-            # bug - the strip just goes darker and another layer of text is
-            # burned into the evidence every time round the report-confirm
-            # loop. Everything else in the pen arrives unstamped and still
-            # needs one.
-            snap = snapshot.store_confirmed(data_url, {
-                "ts": meta.get("ts") or time.time(), "node_id": "review",
-                "node_name": meta.get("node_name") or "a camera",
-                "tier": "public", "vclass": vclass, "watermark": "CONFIRMED"},
-                stamp=not meta.get("reported"))
-        except Exception:
-            try:
-                name = f"{int(meta.get('ts') or time.time())}_{secrets.token_hex(4)}.jpg"
-                SNAPS.mkdir(parents=True, exist_ok=True)
-                (SNAPS / name).write_bytes(crop)
-                snap = name
-            except Exception:
-                snap = None
 
     db.promote_sighting(sid, vclass, _score(meta, row), why)
-    if snap:
-        # 🚨 THE PHOTOGRAPH THIS REPLACES HAS TO STOP BEING SERVED.
-        # This wrote the new name over the old one and left the old FILE in
-        # place, and `/snap/<name>` hands out any file in SNAPS by name with no
-        # reference to the row - so a reviewer who cropped a person out of a
-        # published photo swapped which picture the map linked to and changed
-        # nothing about what was reachable. The uncropped original stayed one
-        # URL away, which is the same leak the retracted-photo shelf exists to
-        # clean up after. Unlinked is not deleted.
-        old = (row or {}).get("snap")
-        conn = db.connect()
-        conn.execute("UPDATE sightings SET snap=? WHERE id=?", (snap, sid))
-        conn.commit()
-        if old and Path(str(old)).name != snap:
-            _drop_file(SNAPS, old, sid)
-        # 🚨 TWO PATHS CAN PUBLISH A PHOTO AND ONLY ONE KNEW ABOUT THE HOLD.
-        # A reported sighting is BOTH held and parked in the pen, so confirming
-        # it here republished the picture while `snap_held` still pointed at the
-        # held original. db.set_snap_held's own docstring says a row carrying
-        # both is claiming the same picture is in two places - and it was: the
-        # map served the new crop, the fix queue went on listing the item as
-        # waiting, and the held file was orphaned in core.HELD with nothing left
-        # to clean it up. Observed live on 45852.
-        held = (row or {}).get("snap_held")
-        if held:
-            db.set_snap_held(sid, None, snap)
-            _drop_file(HELD, held, sid)
+    attach_confirmed_photo(sid, row, crop,
+                           ts=meta.get("ts"),
+                           node_name=meta.get("node_name") or "a camera",
+                           vclass=vclass,
+                           stamp=not meta.get("reported"))
     _delete_pen(sid)
+
+
+def attach_confirmed_photo(sid: int, row: Optional[dict], crop: Optional[bytes],
+                           *, ts: Optional[float] = None,
+                           node_name: str = "a camera",
+                           vclass: str = "police",
+                           stamp: bool = True) -> Optional[str]:
+    """Make ``crop`` the published photograph of an already-public sighting.
+
+    🚨 ONE PUBLISH-A-PHOTO, BECAUSE THERE ARE NOW TWO HUMANS WHO CAN SAY YES.
+    A reviewer confirms in the pen (`_publish` above) and a camera operator or
+    a driver confirms at the camera (`/api/node/label`). Both are the same
+    decision - a person vouched for this vehicle, so this picture becomes the
+    map's picture - and the swap has three parts that are each easy to leave
+    out. When this logic lived inside `_publish` the second path had none of
+    them: it promoted the row and published whatever 200px thumbnail ingest had
+    already stored, which is why every drive-mode and camera-labelled patrol
+    car on the map is a 160-200px smudge.
+
+    Returns the new snapshot name, or None if nothing was attached (no crop, or
+    storing it failed) - in which case the row keeps the photograph it had.
+    Publication itself is NOT this function's job and has already happened: a
+    picture that cannot be stored must never cost the sighting its place on the
+    map.
+    """
+    if not crop:
+        return None
+    snap = None
+    try:
+        data_url = "data:image/jpeg;base64," + base64.b64encode(crop).decode()
+        # 🚨 A REPORTED ITEM IS ALREADY STAMPED. park_reported builds its
+        # pen crop with subres_from_stored, i.e. from the file the map was
+        # already serving, and that file was captioned when it was first
+        # stored. Stamping it again lands the second caption on top of the
+        # first at the same size and position, so it does not look like a
+        # bug - the strip just goes darker and another layer of text is
+        # burned into the evidence every time round the report-confirm
+        # loop. Everything else in the pen arrives unstamped and still
+        # needs one.
+        snap = snapshot.store_confirmed(data_url, {
+            "ts": ts or time.time(), "node_id": "review",
+            "node_name": node_name,
+            "tier": "public", "vclass": vclass, "watermark": "CONFIRMED"},
+            stamp=stamp)
+    except Exception:
+        # 🚨 THE FALLBACK MUST STILL PROVE IT IS AN IMAGE.
+        # It wrote whatever it was handed straight into SNAPS, which was
+        # survivable while the only caller passed bytes it had just read out of
+        # a stored .jpg. It is not survivable now: /api/node/label reaches this
+        # from the network, and unopenable bytes would be written out as the
+        # published photograph AND would delete the good one below - so a
+        # corrupt upload does not merely fail, it destroys the picture it was
+        # meant to improve. Caught by tools/test_fullres_on_confirm.py, which
+        # is why that test hands it garbage on purpose.
+        try:
+            Image.open(io.BytesIO(crop)).verify()
+            name = f"{int(ts or time.time())}_{secrets.token_hex(4)}.jpg"
+            SNAPS.mkdir(parents=True, exist_ok=True)
+            (SNAPS / name).write_bytes(crop)
+            snap = name
+        except Exception:
+            snap = None
+    if not snap:
+        return None
+
+    # 🚨 THE PHOTOGRAPH THIS REPLACES HAS TO STOP BEING SERVED.
+    # This wrote the new name over the old one and left the old FILE in
+    # place, and `/snap/<name>` hands out any file in SNAPS by name with no
+    # reference to the row - so a reviewer who cropped a person out of a
+    # published photo swapped which picture the map linked to and changed
+    # nothing about what was reachable. The uncropped original stayed one
+    # URL away, which is the same leak the retracted-photo shelf exists to
+    # clean up after. Unlinked is not deleted.
+    old = (row or {}).get("snap")
+    conn = db.connect()
+    conn.execute("UPDATE sightings SET snap=? WHERE id=?", (snap, sid))
+    conn.commit()
+    if old and Path(str(old)).name != snap:
+        _drop_file(SNAPS, old, sid)
+    # 🚨 TWO PATHS CAN PUBLISH A PHOTO AND ONLY ONE KNEW ABOUT THE HOLD.
+    # A reported sighting is BOTH held and parked in the pen, so confirming
+    # it here republished the picture while `snap_held` still pointed at the
+    # held original. db.set_snap_held's own docstring says a row carrying
+    # both is claiming the same picture is in two places - and it was: the
+    # map served the new crop, the fix queue went on listing the item as
+    # waiting, and the held file was orphaned in core.HELD with nothing left
+    # to clean it up. Observed live on 45852.
+    held = (row or {}).get("snap_held")
+    if held:
+        db.set_snap_held(sid, None, snap)
+        _drop_file(HELD, held, sid)
+    return snap
 
 
 def verdict(reviewer: dict, sid: int, call: str, ip: str = "",

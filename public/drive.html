@@ -435,13 +435,22 @@
    * holds a ~200px JPEG data URL rather than anything the server sends back -
    * no image ever travels down for this. Giving up on one costs nothing: the
    * crop is in the review pen either way, which is exactly where it was before
-   * any of this existed. */
-  var pending=[], PEND_MAX=24, PEND_TTL_MS=12*60*1000;
+   * any of this existed.
+   *
+   * ⚠️ AND A FOURTH BOUND NOW, BECAUSE ONE OF THEM IS BIG. Each entry also
+   * carries the 900px copy to publish if the driver says "yes, police", and
+   * those are ~100 KB each rather than ~3 KB. 24 of them is several megabytes
+   * held in a browser tab on a phone that is also running a neural net, and a
+   * tab the OS kills mid-drive takes the whole session with it. Only the
+   * newest FULL_KEEP keep theirs; the older ones stay answerable and simply
+   * publish the small crop, which is what every one of them did before. */
+  var pending=[], PEND_MAX=24, PEND_TTL_MS=12*60*1000, FULL_KEEP=8;
   function pollParked(){
     if(!(driveNode&&driveNode.token)) return;
     var now=Date.now();
     pending=pending.filter(function(p){return now-p.at<PEND_TTL_MS;});
     if(pending.length>PEND_MAX) pending=pending.slice(-PEND_MAX);
+    for(var i=0;i<pending.length-FULL_KEEP;i++) pending[i].full=null;
     if(!pending.length || askSid) return;   // one question at a time
     fetch('/api/node/parked',{method:'POST',
       headers:{'Content-Type':'application/json',
@@ -455,13 +464,17 @@
         var got=null;
         pending=pending.filter(function(p){
           if(p.id===hit.id){got=p;return false;} return true;});
-        if(got) askCop(hit.id, got.crop);
+        if(got) askCop(hit.id, got.crop, got.full);
       }).catch(function(){});
   }
 
-  var askSid=null;
-  function askCop(sid, imgDataUrl){
+  var askSid=null, askFull=null;
+  function askCop(sid, imgDataUrl, fullDataUrl){
     askSid=sid;
+    // Held for the answer, not for the display: the popup deliberately shows
+    // the SMALL crop, because that is the picture the box is holding and
+    // showing a sharper one would misrepresent what is being judged.
+    askFull=fullDataUrl||null;
     var el=$('#copask');
     if(imgDataUrl) $('#copimg').src=imgDataUrl;
     $('#copsub').textContent='Your camera flagged it. Nobody has looked yet '
@@ -470,14 +483,23 @@
     askTone();
     if(navigator.vibrate) navigator.vibrate([90,60,90]);
   }
-  function closeAsk(){ askSid=null; $('#copask').className=''; }
+  function closeAsk(){ askSid=null; askFull=null; $('#copask').className=''; }
   function sendLabel(label){
-    var sid=askSid; closeAsk();
+    var sid=askSid, full=askFull; closeAsk();
     if(!(sid&&driveNode&&driveNode.token)) return;
+    var body={node_id:driveNode.id,sighting_id:sid,label:label};
+    // 🚨 ONLY ON A YES, AND THIS IS THE WHOLE PRIVACY ARGUMENT FOR IT.
+    // The 900px crop is un-degraded - the plate in it is legible if the camera
+    // caught it. Sending it with "no, ordinary car" would upload a stranger's
+    // plate to a public server for a vehicle a human has just said is nobody's
+    // business, which is the exact trade core.EVIDENCE exists to avoid making.
+    // On a yes it is a public-tier photograph of a police vehicle, where the
+    // plate is the point.
+    if(label==='police' && full) body.snap_b64=full;
     fetch('/api/node/label',{method:'POST',
       headers:{'Content-Type':'application/json',
                'Authorization':'Bearer '+driveNode.token},
-      body:JSON.stringify({node_id:driveNode.id,sighting_id:sid,label:label})})
+      body:JSON.stringify(body)})
       .then(function(r){return r.json();})
       .then(function(r){
         // 🚨 SAY WHAT ACTUALLY HAPPENED, NOT WHAT WAS ASKED FOR. `public_tiers`
@@ -784,17 +806,44 @@
       if(!dup)keep.push(hh);}
     return keep;
   }
-  function cropOf(video,box){
+  /* 🚨 TWO SIZES, AND THE BIG ONE NEVER LEAVES THE PHONE UNTIL A HUMAN SAYS YES.
+   *
+   * SEND_EDGE (200px) is what gets POSTED every 5 seconds. That is not a
+   * thumbnail setting - 200px is the size that destroys a plate, which is the
+   * right thing to upload about a car that nobody has looked at yet, on a
+   * moving camera that sees mostly ordinary traffic and is on cellular data.
+   *
+   * But it was also the ONLY copy that ever existed, so it is what got
+   * published when a vehicle turned out to be a patrol car: every drive-mode
+   * cop on the map is a 160-200px smudge with no readable livery. The box
+   * cannot fix that from its end - it never had anything better, and it is
+   * deliberately not allowed to hold un-degraded pictures of unreviewed
+   * traffic (mirror.evidence_write).
+   *
+   * So the phone keeps the good crop itself, in memory, and uploads it only if
+   * the person holding the phone confirms the vehicle. 900px matches
+   * snapshot.MAX_EDGE - the ceiling every stored photograph is capped at
+   * anyway, so a bigger one would only be thrown away after being uploaded. */
+  var FULL_EDGE=900;
+  var fullCv=document.createElement('canvas');
+  function cropOf(video,box,maxEdge,quality,cv){
     var x0=box[0],y0=box[1],x1=box[2],y1=box[3];
     var pw=(x1-x0)*0.06, ph=(y1-y0)*0.06;
     var sx=Math.max(0,x0-pw), sy=Math.max(0,y0-ph);
     var sw=Math.min(video.videoWidth-sx,(x1-x0)+2*pw);
     var sh=Math.min(video.videoHeight-sy,(y1-y0)+2*ph);
-    var s=Math.min(1,SEND_EDGE/Math.max(sw,sh));
-    cropCv.width=Math.max(1,Math.round(sw*s));
-    cropCv.height=Math.max(1,Math.round(sh*s));
-    cropCv.getContext('2d').drawImage(video,sx,sy,sw,sh,0,0,cropCv.width,cropCv.height);
-    return cropCv.toDataURL('image/jpeg',0.82);
+    var s=Math.min(1,(maxEdge||SEND_EDGE)/Math.max(sw,sh));
+    cv=cv||cropCv;
+    cv.width=Math.max(1,Math.round(sw*s));
+    cv.height=Math.max(1,Math.round(sh*s));
+    cv.getContext('2d').drawImage(video,sx,sy,sw,sh,0,0,cv.width,cv.height);
+    return cv.toDataURL('image/jpeg',quality||0.82);
+  }
+  function fullCropOf(video,box){
+    // Wrapped in try/catch because this is the OPTIONAL half. A phone that
+    // cannot spare the memory for a 900px canvas must still post its sighting;
+    // it just publishes the small crop, exactly as it did before this existed.
+    try{ return cropOf(video,box,FULL_EDGE,0.9,fullCv); }catch(e){ return null; }
   }
   function drawDashOverlay(hits,vw,vh){
     var cv=$('#dashov');
@@ -906,7 +955,7 @@
           // they no longer remembered. Ask now, while it is still in the
           // mirror. b.crop is the exact image the hub is holding.
           // A CAMERA node is told immediately, because it scored its own crop.
-          if(r.parked && r.id) askCop(r.id, b.crop);
+          if(r.parked && r.id) askCop(r.id, b.crop, b.full);
           // 🚨 A PHONE IS NOT, AND THIS IS THE HALF THAT MATTERS HERE.
           // There is no classifier in a browser, so this post CANNOT come back
           // saying "that was a patrol car" - the crop goes to the inbox, the
@@ -915,7 +964,8 @@
           // the popup above could never once have fired on this client.
           // Remember what we sent, keep OUR copy of the crop (no image ever
           // comes back down), and ask.
-          else if(r.id) pending.push({id:r.id, crop:b.crop, at:Date.now()});
+          else if(r.id) pending.push({id:r.id, crop:b.crop, full:b.full,
+                                      at:Date.now()});
         }
       }).catch(function(){});
   }
@@ -936,10 +986,24 @@
         if(!tr){tr={id:dnextId++,seen:0,best:null,bestArea:0,cls:h.cls};dtracks.push(tr);}
         tr.box=h.box; tr.last=now; tr.seen++; tr.cls=h.cls; tr.score=h.score;
         var area=(h.box[2]-h.box[0])*(h.box[3]-h.box[1]);
-        if(area>tr.bestArea){tr.bestArea=area; tr.best=cropOf(v,h.box); tr.bestBox=h.box;}
+        if(area>tr.bestArea){
+          tr.bestArea=area; tr.best=cropOf(v,h.box); tr.bestBox=h.box;
+          // The 900px copy is taken HERE, off the same frame as the 200px one,
+          // because this is the only moment that frame still exists - by the
+          // time a person answers the popup the vehicle is a street behind us.
+          // Gated on MIN_FRAMES so the distant early sightings of a vehicle,
+          // which improve on almost every frame and are useless anyway, do not
+          // each cost a full-size JPEG encode inside the detection loop.
+          if(tr.seen>=MIN_FRAMES) tr.full=fullCropOf(v,h.box);
+        }
+        // A vehicle whose biggest frame came before it was stable would
+        // otherwise never get one at all - the branch above only fires on an
+        // improvement, and there may not be another. Take one the first frame
+        // it qualifies instead of publishing the smudge.
+        else if(tr.seen>=MIN_FRAMES && !tr.full) tr.full=fullCropOf(v,h.box);
         // Track the largest STABLE vehicle since the last send (the window best).
         if(tr.seen>=MIN_FRAMES && tr.best && (!winBest||area>winBest.area))
-          winBest={crop:tr.best,cls:tr.cls,score:tr.score,area:area,
+          winBest={crop:tr.best,full:tr.full,cls:tr.cls,score:tr.score,area:area,
                    box:tr.bestBox,vw:v.videoWidth};
       }
       dtracks=dtracks.filter(function(t){return now-t.last<GONE_MS;});

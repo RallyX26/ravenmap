@@ -449,7 +449,7 @@ def set_label(day: str, stem: str, label: str, sampling: str = "review") -> dict
             d["reported_by_operator"] = True
             p.write_text(json.dumps(d, indent=1, default=str), encoding="utf-8")
 
-    synced = _sync_sighting(d.get("sighting_id"), label)
+    synced = _sync_sighting(d.get("sighting_id"), label, day=day, stem=stem)
     if synced:
         # Recorded so `clear_label` can reverse EXACTLY what this label did,
         # rather than guessing. See the note there.
@@ -572,7 +572,37 @@ def _report_new_sighting(day: str, stem: str, d: dict, label: str) -> Optional[i
     return sid
 
 
-def _sync_sighting(sighting_id, label: str) -> Optional[str]:
+def _banked_crop_b64(day: str, stem: str) -> Optional[str]:
+    """This crop as a data URL, at the resolution the camera actually caught it.
+
+    🚨 THE MAP HAS BEEN PUBLISHING THE 200px COPY OF EVERY VEHICLE THIS CAMERA
+    CONFIRMED. Ingest stores a sub-resolution, plate-less crop for the review
+    pen, and that is correct for something nobody has looked at yet - 200px is
+    the size that destroys a plate. But nothing ever replaced it when a person
+    said yes, so the published photograph of a patrol car was the copy that had
+    been degraded specifically because it was unreviewed. Measured on the live
+    box: every camera-labelled public sighting is exactly 200px on its long
+    edge, livery unreadable.
+
+    The un-degraded original is not on the box and must not be (core.EVIDENCE is
+    home-only), but it IS right here, next to the label being written. So the
+    camera sends it with the verdict, at which point it is a public-tier
+    photograph of a government vehicle rather than un-reviewed imagery of the
+    street.
+    """
+    img = _sidecar(day, stem).with_suffix(".jpg")
+    try:
+        if not img.exists():
+            return None
+        import base64
+        return ("data:image/jpeg;base64,"
+                + base64.b64encode(img.read_bytes()).decode())
+    except Exception:
+        return None
+
+
+def _sync_sighting(sighting_id, label: str, day: str = "",
+                   stem: str = "") -> Optional[str]:
     """Make the map agree with the human. Returns what changed, or None.
 
     🚨 THIS ASKS THE BOX. IT USED TO ASK A LOCAL DATABASE, AND THAT IS THE BUG.
@@ -602,8 +632,19 @@ def _sync_sighting(sighting_id, label: str) -> Optional[str]:
     """
     if not sighting_id or label == "unsure":
         return None
+    body = {"sighting_id": int(sighting_id), "label": label}
+    # Only for the answers that can put a vehicle on the map. The box decides
+    # whether they actually do (`public_tiers`) and ignores the picture if they
+    # do not, so this side does not get to hold an opinion about the policy -
+    # the same split as the rest of this function. A `civilian` answer sends no
+    # picture at all: that is somebody's ordinary car and an un-degraded crop of
+    # it has no business leaving this machine.
+    if label in ("police", "gov") and day and stem:
+        full = _banked_crop_b64(day, stem)
+        if full:
+            body["snap_b64"] = full
     try:
-        out = _call_box({"sighting_id": int(sighting_id), "label": label})
+        out = _call_box(body)
     except Exception as exc:
         # 🚨 LOUD. The whole cost of this bug was that the failure was silent,
         # so a network error here says so plainly rather than returning None

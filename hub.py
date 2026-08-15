@@ -2252,10 +2252,80 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(404, "no such sighting")
                 if (row.get("node_id") or "") != nd["id"]:
                     return self._err(403, "not your camera's sighting")
-                out = node_label.apply(sid, row, str(b.get("label") or ""),
-                                       undo=str(b.get("undo") or ""))
+                label = str(b.get("label") or "")
+                undo = str(b.get("undo") or "")
+                out = node_label.apply(sid, row, label, undo=undo)
                 if out.get("error"):
                     return self._err(400, out["error"])
+
+                # 🚨 THE PICTURE THE HUMAN WAS LOOKING AT, AT FULL RESOLUTION.
+                #
+                # Every patrol car published through THIS route was a 160-200px
+                # smudge - measured live: 51182 was 160x61, 50945 192x95, and
+                # the newest camera-labelled ones 200px to the edge. The reason
+                # is that nothing here ever attached a photograph, so the row
+                # kept the sub-resolution PEN copy ingest had stored, and 200px
+                # is not a thumbnail size chosen for the map: it is the size
+                # that DESTROYS A PLATE (snapshot.SUBRES_MAX_EDGE). It is
+                # exactly right for an unreviewed candidate and exactly wrong
+                # for a published government vehicle, which is the one case the
+                # plate and the livery are meant to survive.
+                #
+                # The full-resolution original is not on this machine and must
+                # not be: core.EVIDENCE is home-only and mirror.evidence_write
+                # refuses here, because a public box holding un-degraded
+                # pictures of whatever drove past is the thing that rule exists
+                # to prevent. So the CLIENT keeps it - a drive phone holds its
+                # own crop in memory, a camera has it banked - and sends it
+                # with the verdict. It arrives only AFTER a person has said
+                # "yes, police", at which point it is a public-tier photograph
+                # of a police vehicle: precisely what a mirror is allowed to
+                # store, and nothing is held here pending anything.
+                #
+                # ⚠️ ONLY WHEN THE VERDICT PUBLISHES. `published` is the state
+                # machine's own answer, not the label that was asked for - a
+                # council pickup answered "gov" is recorded and NOT published
+                # (node_label._publishes), and attaching an un-degraded picture
+                # to a private-tier row would put a legible plate on a row the
+                # deployment just decided to keep private.
+                if out.get("published") and b.get("snap_b64"):
+                    try:
+                        # decode_upload's cap and EXIF strip run in here, before
+                        # anything touches the disk.
+                        full = snapshot.decode_bytes(str(b["snap_b64"]))
+                        review_api.attach_confirmed_photo(
+                            sid, row, full,
+                            ts=row.get("ts"),
+                            node_name=nd.get("name") or "a camera",
+                            vclass=("police" if label == "police" else "gov"))
+                    except Exception as exc:
+                        # The vehicle is on the map either way. A rejected
+                        # picture must not un-publish it, and the operator has
+                        # already been told their answer landed.
+                        print(f"[label] full-res photo not attached to {sid}: {exc}")
+
+                # 🚨 AND THE PEN ENTRY GOES, BECAUSE THE DECISION IS MADE.
+                # review_api.verdict deletes it on every outcome; this route
+                # deleted it on none, so a vehicle the camera operator had
+                # already judged sat in /rv/pool waiting to be judged again. Two
+                # front ends onto one decision, and only one of them closed it.
+                # It also silently undid the photograph above: a pool reviewer
+                # confirming the leftover item republishes it from the 200px pen
+                # crop, putting the smudge back over the full-resolution picture
+                # the person who saw the vehicle had just supplied.
+                #
+                # Keyed on ANSWERED, not on `did`. A label that changed nothing
+                # because the map already agreed is still a person having
+                # looked, and leaving that one in the queue is the same wasted
+                # second look. `unsure` is deliberately not an answer, and an
+                # undo must put nothing back - it is a reversal, not a verdict.
+                if undo:
+                    pass
+                elif label in node_label.VALID and label != "unsure":
+                    try:
+                        review_api._delete_pen(sid)
+                    except Exception:
+                        pass
                 if out.get("did"):
                     db.audit(f"node_label:{out['did']}", str(sid),
                              actor=f"camera {nd['id']}",
