@@ -42,6 +42,23 @@
   // flex:1 0 auto fills the width on a desktop and refuses to shrink below the
   // label on a phone, so the overflow is a swipe instead of illegible stubs.
   var CSS = [
+    /* The top link. Sized and coloured to read as a quiet secondary control,
+       because on the map it sits next to "Add a camera" - the primary ask of
+       the whole site - and must not compete with it. */
+    ".swtoplink{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;",
+    "  padding:7px 12px;border-radius:999px;text-decoration:none;",
+    "  background:#141c28;border:1px solid #2a3547;color:#cfe3f5;",
+    "  font:600 12.5px system-ui,-apple-system,sans-serif;",
+    "  -webkit-tap-highlight-color:transparent}",
+    ".swtoplink:hover{border-color:#3d8cff;color:#fff}",
+    ".swtoplink.inhdr{margin-left:10px}",
+    ".swtoplink.swfloat{position:fixed;z-index:9001;right:12px;",
+    "  top:calc(10px + env(safe-area-inset-top))}",
+    /* On a phone refresh.js moves its button to the BOTTOM right, so the float
+       has the top corner to itself; on a narrow screen it only needs to shrink
+       enough not to crowd whatever the page puts up there. */
+    "@media (max-width:520px){.swtoplink{padding:6px 10px;font-size:12px}}",
+    "@media print{.swtoplink{display:none}}",
     "nav.sitenav{position:fixed;left:0;right:0;bottom:0;z-index:1200;display:flex;",
     "  background:#0d1219;border-top:1px solid #25303f;",
     "  overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}",
@@ -109,6 +126,54 @@
     }
   }
 
+  /* 🔑 THE WAY BACK TO YOUR OWN CAMERA, AT THE TOP OF EVERY PAGE.
+   *
+   * Not in the bottom bar. That bar is already seven items and scrolls
+   * sideways on a phone, so an eighth would be the one nobody sees - and this
+   * is specifically for people who have just been told their camera is gone
+   * and are looking for a way in.
+   *
+   * ⚠️ IT IS BUILT HERE RATHER THAN IN EACH PAGE because the pages do not
+   * agree on what a header is: the map has <header class="bar"> with a <nav>,
+   * the review page and photos have a bare <header>, and drive, business,
+   * about, status, guide, transparency and hardware have none at all. Editing
+   * nine files to add one link is how the review page ended up with no way
+   * home in the first place. This adapts: into the header if there is one,
+   * floating if there is not.
+   *
+   * It reads the key rather than always saying the same thing. Somebody who
+   * already holds a camera does not need to be offered a sign-in - they need
+   * the way to their camera - and a site whose whole pitch is "no account"
+   * should not show a permanent Sign in button to a passer-by with nothing to
+   * sign in to. Same slot, honest label either way.
+   */
+  function topLink() {
+    if (document.querySelector(".swtoplink")) return;
+    var here = location.pathname.replace(/\/+$/, "") || "/";
+    if (here === "/signin" || here === "/app" || here === "/login/camera") return;
+
+    var has = false;
+    try { has = !!JSON.parse(localStorage.getItem("sparrow.node") || "null"); }
+    catch (e) { has = false; }
+
+    var a = document.createElement("a");
+    a.className = "swtoplink";
+    a.href = has ? "/app" : "/signin";
+    a.textContent = has ? "📷 My camera" : "🔑 Sign in";
+    a.title = has ? "Open your camera"
+                  : "Already set up a camera? Sign in with your key";
+
+    // Prefer a real slot in a real header. A link that sits INSIDE the page's
+    // own header scrolls and reflows with it, which a fixed pill cannot.
+    var hdr = document.querySelector("header nav") || document.querySelector("header");
+    if (hdr) { a.classList.add("inhdr"); hdr.appendChild(a); return; }
+    // No header on this page: float it, top-right. Deliberately above where
+    // refresh.js puts its button (header height + 10px) so the two never
+    // overlap on a desktop.
+    a.classList.add("swfloat");
+    document.body.appendChild(a);
+  }
+
   function go() {
     // A page that already has this bar (the map builds it with panes, below)
     // must not get a second one.
@@ -120,6 +185,7 @@
     var nav = build(panes);
     document.body.appendChild(nav);
     fit(Math.ceil(nav.getBoundingClientRect().height));
+    topLink();
   }
 
   // 🚨 IMMEDIATELY IF THE BODY EXISTS, NOT ON DOMContentLoaded.

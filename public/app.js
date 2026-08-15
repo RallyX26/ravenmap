@@ -1318,15 +1318,53 @@ function showIntro() {
     borderRadius: '11px', background: '#3b82f6', color: '#fff', fontWeight: '600',
     textDecoration: 'none', marginBottom: '10px' });
   add.href = '/app';
+
+  /* 🚨 SIGN IN BELONGS HERE MORE THAN ANYWHERE ELSE ON THE SITE, AND THE
+   * REASON IS NOT CONVENIENCE.
+   *
+   * `sparrow.introSeen` lives in the SAME localStorage as the camera key. So
+   * the browser eviction that loses somebody their camera - Safari wipes
+   * script-writable storage after 7 days for a site not installed to the home
+   * screen - also clears this flag. Every volunteer who is about to report
+   * that their camera "got deleted" sees THIS CARD FIRST, and until now the
+   * only thing it offered them was "Add a camera", which is how they ended up
+   * enrolling a second one and orphaning the first. 160 of 262 nodes have
+   * never produced anything; one street is enrolled six times.
+   *
+   * A returning owner and a brand-new visitor are indistinguishable here, so
+   * the card has to serve both without pushing either. The camera invitation
+   * stays the primary button; the way back is offered beside it, with the one
+   * sentence that stops the duplicate being made.
+   */
+  const row = mk('div', null, { display: 'flex', gap: '8px', marginBottom: '10px' });
+  const secondary = {
+    flex: '1', display: 'block', padding: '12px 8px', borderRadius: '11px',
+    background: '#131c27', border: '1px solid #22303c', color: '#c7d2dc',
+    fontWeight: '600', fontSize: '13.5px', textDecoration: 'none',
+    textAlign: 'center', cursor: 'pointer' };
+  const drive = mk('a', '🚗 Driving mode', secondary);
+  drive.href = '/drive';
+  const signin = mk('a', '🔑 Sign in', secondary);
+  signin.href = '/signin';
+  row.append(drive, signin);
+
+  const backNote = mk('div',
+    'Set up a camera before? Nothing is deleted — sign in with your key rather '
+    + 'than adding it again.',
+    { color: '#6f8296', fontSize: '12px', lineHeight: '1.5', marginBottom: '14px' });
+
   const skip = mk('button', 'Just browsing', { display: 'block', width: '100%',
     padding: '12px', borderRadius: '11px', background: 'transparent',
     border: '1px solid #22303c', color: '#7f93a6', cursor: 'pointer',
     font: 'inherit' });
   const done = () => { try { localStorage.setItem('sparrow.introSeen', '1'); } catch (e) {} ov.remove(); };
   skip.addEventListener('click', done);
-  add.addEventListener('click', done);
+  // Every route out of this card marks it seen. A link that navigates without
+  // doing so brings the card back on the next visit to the map, which reads as
+  // the site having forgotten the choice that was just made.
+  [add, drive, signin].forEach((el) => el.addEventListener('click', done));
   ov.addEventListener('click', (e) => { if (e.target === ov) done(); });
-  card.append(h, p, add, skip);
+  card.append(h, p, add, row, backNote, skip);
   ov.appendChild(card);
   document.body.appendChild(ov);
 }
