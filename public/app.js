@@ -1340,13 +1340,18 @@ function showIntro() {
   const secondary = {
     flex: '1', display: 'block', padding: '12px 8px', borderRadius: '11px',
     background: '#131c27', border: '1px solid #22303c', color: '#c7d2dc',
-    fontWeight: '600', fontSize: '13.5px', textDecoration: 'none',
-    textAlign: 'center', cursor: 'pointer' };
-  const drive = mk('a', '🚗 Driving mode', secondary);
+    fontWeight: '600', fontSize: '12.5px', textDecoration: 'none',
+    textAlign: 'center', cursor: 'pointer', whiteSpace: 'nowrap',
+    minWidth: '0' };
+  const drive = mk('a', '🚗 Driving', secondary);
   drive.href = '/drive';
+  // A shop with a camera already on the street is coverage that costs nobody a
+  // spare phone. It was reachable only from a paragraph inside /app.
+  const biz = mk('a', '🏪 Business', secondary);
+  biz.href = '/business';
   const signin = mk('a', '🔑 Sign in', secondary);
   signin.href = '/signin';
-  row.append(drive, signin);
+  row.append(drive, biz, signin);
 
   const backNote = mk('div',
     'Set up a camera before? Nothing is deleted — sign in with your key rather '
@@ -1362,7 +1367,7 @@ function showIntro() {
   // Every route out of this card marks it seen. A link that navigates without
   // doing so brings the card back on the next visit to the map, which reads as
   // the site having forgotten the choice that was just made.
-  [add, drive, signin].forEach((el) => el.addEventListener('click', done));
+  [add, drive, biz, signin].forEach((el) => el.addEventListener('click', done));
   ov.addEventListener('click', (e) => { if (e.target === ov) done(); });
   card.append(h, p, add, row, backNote, skip);
   ov.appendChild(card);

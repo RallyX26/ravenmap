@@ -27,6 +27,11 @@
     { href: "/",             icon: "🗺", label: "Map",          mode: "map" },
     { href: "/drive",        icon: "🚗", label: "Driving" },
     { href: "/app",          icon: "📷", label: "Add a camera" },
+    // Businesses already pointing a camera at a street are the cheapest
+    // coverage this project can get - the hardware and the sightline are
+    // already paid for. It was reachable only from a paragraph inside
+    // /app and a link near the bottom of the landing page.
+    { href: "/business",     icon: "🏪", label: "Business" },
     { href: "/rv",           icon: "✅",       label: "Review" },
     { href: "/about",        icon: "ℹ",       label: "About",        mode: "about" },
     { href: "/transparency", icon: "👁", label: "Transparency", mode: "transparency" },

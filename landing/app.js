@@ -85,12 +85,15 @@ const CONTACT_EMAIL = "sparrowmap@icloud.com";
   const row = mk("div", "", "display:flex;gap:8px;margin-bottom:10px");
   const SEC = "flex:1;display:block;padding:12px 8px;border-radius:11px;"
     + "background:#131c27;border:1px solid #22303c;color:#c7d2dc;font-weight:600;"
-    + "font-size:13.5px;text-decoration:none;text-align:center;cursor:pointer";
-  const drive = mk("a", "🚗 Driving mode", SEC);
+    + "font-size:12.5px;text-decoration:none;text-align:center;cursor:pointer;"
+    + "white-space:nowrap;min-width:0";
+  const drive = mk("a", "🚗 Driving", SEC);
   drive.href = "https://map.sparrowmap.com/drive"; drive.rel = "noopener";
+  const biz = mk("a", "🏪 Business", SEC);
+  biz.href = "https://map.sparrowmap.com/business"; biz.rel = "noopener";
   const signin = mk("a", "🔑 Sign in", SEC);
   signin.href = "https://map.sparrowmap.com/signin"; signin.rel = "noopener";
-  row.append(drive, signin);
+  row.append(drive, biz, signin);
 
   const backNote = mk("div",
     "Set up a camera before? Nothing is deleted — sign in with your key rather "
@@ -104,7 +107,7 @@ const CONTACT_EMAIL = "sparrowmap@icloud.com";
   skip.addEventListener("click", done);
   // Every way out marks it seen, or the card returns on the next visit and
   // reads as the site having forgotten what was just chosen.
-  [add, drive, signin].forEach((el) => el.addEventListener("click", done));
+  [add, drive, biz, signin].forEach((el) => el.addEventListener("click", done));
   ov.addEventListener("click", (e) => { if (e.target === ov) done(); });
   card.append(h, p, add, row, backNote, skip);
   ov.appendChild(card);
