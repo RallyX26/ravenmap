@@ -130,15 +130,27 @@
   <!-- ---------------------------------------------------------------- 4 -->
   <div class="step hidden" id="s4">
     <h3><span class="n">4</span> Run it</h3>
-    <p class="body">Install once:</p>
+    <!-- 🚨 ONE FILE, NOT A REPOSITORY. This used to print `python -m
+         detect.relay`, which needs the whole project checked out - a git clone
+         is where most shop owners would stop, and every one that did is a
+         camera the map never got. relay.py imports nothing from the project and
+         fetches its own detector, so this is genuinely all they need. -->
+    <p class="body"><b>Easiest:</b> download the app, open it, and paste the
+       three boxes above into it. No terminal at all.</p>
+    <!-- ⚠️ HIDDEN UNLESS THE BUILD IS ACTUALLY THERE. A download button that
+         404s is worse than no button, especially on the page whose whole job is
+         convincing somebody this project is real. The check is a HEAD request,
+         so it costs nothing and cannot be wrong about it. -->
+    <div class="row hidden" id="approw">
+      <a class="btn" href="/download" id="dl-app">Download SparrowMap for Windows</a>
+    </div>
+
+    <p class="body" style="margin-top:18px">Or run it yourself. Download
+       <a href="/relay.py" download style="color:var(--cam)">relay.py</a>, then:</p>
     <pre id="cmd-install">pip install opencv-python onnxruntime numpy</pre>
     <button class="copy" data-copy="cmd-install">copy</button>
 
-    <p class="body" style="margin-top:14px">Check the camera answers:</p>
-    <pre id="cmd-test"></pre>
-    <button class="copy" data-copy="cmd-test">copy</button>
-
-    <p class="body" style="margin-top:14px">Then start feeding the map:</p>
+    <p class="body" style="margin-top:14px">Check the camera answers, then start:</p>
     <pre id="cmd-run"></pre>
     <button class="copy" data-copy="cmd-run">copy</button>
 
@@ -239,8 +251,8 @@
     var url = ($("#rtsp").value || "").trim() || "rtsp://USER:PASS@CAMERA:554/stream1";
     var origin = location.origin;
     return {
-      test: 'python tools\\test_stream.py "' + url + '"',
-      run: 'python -m detect.relay --source "' + url + '" \\\n' +
+      // relay.py, not `-m detect.relay`: they downloaded one file, not a repo.
+      run: 'python relay.py --source "' + url + '" \\\n' +
            '    --node ' + esc(node && node.id) + ' \\\n' +
            '    --token ' + esc(node && node.token) + ' \\\n' +
            '    --lat ' + (node ? node.lat.toFixed(6) : "0") +
@@ -252,10 +264,14 @@
 
   function paint(){
     var c = cmds();
-    $("#cmd-test").textContent = c.test;
     $("#cmd-run").textContent = c.run;
   }
   $("#rtsp").addEventListener("input", paint);
+
+  // Only offer the app if it is really being served right now.
+  fetch("/download", { method: "HEAD" }).then(function(r){
+    if (r.ok) $("#approw").classList.remove("hidden");
+  }).catch(function(){});
 
   document.addEventListener("click", function(e){
     var b = e.target.closest(".copy"); if (!b) return;
@@ -293,7 +309,7 @@
       "REM Keep this file private - it carries this camera's token.\r\n" +
       "REM It reconnects on its own if the camera drops, so leave it running.\r\n" +
       "cd /d \"%~dp0\"\r\n" +
-      "python -m detect.relay --source \"" + c.url + "\" ^\r\n" +
+      "python relay.py --source \"" + c.url + "\" ^\r\n" +
       "  --node " + node.id + " ^\r\n" +
       "  --token " + node.token + " ^\r\n" +
       "  --lat " + node.lat.toFixed(6) + " --lon " + node.lon.toFixed(6) + " ^\r\n" +
@@ -308,7 +324,7 @@
       "# Keep this file private - it carries this camera's token.\n" +
       "# It reconnects on its own if the camera drops, so leave it running.\n" +
       "cd \"$(dirname \"$0\")\"\n" +
-      "exec python3 -m detect.relay --source \"" + c.url + "\" \\\n" +
+      "exec python3 relay.py --source \"" + c.url + "\" \\\n" +
       "  --node " + node.id + " \\\n" +
       "  --token " + node.token + " \\\n" +
       "  --lat " + node.lat.toFixed(6) + " --lon " + node.lon.toFixed(6) + " \\\n" +

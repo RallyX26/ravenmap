@@ -49,7 +49,64 @@ import cv2                                                     # noqa: E402
 import numpy as np                                             # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-MODEL = ROOT / "public" / "vendor" / "yolo11s.onnx"
+
+# 🚨 THIS FILE MUST RUN ON ITS OWN, WITH NO REPOSITORY AROUND IT.
+# The onboarding page hands a business ONE file. Asking a shop to clone a git
+# repository to run a background service is where most of them would stop, and
+# every one that did would be a camera the map never got. Nothing here imports
+# from the project, so the only thing that tied it to a checkout was the model
+# path - resolved below, and fetched from the hub when it is absent.
+MODEL_NAME = "yolo11s.onnx"
+MODEL_SHA256 = "90905237dd6974ce798f1cae08e2dbd4dac6ca19e6b0183f63b46688f053e5b1"
+MODEL_BYTES = 37925610
+
+
+def model_path(hub: str) -> Path:
+    """The detector weights, from the checkout if present, else cached locally.
+
+    Verified by SHA-256 every time, not just on download. A 38 MB file fetched
+    over the network into a long-running background service is exactly the thing
+    that should not be trusted because it happens to exist - a truncated
+    download and a tampered one look identical to `if path.exists()`.
+    """
+    local = ROOT / "public" / "vendor" / MODEL_NAME          # running in the repo
+    if local.exists():
+        return local
+    cache = Path.home() / ".sparrowmap" / MODEL_NAME
+    if cache.exists() and _sha256(cache) == MODEL_SHA256:
+        return cache
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    url = hub.rstrip("/") + "/vendor/" + MODEL_NAME
+    print(f"  fetching the detector ({MODEL_BYTES // 1024 // 1024} MB) from {url}")
+    print("  this happens once")
+    tmp = cache.with_suffix(".part")
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=120) as r, open(tmp, "wb") as f:
+        got = 0
+        while True:
+            chunk = r.read(1 << 20)
+            if not chunk:
+                break
+            f.write(chunk)
+            got += len(chunk)
+            print(f"  {got // 1024 // 1024} MB")
+    print()
+    digest = _sha256(tmp)
+    if digest != MODEL_SHA256:
+        tmp.unlink(missing_ok=True)
+        raise SystemExit(f"the downloaded detector does not match its expected "
+                         f"checksum (got {digest[:16]}...). Refusing to run it.")
+    tmp.replace(cache)
+    return cache
+
+
+def _sha256(p: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for blk in iter(lambda: f.read(1 << 20), b""):
+            h.update(blk)
+    return h.hexdigest()
 
 # Every one of these mirrors the browser node deliberately. Two clients feeding
 # one pipeline should differ in how they get frames and in nothing else - if the
@@ -213,11 +270,9 @@ def main() -> int:
                     help="detect and report, but send nothing")
     a = ap.parse_args()
 
-    if not MODEL.exists():
-        print(f"model not found: {MODEL}")
-        return 1
+    mp = model_path(a.hub)
     import onnxruntime as ort
-    sess = ort.InferenceSession(str(MODEL), providers=["CPUExecutionProvider"])
+    sess = ort.InferenceSession(str(mp), providers=["CPUExecutionProvider"])
     iname = sess.get_inputs()[0].name
     global SIZE
     shape = sess.get_inputs()[0].shape          # [1, 3, H, W]

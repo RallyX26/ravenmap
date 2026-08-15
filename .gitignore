@@ -109,3 +109,15 @@ testvideo/
 # camera, so it must never reach the repo either - and the public half is the
 # only part the hub is ever sent.
 keys/
+
+# 🚨 PyInstaller output. NEVER COMMIT THESE. The build tree contains absolute
+# paths from the machine that built it (preflight caught exactly that: home
+# paths inside xref-SparrowMap.html), and the exe itself is tens of megabytes
+# of derived artefact. The app is built from desktop/build.py on demand.
+desktop/build/
+desktop/dist/
+desktop/*.spec
+
+# The CPU-only virtualenv used to build the desktop app. Third-party
+# site-packages, not this project's code.
+desktop/.buildenv/

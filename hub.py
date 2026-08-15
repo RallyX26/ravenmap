@@ -1083,6 +1083,18 @@ class Handler(BaseHTTPRequestHandler):
             # camera outside" to a running relay without them having to know
             # which of these pages to visit in which order.
             if p == "/business":        return self._file(PUBLIC / "business.html")
+            # 🚨 THE RELAY, AS ONE FILE. It imports nothing from this project
+            # and fetches its own model, so a business needs this file and three
+            # pip packages - not a git checkout. Telling somebody to clone a
+            # repository to run a background service is where most of them stop.
+            if p == "/relay.py":
+                return self._file(PUBLIC.parent / "detect" / "relay.py")
+            # The packaged desktop app, when a build has been placed here. Kept
+            # OUT of git (it is a 60 MB derived artefact full of absolute build
+            # paths - preflight caught exactly that), so this 404s cleanly until
+            # somebody uploads one, and /business hides its button accordingly.
+            if p == "/download":
+                return self._file(PUBLIC / "downloads" / "SparrowMap.exe")
             # What a node costs in compute, and how to measure your own board
             # rather than take this page's word for it.
             if p == "/hardware":         return self._file(PUBLIC / "hardware.html")
