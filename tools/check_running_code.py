@@ -101,6 +101,7 @@ def main() -> int:
         return 1
 
     stale = 0
+    missing: list = []
     seen = set()
     for name, sources in WATCH.items():
         # A launcher spawns a stub plus a child with the same command line;
@@ -108,6 +109,15 @@ def main() -> int:
         # holding onto old code.
         mine = [p for p in procs if name in p["cmd"]]
         if not mine:
+            # 🚨 NOT RUNNING IS A FAILURE, AND THE SUMMARY USED TO SAY OTHERWISE.
+            # `stale` counted only components running OLD code, so a component
+            # that was not running AT ALL printed "NOT RUNNING" on its own line
+            # and then this tool ended with "all running components are up to
+            # date" and exit 0. Both statements are technically true and the
+            # pair is a lie: it is an all-clear over a dead hub, from the tool
+            # whose entire job is not giving false all-clears. Seen live -
+            # hub.py was down for an hour behind exactly that line.
+            missing.append(name)
             print(f"  {name:<14} NOT RUNNING")
             continue
         mine.sort(key=lambda p: p["started"])
@@ -142,8 +152,12 @@ def main() -> int:
         print("⚠️ The camera node's launcher REFUSES to start a second "
               "detector for the same node - close the old window first, or "
               "the new one exits and the old one keeps running.")
+    if missing:
+        print(f"\n{len(missing)} component(s) NOT RUNNING: "
+              + ", ".join(missing) + ".")
+    if stale or missing:
         return 1
-    print("\nall running components are up to date with the source on disk")
+    print("\nall components are running and up to date with the source on disk")
     return 0
 
 
