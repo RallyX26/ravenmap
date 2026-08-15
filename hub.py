@@ -245,10 +245,39 @@ _HIT_LOCK = threading.Lock()
 # carried 1,267 sightings, so a global cap of 600 was already refusing real
 # work. 20,000/hour is roughly 5.5 a second, which is about what 2 vCPUs will
 # ingest before the tile path starts to suffer.
-RATE = {"/api/enroll": (120, 3600), "/api/sightings": (900, 3600),
+# 🚨 RAISED 2026-08-15 DURING A SECOND VIRAL WAVE, BEFORE THEY BIT.
+#
+# Both of these are GLOBAL buckets - client_ip is 127.0.0.1 for everyone, see
+# the note above - so they are not "per person" in any sense. Measured while a
+# post from a large account was spreading: 15 new cameras in the busiest hour
+# against a cap of 120, and 168 in a day.
+#
+# 120/hour is 2 a minute for the entire project. That is fine on an ordinary
+# day and it is the exact thing that failed last time: "one person registering
+# five cameras in a single minute locked out every other volunteer for the rest
+# of the hour". A wave eight times the current rate is not a stretch when a
+# verified account posts, and the cost of being wrong is asymmetric - a
+# volunteer who cannot register during the one hour they were motivated does
+# not come back, whereas a few junk rows are swept.
+#
+# 600/hour still stops a runaway script (a loop managing ten a minute sustained
+# is refused) and no longer refuses a crowd.
+RATE = {"/api/enroll": (600, 3600), "/api/sightings": (900, 3600),
         "_all_sightings": (20000, 3600),
         "/api/drive/report": (40, 3600), "/api/drive/vote": (120, 3600),
-        "/api/tile": (600, 300), "/api/report": (20, 3600),
+        # 🚨 TILES: 600/300s WAS 2 A SECOND FOR THE WHOLE WORLD.
+        # One map load pulls roughly twenty tiles, so that bucket allowed about
+        # six people to open the map per minute before the rest got 429s and a
+        # grey rectangle. Cloudflare hides this most of the time - tiles are
+        # cached for seven days and measured HIT today - but a viral wave is
+        # precisely the case it does NOT hide: everybody arrives looking at a
+        # DIFFERENT street, and a first look at a new area is a cache miss by
+        # definition.
+        # The real protection for the upstream tile CDN is _TILE_FETCH, the
+        # semaphore that bounds concurrent origin fetches to 12. This bucket
+        # only needs to stop somebody scraping the basemap, and 10/s does that
+        # while leaving a crowd alone.
+        "/api/tile": (3000, 300), "/api/report": (20, 3600),
         # Network-wide (client_ip is 127.0.0.1 for everyone), so this is
         # a flood guard on the whole site rather than a per-person cap.
         # bugs.py enforces its own per-hour ceiling as well.
