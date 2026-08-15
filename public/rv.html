@@ -209,8 +209,8 @@
 <div id="view-add" class="wrap hidden">
   <div class="card2">
     <div class="brand"><span class="dot"></span> SparrowMap Review</div>
-    <p>Paste the reviewer token you were given. You can add more than one to review all your cameras in one place.</p>
-    <input id="first-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="reviewer token">
+    <p>Paste your <b>reviewer token</b> or your <b>camera key</b> — either works. You can add more than one to review all your cameras in one place.</p>
+    <input id="first-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="reviewer token or camera key">
     <button class="primary" id="first-add">Add token</button>
     <!-- 🚨 THE PASTE BOX WAS THE ONLY WAY IN, AND FOR SOME PEOPLE IT IS NO WAY
          IN AT ALL. The token is 32 characters of random case-sensitive text.
@@ -440,9 +440,69 @@
   }
 
   // ---- adding a token (validated against /api/rv/me) -------------------
+  /* 🔑 ONE CREDENTIAL, BOTH PAGES. HIS CALL, AND IT IS THE RIGHT ONE.
+   *
+   * A volunteer holds two secrets that were handed to them a minute apart: a
+   * CAMERA KEY (n_id.token) and a REVIEWER TOKEN (32 chars, no prefix). They
+   * look like credentials for the same thing because from where they are
+   * standing they ARE the same thing. /signin already accepted either. This
+   * page accepted only one, so pasting the camera key here returned a flat
+   * "that token was not accepted" - which is true and completely useless,
+   * because the thing they pasted proves ownership perfectly well.
+   *
+   * A camera key is now exchanged for the reviewer token automatically: the
+   * node token in the paste is the same secret that lets that camera publish
+   * sightings, so asking it for its own reviewer token grants nothing new.
+   *
+   * ⚠️ The two tokens stay SEPARATE server-side, deliberately - `own` and
+   * `pool` are revocable independently, so a camera that starts publishing
+   * rubbish into the pool loses the pool and keeps its own queue. This is a
+   * convenience at the front door, not a merge of the model behind it. */
+  var CAMKEY = /^(n_[A-Za-z0-9_]+)\.([A-Za-z0-9_\-]+)$/;
+
+  function cameraKeyToReviewToken(id, nodeTok, onOk, onErr){
+    fetch("/api/rv/my-token", {
+      method: "POST",
+      headers: {"Content-Type":"application/json",
+                "Authorization": "Bearer " + nodeTok},
+      body: JSON.stringify({node_id: id, scope: "own"})
+    }).then(function(r){
+      if(r.status === 401 || r.status === 404){
+        if(onErr) onErr("That camera key was not recognised by this server.");
+        return null;
+      }
+      return r.json().catch(function(){ return null; });
+    }).then(function(d){
+      if(!d) return;
+      if(d.review_token){ addToken(d.review_token, onOk, onErr); return; }
+      /* Already issued, and it is stored as a hash so it can never be shown
+       * again. The camera key in hand is entitled to replace it - the old one
+       * is revoked server-side, because a token that was lost to somebody else
+       * must not stay live. */
+      fetch("/api/rv/my-token", {
+        method: "POST",
+        headers: {"Content-Type":"application/json",
+                  "Authorization": "Bearer " + nodeTok},
+        body: JSON.stringify({node_id: id, scope: "own", regenerate: true})
+      }).then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(d2){
+          if(d2 && d2.review_token) addToken(d2.review_token, onOk, onErr);
+          else if(onErr) onErr("Could not get this camera's review token.");
+        }).catch(function(){ if(onErr) onErr("Network error — try again."); });
+    }).catch(function(){ if(onErr) onErr("Network error — try again."); });
+  }
+
   function addToken(tok, onOk, onErr){
     tok = (tok||"").trim();
     if(!tok){ if(onErr) onErr("Paste a token first."); return; }
+
+    // A whole sign-in link, or a key that wrapped across lines, is still a key.
+    var frag = /[#&]k=(n_[A-Za-z0-9_]+)\.([A-Za-z0-9_\-]+)/.exec(tok);
+    var km = frag ? [null, frag[1], frag[2]] : CAMKEY.exec(tok.replace(/\s+/g, ""));
+    if(km){
+      cameraKeyToReviewToken(km[1], km[2], onOk, onErr);
+      return;
+    }
     if(wallet.some(function(e){ return e.token === tok; })){
       if(onOk) onOk(true); return;   // already have it
     }
@@ -920,6 +980,13 @@
         if(!s) return null;
         var link = /[#&]t=([A-Za-z0-9_\-]{16,})/.exec(s);
         if(link) return link[1];
+        // A camera key, or a sign-in link containing one. addToken exchanges
+        // it for the reviewer token, so the key file we hand out at enrolment
+        // works here as-is.
+        var kf = /[#&]k=(n_[A-Za-z0-9_]+\.[A-Za-z0-9_\-]+)/.exec(s);
+        if(kf) return kf[1];
+        var kb = /n_[A-Za-z0-9_]+\.[A-Za-z0-9_\-]{16,}/.exec(s.replace(/\s+/g, ""));
+        if(kb) return kb[0];
         var flat = s.replace(/\s+/g, "");
         if(/^[A-Za-z0-9_\-]{20,64}$/.test(flat)) return flat;
         // A token sitting inside a bigger file (the page we hand out).
