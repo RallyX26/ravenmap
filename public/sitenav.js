@@ -238,26 +238,42 @@
      * settling gives a confident wrong answer; asking the page for the number
      * it maintains does not.
      */
-    var hv = 0;
+    /* 🚨 TAKE THE LARGEST HONEST ANSWER, NOT THE FIRST ONE.
+     *
+     * This preferred --headh and fell back to measuring. Both can be wrong at
+     * the moment they are read: --headh is published by app.js on 'load', and a
+     * measurement taken while the search box has not yet wrapped describes a
+     * one-row header that is about to become two. Trusting either one alone put
+     * the pill back on top of the FIND button on a phone - the same collision,
+     * for the third time, from a different direction.
+     *
+     * So: consult every source that could know, and take the LOWEST edge any of
+     * them reports. Being too low costs a few pixels of map. Being too high
+     * covers a control, which is the failure that keeps happening.
+     */
+    var bottoms = [];
     try {
-      hv = parseFloat(getComputedStyle(document.documentElement)
-                        .getPropertyValue("--headh"));
-    } catch (e) { hv = 0; }
+      var hv = parseFloat(getComputedStyle(document.documentElement)
+                            .getPropertyValue("--headh"));
+      if (hv > 0) bottoms.push(hv);
+    } catch (e) { /* no variable on this page */ }
 
-    if (hv > 0) {
-      top = Math.round(hv) + 10;
-    } else {
-      var hdr = document.querySelector("header");
-      if (hdr) {
-        var r = hdr.getBoundingClientRect();
-        // Only clear it if it is actually pinned at the top of the screen; a
-        // header that scrolls away should not push these buttons down the page.
-        var pos = getComputedStyle(hdr).position;
-        if ((pos === "fixed" || pos === "sticky" || r.top <= 1) && r.height > 0) {
-          top = Math.round(r.bottom) + 10;
-        }
+    var hdr = document.querySelector("header");
+    if (hdr) {
+      var r = hdr.getBoundingClientRect();
+      var pos = getComputedStyle(hdr).position;
+      if ((pos === "fixed" || pos === "sticky" || r.top <= 1) && r.height > 0) {
+        bottoms.push(r.bottom);
       }
     }
+    // The search row is the thing that actually wraps, and on the map it is the
+    // lowest part of the header - so ask it directly rather than inferring it.
+    var form = document.querySelector("header form, header .plateform, #plateform");
+    if (form) {
+      var fr = form.getBoundingClientRect();
+      if (fr.height > 0 && fr.top < window.innerHeight / 2) bottoms.push(fr.bottom);
+    }
+    if (bottoms.length) top = Math.round(Math.max.apply(null, bottoms)) + 10;
     /* 🚨 AND CLEAR OF THE REFRESH BUTTON, WHICH LIVES AT THE SAME COORDINATES.
      *
      * refresh.js positions itself at right:12px, top:calc(var(--headh) + 10px).
@@ -573,12 +589,15 @@
     // --headh is published on 'load', which is AFTER this script runs, so the
     // first placement has to be redone once the page settles.
     window.addEventListener("load", placeTools);
-    setTimeout(placeTools, 400);
-    setTimeout(placeTools, 1500);
-    // refresh.js adds its button from its own script tag, which may run after
-    // this one; without a later pass the column would keep the spot it took
-    // before the button existed.
-    setTimeout(placeTools, 3000);
+    /* Re-place over the first few seconds rather than guessing when the page
+     * has settled. Fonts load, the search box wraps, refresh.js adds its button
+     * from its own script tag, and app.js publishes --headh on 'load' - each of
+     * those moves something this depends on, and every one of them has produced
+     * a collision at least once today. Six cheap reads beat one confident
+     * measurement taken too early. */
+    [200, 600, 1200, 2500, 4000].forEach(function (ms) {
+      setTimeout(placeTools, ms);
+    });
   }
 
   // 🚨 IMMEDIATELY IF THE BODY EXISTS, NOT ON DOMContentLoaded.
