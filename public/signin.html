@@ -28,6 +28,10 @@ button.go:disabled{opacity:.55;cursor:default}
  border-top:1px solid var(--line);padding-top:14px}
 .hint b{color:#8ea3bd}
 a{color:var(--blue)}
+.pick{display:block;margin-top:10px;padding:12px;border-radius:10px;text-align:center;
+ background:#131c27;border:1px solid var(--line);color:#cfe3f5;
+ font:600 13.5px system-ui;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.pick:hover{border-color:var(--blue)}
 </style></head><body>
 <div class="card">
   <h1>Sign in to your camera</h1>
@@ -41,6 +45,17 @@ a{color:var(--blue)}
 
   <textarea id="k" spellcheck="false" autocapitalize="off" autocomplete="off"
     placeholder="Paste your key link, or n_1a2b3c4d.YourKeyHere"></textarea>
+
+  <!-- 🚨 THE KEY CAN BE SAVED TO A PHONE, SO IT HAS TO BE READABLE BACK OFF ONE.
+       The key page offers "save a key file" and a QR to photograph, and both
+       land in a phone's Downloads or Photos - and then there was no way to get
+       them back INTO the site. Typing a 32-character token off a screenshot,
+       one-handed, is the thing this whole page exists to avoid, and a QR saved
+       as a photo cannot be scanned at all: you cannot point a phone's camera at
+       its own screen. -->
+  <label class="pick" for="kf">📁 Use a saved key file or QR photo</label>
+  <input id="kf" type="file" accept=".html,.htm,.txt,text/plain,text/html,image/*" hidden>
+
   <button class="go" id="go">Sign in</button>
   <div class="msg" id="msg"></div>
 
@@ -48,7 +63,10 @@ a{color:var(--blue)}
     <b>Where is my key?</b> It is the link you copied from the camera page
     (<b>Copy the key link</b>), the QR you saved, or the key file on a USB
     stick. Anyone who has it has the camera, so keep it somewhere only you can
-    reach.<br><br>
+    reach.<br>
+    Saved one of those to this phone? Use <b>Use a saved key file or QR
+    photo</b> above rather than typing it out — it reads the key file, a photo
+    of the QR, or a note you pasted it into.<br><br>
     <b>Really lost it?</b> There is no reset — the key is the only credential
     and we hold no email or account to prove it was yours. Set the camera up
     again from <a href="/app">the camera page</a> and it will start a fresh
@@ -147,6 +165,88 @@ a{color:var(--blue)}
       say("Could not reach SparrowMap. Check your connection and try again.", false);
     });
   }
+
+  /* 📁 READ THE KEY BACK OFF THE PHONE IT WAS SAVED TO.
+   *
+   * Three things end up saved, and all three are handled here, because a person
+   * does not know or care which one they have:
+   *
+   *   the key FILE  - key.html writes a small web page whose only link carries
+   *                   #k=<id>.<token>, so reading it as text and running the
+   *                   same parse() over it is the whole job. It is also why the
+   *                   file was made a page rather than a bare token: opening it
+   *                   works, and now importing it works too.
+   *   a QR PHOTO    - the case with no other answer. A QR on the screen can be
+   *                   scanned by another device, but a screenshot of one sitting
+   *                   in your own camera roll cannot be scanned by anything -
+   *                   you cannot point a phone at its own screen. BarcodeDetector
+   *                   decodes it from the file.
+   *   a text note   - somebody pasted the key into Notes and saved it.
+   *
+   * ⚠️ BarcodeDetector IS NOT EVERYWHERE. Chrome on Android has it; Firefox and
+   * Safari (and Chrome on Windows) do not. So a QR photo on an unsupported
+   * browser must say exactly that and name the way round it, rather than
+   * failing with "no key found" and leaving somebody staring at a photo that
+   * plainly contains their key.
+   */
+  function fromImage(file) {
+    if (!("BarcodeDetector" in window)) {
+      say("This browser cannot read QR codes from a photo. Open the photo on "
+        + "another device and scan it with that phone's camera, or paste the "
+        + "key above.", false);
+      return;
+    }
+    say("Reading the QR code…");
+    createImageBitmap(file).then(function (bmp) {
+      return new window.BarcodeDetector({ formats: ["qr_code"] }).detect(bmp);
+    }).then(function (codes) {
+      var hit = null;
+      (codes || []).forEach(function (c) { if (!hit && parse(c.rawValue)) hit = c.rawValue; });
+      if (!hit) {
+        say("No SparrowMap key found in that picture. Make sure the whole QR "
+          + "code is in frame and not cropped.", false);
+        return;
+      }
+      var k = parse(hit);
+      $("#k").value = k.id + "." + k.token;   // the key, not the raw QR payload
+      signIn();
+    }).catch(function () {
+      say("Could not read that image. Try the key file instead, or paste the "
+        + "key above.", false);
+    });
+  }
+
+  $("#kf").addEventListener("change", function () {
+    var f = this.files && this.files[0];
+    if (!f) return;
+    // Reset, so choosing the SAME file twice after a failure fires again.
+    var input = this;
+    var clear = function () { try { input.value = ""; } catch (e) {} };
+    if (/^image\//.test(f.type)) { fromImage(f); clear(); return; }
+    // 🚨 A CAP, BECAUSE THIS IS A FILE A STRANGER CHOSE. The key file is under
+    // a kilobyte; anything large is the wrong file, and reading it as text
+    // would hang the tab for no possible benefit.
+    if (f.size > 512 * 1024) {
+      say("That file is far too big to be a key file (the real one is under a "
+        + "kilobyte). Pick the sparrow-camera-key file, or a photo of the QR.",
+        false);
+      clear(); return;
+    }
+    f.text().then(function (txt) {
+      var k = parse(txt);
+      if (!k) {
+        say("No SparrowMap key in that file. It should be the "
+          + "sparrow-camera-key…html file, a photo of your QR code, or a note "
+          + "with the key in it.", false);
+        return;
+      }
+      // The key file is a whole web page; show the KEY, not its markup.
+      $("#k").value = k.id + "." + k.token;
+      signIn();
+    }).catch(function () {
+      say("Could not read that file.", false);
+    }).then(clear, clear);
+  });
 
   btn.addEventListener("click", signIn);
   $("#k").addEventListener("keydown", function (e) {
