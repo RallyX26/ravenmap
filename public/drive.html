@@ -758,6 +758,9 @@
    * that window - geotagged with the current GPS fix. The home head decides
    * cop-or-not; the phone asserts nothing. Video never leaves the device.      */
   var SIZE=320, CONF=0.45, SEND_EDGE=200, MIN_FRAMES=3, GONE_MS=900;
+  // The vehicle must be at least this wide IN THE SOURCE FRAME before it is
+  // worth uploading - see the gate in dloop(). Measured bar, not a guess.
+  var MIN_SEND_PX=120;
   var SEND_EVERY_MS=5000, VEHICLE={2:'car',3:'motorcycle',5:'bus',7:'truck'};
   var camOn=false, camStream=null, session=null, ortLoading=null;
   var dtracks=[], dnextId=1, winBest=null, lastSend=0, dsent=0, driveNode=null, driveNodePending=false;
@@ -1021,8 +1024,26 @@
       if(!driveNode && !driveNodePending && me){
         driveNodePending=true; getDriveNode(function(nn){driveNode=nn; driveNodePending=false;});
       }
+      /* 🚨 ONLY SEND A VEHICLE BIG ENOUGH TO BE JUDGED.
+       *
+       * Measured today: of 17,523 phone crops pulled home, 16,994 were
+       * discarded and only 68 ever cleared the classifier's threshold. Most
+       * arrived at 52-90px wide - a distant car occupying a handful of pixels,
+       * with no livery in it for a human OR a model to read. Posting those
+       * costs the volunteer's data, the box's ingest budget and the review
+       * queue's signal-to-noise, and cannot produce a sighting.
+       *
+       * Same bar the public-camera survey used, and the same reasoning: a
+       * picture nobody could rule on is not evidence. A vehicle that is too
+       * small now is often the same vehicle that is big enough two seconds
+       * later, so this delays rather than drops. */
+      var wBest = winBest ? (winBest.box[2]-winBest.box[0]) : 0;
       if(now-lastSend>=SEND_EVERY_MS && winBest && me && driveNode){
-        submitCrop(winBest); lastSend=now; winBest=null;
+        if(wBest >= MIN_SEND_PX){
+          submitCrop(winBest); lastSend=now; winBest=null;
+        } else {
+          winBest=null;          // let a closer pass replace it
+        }
       }
       drawDashOverlay(hits,v.videoWidth,v.videoHeight);
       requestAnimationFrame(dloop);
@@ -1070,7 +1091,30 @@
   function camStart(){
     $('#camBtn').className='rbtn warn';
     loadOrt().then(loadModel).then(function(){
-      return navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
+      /* 🚨 ASK FOR A RESOLUTION. THIS ASKED FOR NONE.
+       *
+       * With no width/height the browser hands back its default, which on a
+       * phone is typically 640x480. Everything downstream is a fraction of
+       * that: measured today, crops from phones reached the classifier at
+       * 52-200px wide, against 460px median from a fixed camera - and the
+       * head needs roughly 120px of vehicle before a livery is legible at all.
+       * That single difference is why every confirmed sighting in one town was
+       * from the one fixed camera and none from any phone.
+       *
+       * `ideal` rather than `exact`: a phone that cannot do 1920 returns its
+       * best instead of failing to open the camera at all, which is the right
+       * trade for a device we do not control. Detection still runs at 320px -
+       * this is about how many pixels the CROP keeps, not how hard the phone
+       * has to think.
+       *
+       * ⚠️ THIS CHANGES NOTHING ABOUT WHAT IS UPLOADED. SEND_EDGE still caps
+       * the crop at 200px before it leaves the device, so a private plate is
+       * as illegible as it was. A bigger sensor frame means the 200px we do
+       * send is 200px OF VEHICLE rather than 200px of street. */
+      return navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment',
+                 width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false});
     }).then(function(s){
       camStream=s; var v=$('#dashvid'); v.srcObject=s;
       var p=v.play(); if(p&&p.catch)p.catch(function(){});
