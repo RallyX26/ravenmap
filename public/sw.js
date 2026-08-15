@@ -18,18 +18,45 @@
  * JS fix quietly knocked every phone camera offline until it finished pulling
  * the model over mobile data. Version the code; never the thing that takes a
  * minute to fetch. */
-const CACHE = 'sparrow-app-v7';
+const CACHE = 'sparrow-app-v8';
 // Deliberately the LAST app cache name rather than a fresh one: devices already
 // hold the model under it, and renaming would throw away the very download this
 // split exists to protect. Bump ONLY when the vendored model itself changes.
 const VENDOR_CACHE = 'sparrow-v6';
+
+// 🗺️ Map tiles, in their own cache with a ceiling.
+// Without these an offline map is a grey rectangle with some dots on it, which
+// is not a map. They are static imagery and cannot mislead anybody about what
+// is happening now, unlike the sighting data below - so they are the one thing
+// here worth keeping for offline. Capped because a few minutes of panning can
+// pull thousands of them and this is a phone.
+const TILE_CACHE = 'sparrow-tiles-v1';
+const TILE_MAX = 400;
+
 const SHELL = [
+  // The CAMERA app.
   '/app',
   '/static/sparrow-app.js',
+  '/static/manifest.webmanifest',
+  // 🚨 AND THE MAP, WHICH THIS WORKER NEVER USED TO COVER.
+  // Registration lived only in sparrow-app.js, so a visitor who only ever
+  // opened the map had no service worker at all - the installed app opened to
+  // the browser's error page with no signal. Resilience is now the stated
+  // reason the project ships as a web app rather than through a store, and an
+  // app that cannot open offline does not deliver it.
+  '/',
+  '/static/app.js',
+  '/static/sitenav.js',
+  '/static/install.js',
+  '/static/offline.js',
+  '/static/transparency.js',
+  '/static/manifest-map.webmanifest',
+  '/vendor/leaflet.js',
+  '/vendor/leaflet.css',
+  // Shared by both.
   '/static/style.css',
   '/static/refresh.js',
   '/static/icon-192.png',
-  '/static/manifest.webmanifest',
 ];
 
 self.addEventListener('install', (e) => {
@@ -45,7 +72,7 @@ self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
       .then((ks) => Promise.all(ks
-        .filter((k) => k !== CACHE && k !== VENDOR_CACHE)
+        .filter((k) => k !== CACHE && k !== VENDOR_CACHE && k !== TILE_CACHE)
         .map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
@@ -88,11 +115,62 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Network-first for pages and the API; fall back to the cached shell offline
-  // so the app opens instead of showing the browser's error page.
+  // Map tiles: cache-first with a ceiling, so the map has a map under it when
+  // there is no signal. Static imagery only - see TILE_CACHE.
+  if (url.pathname.startsWith('/api/tile/')) {
+    e.respondWith(
+      caches.open(TILE_CACHE).then((c) =>
+        c.match(e.request).then((hit) =>
+          hit || fetch(e.request).then((res) => {
+            if (res.ok) {
+              c.put(e.request, res.clone());
+              // Oldest-first trim. Cache.keys() returns insertion order, so the
+              // front of the list is the least recently ADDED - good enough for
+              // a bound, and it costs nothing to compute.
+              c.keys().then((ks) => {
+                if (ks.length > TILE_MAX) {
+                  for (let i = 0; i < ks.length - TILE_MAX; i++) c.delete(ks[i]);
+                }
+              });
+            }
+            return res;
+          })
+        )
+      )
+    );
+    return;
+  }
+
+  // 🚨 THE SIGHTING API IS NEVER SERVED FROM CACHE, AND THAT IS DELIBERATE.
+  // Everything else here is about making the app work without a signal; this is
+  // the one place where "works offline" would be a lie with consequences. A
+  // cached /api/sightings would draw a patrol car that passed three hours ago
+  // onto a live map with no indication it was stale - the map's whole claim is
+  // that a dot means a vehicle was seen at that time. Offline, the honest
+  // answer is an empty map and a banner saying there is no connection, which is
+  // what offline.js shows. Let the request fail.
+  if (url.pathname.startsWith('/api/')) return;
+
+  // Network-first for pages; fall back to the cached page offline so the app
+  // opens instead of showing the browser's error page.
   e.respondWith(
     fetch(e.request).catch(() =>
-      caches.match(e.request).then((hit) => hit || caches.match('/app'))
+      caches.match(e.request).then((hit) => hit || caches.match(appShell(url)))
     )
   );
 });
+
+/* 🚨 WHICH SHELL, BECAUSE THERE ARE TWO APPS ON ONE ORIGIN.
+ * This used to fall back to '/app' unconditionally, which was harmless while
+ * the worker only ever ran for the camera app. The moment the map registers it,
+ * that line hands a visitor who opened the MAP with no signal the camera setup
+ * page instead - a different app, asking them to point a webcam at a road. A
+ * fallback that serves the wrong page is worse than the browser's error page,
+ * because the browser's at least says what happened. */
+function appShell(url) {
+  const p = url.pathname;
+  if (p === '/app' || p.startsWith('/app/') || p === '/key' || p === '/aim') {
+    return '/app';
+  }
+  return '/';
+}

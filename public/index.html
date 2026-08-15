@@ -121,6 +121,11 @@
   <span><i class="dash"></i>road watched</span>
 </div>
 
+<!-- 🌐 BEFORE app.js, so the very first poll is observed. offline.js wraps
+     fetch to use the map's existing /api/stats loop as its liveness signal
+     rather than adding a heartbeat of its own; loaded after app.js it would
+     miss the calls that fail first, which are the ones that matter. -->
+<script src="/static/offline.js?v=1"></script>
 <script src="/vendor/leaflet.js"></script>
 <script src="/static/transparency.js?v=18"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
@@ -131,5 +136,19 @@
      audience:'owner', so a visitor reading the map is never interrupted. -->
 <script src="/static/updates.js?v=2"></script>
 <script src="/static/install.js?v=2"></script>
+<!-- 🚨 THE MAP REGISTERS THE WORKER TOO, NOW.
+     This lived only in sparrow-app.js, so a visitor who only ever opened the
+     map had no service worker at all and the installed app opened to the
+     browser's error page with no signal. Registered LAST and after load, so it
+     never competes with the map's own first paint for bandwidth.
+     The `serviceWorker in navigator` guard matters: it is false on a plain-http
+     LAN address, which is how a node is often reached. -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/sw.js').catch(function () {});
+  });
+}
+</script>
 </body>
 </html>
