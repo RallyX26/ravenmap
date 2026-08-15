@@ -4,6 +4,14 @@
     python tools\\public_cams.py enrol  --limit 8        # register them as nodes
     python tools\\public_cams.py run                     # poll them, post crops
 
+The fleet registered by tools/bulk_enrol_cams.py never passes through the state
+file those three share - its credentials are in the DATABASE. Two extra steps
+bridge that, and they run on different machines on purpose:
+
+    python tools/public_cams.py tokens --out data/cam_tokens.json   # ON THE HUB
+    python tools/public_cams.py run --tokens data/cam_tokens.json \\
+        --sources fi,ia,atx --interval 300 --workers 96             # ON THE POLLER
+
 🚨 THIS WAS TRIED, MEASURED, AND DELETED IN AUGUST - READ WHY BEFORE CHANGING IT.
 Michigan's 806 cameras gave ~15px vehicles against the ~120px the classifier
 needs, DOT cameras were found to be standard definition as a category, and
@@ -266,9 +274,16 @@ def fetch(url: str, ua: str = UA_SURVEY, timeout: int = 15,
 
 def load_model():
     import onnxruntime as ort
-    from detect import relay
-    p = relay.model_path("https://map.sparrowmap.com")
-    sess = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
+    # ⚠️ DO NOT go through detect.relay unless you have to. It imports cv2 at
+    # module level, so asking it to resolve a FILE PATH drags OpenCV (and its
+    # system libGL) onto a machine whose only job is polling JPEGs - this file
+    # decodes with PIL and never touches cv2. The weights ship in the repo, so
+    # on a checkout the answer is a path lookup with no imports at all.
+    local = ROOT / "public" / "vendor" / "yolo11s.onnx"
+    if not local.exists():
+        from detect import relay          # download + verify path, needs cv2
+        local = relay.model_path("https://map.sparrowmap.com")
+    sess = ort.InferenceSession(str(local), providers=["CPUExecutionProvider"])
     shape = sess.get_inputs()[0].shape
     size = int(shape[2]) if isinstance(shape[2], int) else 320
     return sess, size
@@ -361,6 +376,105 @@ def save_state(st: dict) -> None:
 
 
 # --------------------------------------------------------------------------
+# the bridge between bulk enrolment and this poller
+# --------------------------------------------------------------------------
+# 🚨 WHY THIS EXISTS. `enrol` writes node_id + token into the state file above,
+# so `run` knows who it is posting as. `tools/bulk_enrol_cams.py` does not go
+# near that file - it calls nodes.enroll on the box and the credentials land in
+# the DATABASE. So after registering 4,434 cameras the map showed 4,434 cameras
+# and the poller could post as NONE of them: it had never heard of them.
+#
+# The join is the source ref, which bulk enrolment deliberately puts in the node
+# name as " [fi:C0150301]" precisely because camera names are not unique.
+#
+# It is two commands and not one on purpose. The DATABASE is on the hub box; the
+# POLLER runs somewhere with bandwidth and CPU to spare. `tokens` reads the DB
+# and writes a small file, `run --tokens` fetches the source indexes itself and
+# joins. Nothing has to hand thousands of camera credentials out over an API.
+NAME_PREFIX = "Public traffic camera - "
+
+
+def ref_of(node_name: str) -> str:
+    """`...Tienpinta [fi:C0150301]` -> `fi:C0150301`, or "" if not one of ours."""
+    name = node_name or ""
+    if not name.endswith("]"):
+        return ""
+    i = name.rfind("[")
+    if i < 0:
+        return ""
+    key = name[i + 1:-1].strip()
+    return key if ":" in key and " " not in key else ""
+
+
+def cmd_tokens(args) -> int:
+    """Export node_id + token per source ref. RUN THIS WHERE THE DATABASE IS."""
+    sys.path.insert(0, str(ROOT))
+    import db                                             # noqa: E402
+
+    # active_only=False deliberately: if enrolment left cameras pending, the
+    # honest answer is a status breakdown, not a silently short file.
+    rows = db.nodes(active_only=False)
+    out, status, unkeyed = {}, {}, 0
+    for n in rows:
+        if (n.get("kind") or "") != "public_cam":
+            continue
+        st = n.get("status") or "?"
+        status[st] = status.get(st, 0) + 1
+        key = ref_of(n.get("name") or "")
+        if not key:
+            unkeyed += 1
+            continue
+        if not n.get("token"):
+            continue
+        out[key] = {"node_id": n["id"], "token": n["token"],
+                    "lat": n.get("lat"), "lon": n.get("lon"),
+                    "name": (n.get("name") or "")[len(NAME_PREFIX):] or n["id"],
+                    "status": st}
+    path = Path(args.out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(out), encoding="utf-8")
+    print(f"{len(out)} public camera(s) exported to {path}")
+    print("  by status: " + ", ".join(f"{k}={v}" for k, v in sorted(status.items())))
+    if unkeyed:
+        print(f"  ⚠ {unkeyed} public_cam node(s) carry no [src:ref] in the name "
+              f"and cannot be matched to a source - they will never poll")
+    if any(k != "active" for k in status):
+        print("  ⚠ a camera that is not 'active' will be rejected when it posts")
+    return 0
+
+
+def cams_from_tokens(tokens_path: str, sources: list) -> list:
+    """Join the live source indexes to exported credentials on `src:ref`."""
+    creds = json.loads(Path(tokens_path).read_text(encoding="utf-8"))
+    cams, missing = [], 0
+    for src in sources:
+        try:
+            idx = SOURCES[src]()
+        except Exception as exc:
+            print(f"  ⚠ {src} index unavailable ({type(exc).__name__}: "
+                  f"{str(exc)[:60]}) - its cameras are skipped this run")
+            continue
+        hit = 0
+        for c in idx:
+            cr = creds.get(f"{c['src']}:{c['ref']}")
+            if not cr:
+                missing += 1
+                continue
+            # Position comes from the DB, which is what the map draws. A source
+            # quietly moving a camera must not make the dots disagree with the
+            # node.
+            cams.append({**c, "node_id": cr["node_id"], "token": cr["token"],
+                         "lat": cr.get("lat", c["lat"]),
+                         "lon": cr.get("lon", c["lon"])})
+            hit += 1
+        print(f"  {src}: {hit} of {len(idx)} camera(s) matched to a node")
+    if missing:
+        print(f"  {missing} camera(s) offered by a source are not registered "
+              f"(run tools/bulk_enrol_cams.py, then re-export tokens)")
+    return cams
+
+
+# --------------------------------------------------------------------------
 # commands
 # --------------------------------------------------------------------------
 def cmd_survey(args) -> int:
@@ -425,10 +539,14 @@ def cmd_enrol(args) -> int:
 
 
 def cmd_run(args) -> int:
-    st = load_state()
-    cams = [c for c in st["cams"].values() if c.get("node_id")]
+    if args.tokens:
+        cams = cams_from_tokens(args.tokens, args.sources.split(","))
+    else:
+        st = load_state()
+        cams = [c for c in st["cams"].values() if c.get("node_id")]
     if not cams:
-        print("no enrolled cameras - run survey then enrol first")
+        print("no enrolled cameras - run survey then enrol first, or pass "
+              "--tokens for cameras registered by bulk_enrol_cams.py")
         return 1
     sess, size = load_model()
     # 🚨 WHY THREADS AND NOT A GPU.
@@ -447,10 +565,23 @@ def cmd_run(args) -> int:
     # Headroom after this: 0.07s per frame is about 14 cameras a second on one
     # core, so a 20s cycle covers roughly 280 cameras before compute matters
     # at all. The next wall is politeness to the camera operators, not silicon.
-    workers = min(32, max(4, len(cams)))
+    # 🚨 THE DEFAULTS ARE SIZED FOR EIGHT CAMERAS AND BREAK AT FOUR THOUSAND.
+    # 0.36s of network each, 32 at a time, is ~50s for a 4,434-camera sweep -
+    # already over a 20s interval before a single frame is decoded, and the
+    # cycle silently falls behind rather than failing. So both are arguments,
+    # and the run announces the arithmetic instead of leaving it to be
+    # discovered from a warning at the end of the first cycle.
+    interval = float(args.interval or POLL_S)
+    workers = int(args.workers or min(32, max(4, len(cams))))
     pool = cf.ThreadPoolExecutor(max_workers=workers)
-    print(f"polling {len(cams)} camera(s) every {POLL_S:.0f}s, {workers} at a time "
-          f"(vehicles must be >= {MIN_VEHICLE_PX}px)\n")
+    est = len(cams) * 0.36 / max(1, workers)
+    print(f"polling {len(cams)} camera(s) every {interval:.0f}s, {workers} at a time "
+          f"(vehicles must be >= {MIN_VEHICLE_PX}px)")
+    print(f"  a cold sweep is roughly {est:.0f}s of fetching; warm sweeps are far "
+          f"cheaper because unchanged cameras answer 304"
+          + ("\n  ⚠ THAT IS LONGER THAN THE INTERVAL - raise --workers or "
+             "--interval" if est > interval else ""))
+    print()
     sent = skipped = 0
     seen_last = {}
 
@@ -494,7 +625,7 @@ def cmd_run(args) -> int:
                 if not crop:
                     continue
                 key = c["node_id"]
-                if time.time() - seen_last.get(key, 0) < POLL_S * 0.9:
+                if time.time() - seen_last.get(key, 0) < interval * 0.9:
                     continue
                 seen_last[key] = time.time()
                 body = {"node_id": c["node_id"], "ts": time.time(),
@@ -532,10 +663,10 @@ def cmd_run(args) -> int:
                 print(f"  -- {unchanged}/{len(cams)} unchanged (304, no download)")
             print(f"  -- cycle done in {took:.1f}s: {sent} sent, {skipped} too "
                   f"small --" + ("  ⚠ SLOWER THAN THE POLL INTERVAL"
-                                 if took > POLL_S else ""), flush=True)
+                                 if took > interval else ""), flush=True)
             if args.once:
                 return 0
-            time.sleep(POLL_S)
+            time.sleep(max(0.0, interval - took))
     except KeyboardInterrupt:
         print(f"\nstopped. {sent} sent, {skipped} skipped as too small.")
     return 0
@@ -549,7 +680,20 @@ def main() -> int:
     s.add_argument("--limit", type=int, default=200); s.set_defaults(fn=cmd_survey)
     e = sub.add_parser("enrol"); e.add_argument("--limit", type=int, default=5)
     e.set_defaults(fn=cmd_enrol)
+    t = sub.add_parser("tokens")
+    t.add_argument("--out", default=str(ROOT / "data" / "cam_tokens.json"))
+    t.set_defaults(fn=cmd_tokens)
     r = sub.add_parser("run"); r.add_argument("--once", action="store_true")
+    r.add_argument("--tokens", default="",
+                   help="credentials exported by the `tokens` command; poll the "
+                        "bulk-enrolled fleet instead of the local state file")
+    r.add_argument("--sources", default="fi,ia,atx",
+                   help="comma-separated source indexes to join against --tokens")
+    r.add_argument("--interval", type=float, default=0,
+                   help=f"seconds between sweeps (default {POLL_S:.0f}); a "
+                        f"fleet of thousands needs far more")
+    r.add_argument("--workers", type=int, default=0,
+                   help="concurrent fetches (default min(32, fleet size))")
     r.set_defaults(fn=cmd_run)
     args = ap.parse_args()
     return args.fn(args)

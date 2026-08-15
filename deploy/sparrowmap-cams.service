@@ -1,0 +1,61 @@
+# The public-traffic-camera poller. Runs on its OWN box, not the hub.
+#
+# Install:
+#   sudo cp deploy/sparrowmap-cams.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl restart sparrowmap-cams
+#
+# 🚨 THIS IS A CLIENT, NOT A SERVER. It listens on nothing. It fetches public
+# JPEGs, finds vehicles, shrinks each catch below plate legibility, and POSTs
+# the crop to the hub exactly like a volunteer's phone does. Nothing here needs
+# an inbound port, so nothing here should ever open one.
+
+[Unit]
+Description=SparrowMap public traffic camera poller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=sparrow
+Group=sparrow
+WorkingDirectory=/opt/sparrowmap
+
+# 🚨 WITHOUT THIS THE JOURNAL STAYS EMPTY UNTIL THE BUFFER FILLS.
+# Python block-buffers stdout into a systemd pipe, so a poller that prints one
+# line per sighting looks completely dead for hours. The hub learned this the
+# expensive way; the same trap, same fix.
+Environment=PYTHONUNBUFFERED=1
+
+# --interval 300: a traffic camera refreshes every 1-5 minutes, so polling
+#   faster only spends bandwidth re-downloading frames we already scored. It is
+#   also what keeps a 4,400-camera fleet inside the box's 20 TB allowance.
+# --workers 96: the fetch is 0.36s of WAITING per camera, almost none of it
+#   CPU, so concurrency is what sizes the sweep - roughly 17s of fetching for
+#   4,400 cameras. ⚠️ MEASURE the "cycle done in Ns" line before changing
+#   either number; the run prints the arithmetic on startup for exactly this.
+# --sources: nyc is deliberately absent. Its index times out from a datacentre
+#   and 87% of its cameras are 352x240, below the 120px bar anyway.
+ExecStart=/opt/sparrowmap/.venv/bin/python /opt/sparrowmap/tools/public_cams.py \
+    run --tokens /opt/sparrowmap/data/cam_tokens.json \
+        --sources fi,ia,atx --interval 300 --workers 96
+
+Restart=on-failure
+RestartSec=30
+# A restart loop against somebody else's public camera network is rude and gets
+# us blocked. If it has failed five times in ten minutes it is broken, and the
+# right outcome is a stopped unit somebody has to look at.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# The checkout is read-only to the service, which also means nothing at runtime
+# can paper over a bad `git pull`. ⚠️ ProtectHome hides ~/.sparrowmap, the
+# detector's DOWNLOAD cache - that is deliberate and safe only because the
+# weights ship in the checkout (public/vendor/yolo11s.onnx) and load_model()
+# prefers them. If that file ever stops being committed, this unit fails.
+ReadWritePaths=/opt/sparrowmap/data
+
+[Install]
+WantedBy=multi-user.target
