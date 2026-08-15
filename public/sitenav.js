@@ -90,10 +90,15 @@
     "@media (max-width:520px){.swtoplink{padding:6px 10px;font-size:12px}}",
     "@media print{.swtoplink{display:none !important}}",
     /* Under the top link, clear of both the header and refresh.js's button. */
-    ".swbug{width:38px;height:38px;",
-    "  border-radius:50%;border:1px solid #2a3547;background:#141c28ee;",
-    "  color:#cfe3f5;font-size:17px;line-height:1;cursor:pointer;",
-    "  -webkit-tap-highlight-color:transparent}",
+    /* 44x44 to match refresh.js's button exactly: these two now sit in one
+       stack on the map with Leaflet's own control above them, and three
+       controls in a line that are three different sizes read as three
+       accidents rather than one set. */
+    ".swbug{position:fixed;z-index:9001;width:44px;height:44px;",
+    "  border-radius:50%;border:1px solid #2a3547;background:#111621ee;",
+    "  color:#cfe3f5;font-size:18px;line-height:1;cursor:pointer;",
+    "  display:flex;align-items:center;justify-content:center;",
+    "  backdrop-filter:blur(6px);-webkit-tap-highlight-color:transparent}",
     ".swbug:hover{border-color:#3d8cff}",
     "@media print{.swbug{display:none}}",
     ".swbugwrap{position:fixed;inset:0;z-index:9500;display:flex;",
@@ -303,27 +308,49 @@
         right = Math.round(window.innerWidth - pb.left) + 12;
       }
     }
-    /* The column takes the plain corner. It is a pill and a small circle, both
-     * narrow, and the slot is above the panel's own controls. */
+    /* TWO GROUPS, EACH WHERE IT BELONGS.
+     *
+     *   the CORNER  - Sign in, alone. It is the widest control and the one a
+     *                 volunteer is hunting for, so it gets the strip above the
+     *                 panel where nothing else lives.
+     *   the MAP     - the round buttons, in one column under Leaflet's own
+     *                 control, clear of the panel: heat, bug, refresh. Same
+     *                 size, same gap, same right edge, so they read as one set
+     *                 rather than three things that happened to land nearby.
+     */
     col.style.right = "12px";
     col.style.top = "calc(" + top + "px + env(safe-area-inset-top))";
 
-    /* Refresh drops into the position the column used to hold: under it, and
-     * shifted clear of a right-hand panel so it does not cover a real control.
-     * Only while it is a TOP-corner button - below 860px refresh.js moves it to
-     * the bottom right on purpose, and that placement is better than anything
-     * this function would invent. */
+    // Start the map stack under whatever Leaflet has put in its top-right
+    // corner, so our buttons continue that column instead of colliding with it.
+    var stackTop = top;
+    var lt = document.querySelector(".leaflet-top.leaflet-right");
+    if (lt) {
+      var lb = lt.getBoundingClientRect();
+      if (lb.height > 0) stackTop = Math.round(lb.bottom) + 8;
+    }
+
+    var bug = document.querySelector(".swbug");
+    var GAP = 8, SIZE = 44;
+    if (bug) {
+      bug.style.right = right + "px";
+      bug.style.top = "calc(" + stackTop + "px + env(safe-area-inset-top))";
+    }
+    /* Refresh sits under the bug, on the same right edge. Only while it is a
+     * TOP-corner button - below 860px refresh.js moves it to the bottom right
+     * on purpose, and that placement is better than anything invented here. */
     if (ref) {
       var rb = ref.getBoundingClientRect();
       if (rb.height > 0 && rb.top < window.innerHeight / 2) {
-        var cb = col.getBoundingClientRect();
-        ref.style.top = "calc(" + (Math.round(cb.bottom) + 10)
-                      + "px + env(safe-area-inset-top))";
         ref.style.right = right + "px";
+        ref.style.top = "calc(" + (stackTop + (bug ? SIZE + GAP : 0))
+                      + "px + env(safe-area-inset-top))";
       } else {
-        // It has gone to the bottom corner; leave its own rules alone.
         ref.style.top = "";
         ref.style.right = "";
+        // With refresh at the bottom, the bug button is the whole stack.
+        if (bug) bug.style.top = "calc(" + stackTop
+                               + "px + env(safe-area-inset-top))";
       }
     }
   }
@@ -391,7 +418,8 @@
     b.title = "Report a problem";
     b.setAttribute("aria-label", "report a problem");
     b.addEventListener("click", openBugSheet);
-    toolCol().appendChild(b);
+    // Positioned by placeTools into the map-side stack, not the corner.
+    document.body.appendChild(b);
   }
 
   function openBugSheet() {
