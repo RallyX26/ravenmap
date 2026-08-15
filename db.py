@@ -598,6 +598,13 @@ def node(nid: str) -> Optional[dict]:
 # 30 s cadence, so one dropped request does not blink a camera offline.
 ONLINE_WINDOW_S = 90.0
 
+# ...or if it has POSTED within this one. Deliberately much wider: a heartbeat
+# is a clock and its absence is meaningful within seconds, while a sighting is
+# an event - a phone watching a quiet road produces nothing for minutes and is
+# no less switched on. Five minutes is long enough to cover a red light and
+# short enough that a driver who has arrived home drops off the count.
+POSTING_WINDOW_S = 300.0
+
 
 def stats() -> dict:
     c = connect()
@@ -658,10 +665,27 @@ def stats() -> dict:
         # three ONLINE at once. The registered total above deliberately still
         # counts it, because it really was registered; this is the count of
         # things that are a camera right now.
-        "nodes_online":   one("SELECT COUNT(*) FROM nodes "
-                              "WHERE status='active' AND superseded_by IS NULL "
-                              "AND last_beat > ?",
-                              (now() - ONLINE_WINDOW_S,)),
+        # 🚨 A PHONE THAT IS CATCHING PATROL CARS IS ONLINE.
+        #
+        # This counted heartbeats only, and ONLY FIXED CAMERAS BEAT. A phone in
+        # drive mode posts sightings continuously and never sends a heartbeat,
+        # so somebody actively driving and contributing counted as zero.
+        # Measured during a viral wave: the map said "1 online" while seven
+        # different people had posted within the hour, most of them on phones.
+        # A number that reads "nobody is out there" to a new visitor, at the
+        # exact moment the most people ever are, is worse than no number.
+        #
+        # Posting IS liveness, and it is stronger evidence than a heartbeat: a
+        # beat says the process is running, a sighting says it is running AND
+        # seeing. The window is wider than ONLINE_WINDOW_S because sightings are
+        # event-driven - a quiet street produces none for minutes without the
+        # camera being any less on, whereas a missed beat means something.
+        "nodes_online":   one("SELECT COUNT(*) FROM nodes n "
+                              "WHERE n.status='active' AND n.superseded_by IS NULL "
+                              "AND (n.last_beat > ? OR EXISTS ("
+                              "  SELECT 1 FROM sightings s WHERE s.node_id = n.id "
+                              "  AND s.ts > ?))",
+                              (now() - ONLINE_WINDOW_S, now() - POSTING_WINDOW_S)),
         "sightings_24h":  one("SELECT COUNT(*) FROM sightings WHERE ts > ?", (day,)),
         "public_24h":     one("SELECT COUNT(*) FROM sightings WHERE tier='public' AND ts > ?", (day,)),
         # Passes past a camera. Not vehicles - the same car twice is two.

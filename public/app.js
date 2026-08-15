@@ -841,6 +841,49 @@ const MeControl = L.Control.extend({
 });
 map.addControl(new MeControl());
 
+/* 🎯 SHOW THE WHOLE NETWORK.
+ *
+ * The find-me control answers "what is near me". This answers the other
+ * question people ask on arriving - "how much of this is there?" - and it is
+ * the one the opening view can no longer answer, because the map now opens on
+ * the visitor rather than on everything.
+ *
+ * It fits whatever is actually plotted: the watched roads if any are published,
+ * otherwise the public sightings themselves. Falling back to a hardcoded
+ * country view would be another constant that is wrong for every deployment
+ * except this one, which is the mistake that opened the map on Lansing for a
+ * volunteer in Florida.
+ */
+const AllControl = L.Control.extend({
+  options: { position: 'topleft' },
+  onAdd() {
+    const d = L.DomUtil.create('button', '');
+    d.type = 'button';
+    d.title = 'Show the whole map';
+    d.textContent = '⤢';
+    Object.assign(d.style, {
+      width: '40px', height: '40px', borderRadius: '10px',
+      border: '1px solid var(--line2)', background: '#0d1219cc',
+      color: '#fff', fontSize: '18px', cursor: 'pointer', lineHeight: '1' });
+    L.DomEvent.disableClickPropagation(d);
+    L.DomEvent.on(d, 'click', (e) => {
+      L.DomEvent.stop(e);
+      // A deliberate move by a person, so it must stick: mark the map as
+      // user-moved or the next automatic choice would pull them back.
+      _userMovedMap = true;
+      const pts = [];
+      if (_spanBounds) { pts.push(_spanBounds.getNorthEast(), _spanBounds.getSouthWest()); }
+      state.sightings.forEach((s) => {
+        if (s.tier === 'public' && s.lat != null && s.lon != null) pts.push([s.lat, s.lon]);
+      });
+      if (!pts.length) return;
+      map.fitBounds(L.latLngBounds(pts).pad(0.15), { maxZoom: 12, animate: false });
+    });
+    return d;
+  },
+});
+map.addControl(new AllControl());
+
 /* A camera is drawn as ONE thing: the stretch of road it watches.
  *
  * There used to be a second thing - a dot at the camera's jittered position,
@@ -1313,7 +1356,14 @@ loadStats();
 applyConfiguredView();
 policyBanner();
 setInterval(refresh, CACHE_BUCKET_S * 1000);  // new sightings; matches the cache window
-setInterval(loadStats, 3000);     // live counters - matches the 3s edge cache
+// 🚨 30s, HIS CALL, AND IT IS ALSO TEN TIMES LESS LOAD.
+// Every open tab was asking for the counters every three seconds. On an
+// ordinary day that is invisible; during a viral wave it is the single
+// chattiest thing the site does, from the largest number of clients, for a
+// figure nobody reads that often. The numbers it drives - cameras online,
+// passes today, moving now - do not change meaningfully inside half a minute,
+// and nodes_online now has a 5-minute posting window behind it anyway.
+setInterval(loadStats, 30000);
 setInterval(loadCameras, 5000);   // 'online' reacts within a beat or two
 
 /* Live driver reports: ephemeral, unverified crowd pins from driving mode. An
@@ -1379,10 +1429,17 @@ const HeatControl = L.Control.extend({
     d.id = 'heatBtn';
     d.title = 'Show everywhere patrols have been (hotspots)';
     d.textContent = '🔥';
+    // 🚨 ROUND AND 44px, MATCHING THE BUG AND REFRESH BUTTONS DIRECTLY BELOW.
+    // This was a 40px rounded SQUARE sitting at the top of a column of round
+    // 44px circles, which reads as a control that arrived from somewhere else.
+    // Same shape, same size, same edge - see sitenav.js, which lays the rest of
+    // that stack out.
     Object.assign(d.style, {
-      width: '40px', height: '40px', borderRadius: '10px',
-      border: '1px solid var(--line2)', background: '#0d1219cc',
-      color: '#fff', fontSize: '18px', cursor: 'pointer', lineHeight: '1' });
+      width: '44px', height: '44px', borderRadius: '50%',
+      border: '1px solid #2a3547', background: '#111621ee',
+      color: '#fff', fontSize: '18px', cursor: 'pointer', lineHeight: '1',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      backdropFilter: 'blur(6px)' });
     L.DomEvent.disableClickPropagation(d);
     L.DomEvent.on(d, 'click', (e) => { L.DomEvent.stop(e); toggleHeat(); });
     return d;
