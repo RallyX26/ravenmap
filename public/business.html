@@ -182,6 +182,12 @@
     L.tileLayer("/api/tile/{z}/{x}/{y}.png", { maxZoom: 20,
       attribution: "&copy; OpenStreetMap contributors &copy; CARTO &middot; SparrowMap"
     }).addTo(map);
+    // ⚠️ LEAFLET'S DEFAULT MARKER IMAGE DOES NOT RESOLVE HERE, and it showed
+    // as a broken-image box on the live page. Leaflet derives the icon path
+    // from where it thinks its own CSS lives, which is wrong for a vendored
+    // copy served from /vendor. The map page never hit this because it builds
+    // its own divIcons. Point it at the images that are actually there.
+    L.Icon.Default.imagePath = "/vendor/images/";
     marker = L.marker(c, { draggable: true }).addTo(map);
     map.on("click", function(e){ marker.setLatLng(e.latlng); });
   }
