@@ -597,8 +597,26 @@ _WAYS_DIR = DATA / "roadcache"
 _WAYS_DISK_TTL_S = 180 * 24 * 3600     # roads change, just not this week
 
 
+# 🚨 A WAY IS (road_name, points), NOT A LIST OF POINTS.
+#
+# The first version of this cache serialised a way as `[tuple(pt) for pt in
+# way]`, which is correct for the points and catastrophic for the name: it
+# turned the string "Murphy Street" into ('M','u','r','p','h','y',...). That
+# corrupted name was written straight into a node's road_name, and SQLite threw
+# "Error binding parameter 21: type 'tuple' is not supported" - so EVERY camera
+# enrolment 500'd with "internal error".
+#
+# It hid for a while because it can only bite when the cache HITS, and before
+# the cache was persisted Overpass was usually failing anyway. Making snapping
+# reliable is what exposed it.
+#
+# The version suffix means the broken files are ignored rather than needing to
+# be found and deleted on every machine that ran the bad build.
+_WAYS_FORMAT = "v2"
+
+
 def _disk_path(key: tuple) -> Path:
-    return _WAYS_DIR / f"{key[0]}_{key[1]}.json"
+    return _WAYS_DIR / f"{key[0]}_{key[1]}.{_WAYS_FORMAT}.json"
 
 
 def _disk_get(key: tuple) -> Optional[list]:
@@ -609,8 +627,11 @@ def _disk_get(key: tuple) -> Optional[list]:
         if time.time() - p.stat().st_mtime > _WAYS_DISK_TTL_S:
             return None
         raw = json.loads(p.read_text(encoding="utf-8"))
-        # Stored as lists; the rest of this module expects tuples.
-        return [[tuple(pt) for pt in way] for way in raw]
+        # Round-trip the SHAPE, not just the numbers: (name, [points]).
+        out = []
+        for name, pts in raw:
+            out.append((name, [tuple(pt) for pt in pts]))
+        return out
     except Exception:
         return None
 
@@ -619,8 +640,9 @@ def _disk_put(key: tuple, ways: list) -> None:
     try:
         _WAYS_DIR.mkdir(parents=True, exist_ok=True)
         tmp = _disk_path(key).with_suffix(".tmp")
-        tmp.write_text(json.dumps([[list(pt) for pt in way] for way in ways]),
-                       encoding="utf-8")
+        tmp.write_text(json.dumps(
+            [[name, [list(pt) for pt in pts]] for name, pts in ways]),
+            encoding="utf-8")
         tmp.replace(_disk_path(key))
     except Exception:
         pass          # a cache that cannot be written is not an error
