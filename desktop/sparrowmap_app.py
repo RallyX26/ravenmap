@@ -1,4 +1,4 @@
-"""SparrowMap for the desktop: the LIGHT node, with a window instead of a terminal.
+"""SparrowMap4Biz: the LIGHT node for a business, with a window instead of a terminal.
 
     python desktop\\sparrowmap_app.py          # run it
     python desktop\\build.py                   # build SparrowMap.exe
@@ -34,7 +34,10 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-APP = "SparrowMap"
+# The BUSINESS build. Named apart from the phone/webcam node so the two
+# downloads on the release page cannot be confused for each other - one
+# is for a shop with an IP camera, the other is not.
+APP = "SparrowMap4Biz"
 HUB_DEFAULT = "https://map.sparrowmap.com"
 CFG = Path.home() / ".sparrowmap" / "desktop.json"
 BG, PANEL, INK, DIM, LINE = "#0a0d12", "#111621", "#e6ecf5", "#8794a8", "#2a3547"

@@ -324,7 +324,7 @@ def _resolve_hash(h: str) -> str:
 # path a crowd may hit.
 DOWNLOAD_URL = CONFIG.get(
     "download_url",
-    "https://github.com/SparrowMap/sparrowmap/releases/latest/download/SparrowMap.exe")
+    "https://github.com/SparrowMap/sparrowmap/releases/latest/download/SparrowMap4Biz.exe")
 _DL_CACHE = {"at": 0.0, "ok": False}
 _DL_TTL_S = 600.0
 

@@ -50,6 +50,10 @@
   .note{font-size:12.5px;color:var(--dim);background:#0a1018;border-left:2px solid var(--line2);
         padding:11px 14px;border-radius:0 7px 7px 0;margin:14px 0;line-height:1.6}
   .err{color:var(--hot);font-size:13px;margin-top:8px;min-height:18px}
+  .hit{display:block;width:100%;text-align:left;background:#0d1219;color:var(--ink);
+       border:1px solid var(--line2);border-radius:8px;padding:10px 12px;margin-top:6px;
+       font-size:13px;cursor:pointer;line-height:1.4}
+  .hit:hover{border-color:var(--cam)}
   .hidden{display:none !important}
 </style>
 </head>
@@ -91,7 +95,28 @@
     <label for="bname">A name for this camera</label>
     <input type="text" id="bname" placeholder="e.g. Front of shop, Main Street"
            autocomplete="off">
+
+    <!-- 🚨 A MAP IS NOT AN ANSWER TO "WHERE IS YOUR SHOP". Dragging a pin from
+         a default view is fine for somebody who already knows the map; a
+         business owner knows their ADDRESS. Typing it is the natural input and
+         the map then becomes a check on the result rather than the way in.
+         The lookup is proxied by this server (/api/geocode) - a browser-side
+         geocode would hand a third party every visitor's IP together with the
+         place they searched for, which on a site about being watched is the
+         one request that cannot leak. -->
+    <label for="addr">Or find it by address</label>
+    <div class="row">
+      <input type="text" id="addr" placeholder="123 Main Street, your town"
+             autocomplete="off" style="flex:1 1 200px">
+      <button class="btn ghost" id="findaddr" style="margin-top:0">Find</button>
+    </div>
+    <div id="addrhits"></div>
+    <div class="err" id="addrerr"></div>
+
     <div id="map"></div>
+    <p class="note hidden" id="addrmoved">Pin moved to that address. <b>Now drag it
+       onto the camera itself</b> &mdash; the address finds the building, not the
+       corner of it the camera sits on.</p>
     <button class="btn" id="create">Create this camera</button>
     <div class="err" id="err1"></div>
   </div>
@@ -142,7 +167,7 @@
          convincing somebody this project is real. The check is a HEAD request,
          so it costs nothing and cannot be wrong about it. -->
     <div class="row hidden" id="approw">
-      <a class="btn" href="/download" id="dl-app">Download SparrowMap for Windows</a>
+      <a class="btn" href="/download" id="dl-app">Download SparrowMap4Biz for Windows</a>
     </div>
 
     <p class="body" style="margin-top:18px">Or run it yourself. Download
@@ -166,12 +191,30 @@
   <!-- ---------------------------------------------------------------- 5 -->
   <div class="step hidden" id="s5">
     <h3><span class="n">5</span> Point it at the road</h3>
-    <p class="body">The map needs to know which stretch of road this camera
-       watches, or its sightings have nowhere to sit. It takes about a minute.</p>
+    <p class="body">Now say which way it looks. The next page puts a cone on
+       the map: drag it round to cover the stretch of road the camera actually
+       sees, set how far it reaches, and save. The map needs this or its
+       sightings have nowhere to sit.</p>
+    <!-- 🚨 A LINK, NOT AN IFRAME, AND NOT A SECOND CONE EDITOR EITHER.
+         /aim already owns the cone, the heading and distance controls and the
+         road check, and it reads the camera from the same localStorage key this
+         page writes - so reimplementing it here would produce two editors that
+         agree until the first time one of them is fixed.
+         Embedding it was the obvious way to keep one flow, and it is refused on
+         purpose: every page here ships X-Frame-Options: DENY and
+         frame-ancestors 'none'. Relaxing a site-wide clickjacking defence - on
+         the page whose save button publishes which road a camera watches - to
+         avoid one navigation is the wrong trade. So it is a link, and the key
+         travels in the fragment, which never reaches a request line, a proxy
+         log or a Referer header.
+         Same tab: this is the next step of one job, not a detour. -->
     <div class="row">
-      <a class="btn" id="goaim" href="/aim">Aim this camera</a>
-      <a class="btn ghost" href="/rv">Review what it catches</a>
+      <a class="btn" id="goaim" href="/aim">Set the view and angle &rarr;</a>
+      <a class="btn ghost" href="/rv" target="_blank">Review what it catches</a>
     </div>
+    <p class="note">You can come back here any time &mdash; this page remembers
+       the camera on this device.</p>
+  </div>
   </div>
 </div>
 
@@ -206,6 +249,54 @@
 
   function esc(s){ return String(s == null ? "" : s); }
 
+  /* Address -> position. Proxied through this server; see the markup above. */
+  function findAddress(){
+    var q = ($("#addr").value || "").trim();
+    var err = $("#addrerr"), hits = $("#addrhits");
+    hits.innerHTML = ""; err.textContent = "";
+    if (q.length < 3){ err.textContent = "Type a bit more of the address."; return; }
+    var btn = $("#findaddr");
+    btn.disabled = true; btn.textContent = "Finding…";
+    fetch("/api/geocode?q=" + encodeURIComponent(q))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        btn.disabled = false; btn.textContent = "Find";
+        var list = (d && d.results) || [];
+        if (d && d.error){ err.textContent = d.error; return; }
+        if (!list.length){
+          err.textContent = "Nothing found. Try the street and town without the "
+                          + "unit number, or place the pin by hand below.";
+          return;
+        }
+        // Always a LIST, even when there is one hit: an address search that
+        // silently jumps the map is indistinguishable from one that guessed
+        // wrong, and the pin still has to be right for the sightings to be.
+        list.slice(0, 6).forEach(function(r){
+          var b = document.createElement("button");
+          b.type = "button";
+          b.className = "hit";
+          b.textContent = r.name;
+          b.onclick = function(){
+            var ll = L.latLng(r.lat, r.lon);
+            map.setView(ll, 19);          // close enough to see the building
+            marker.setLatLng(ll);
+            hits.innerHTML = "";
+            err.textContent = "";
+            $("#addrmoved").classList.remove("hidden");
+          };
+          hits.appendChild(b);
+        });
+      })
+      .catch(function(){
+        btn.disabled = false; btn.textContent = "Find";
+        err.textContent = "Could not search just now. Place the pin by hand.";
+      });
+  }
+  $("#findaddr").onclick = findAddress;
+  $("#addr").addEventListener("keydown", function(e){
+    if (e.key === "Enter"){ e.preventDefault(); findAddress(); }
+  });
+
   $("#create").onclick = function(){
     var btn = this, name = ($("#bname").value || "").trim();
     var err = $("#err1");
@@ -234,7 +325,10 @@
       $("#kid").textContent  = "camera id:  " + node.id;
       $("#ktok").textContent = "token:      " + node.token;
       ["#s2","#s3","#s4","#s5"].forEach(function(s){ $(s).classList.remove("hidden"); });
-      $("#goaim").href = "/aim?id=" + encodeURIComponent(node.id);
+      // The fragment form is how every other page hands /aim a camera: it
+      // never reaches a request line, a proxy log or a Referer header.
+      var key = "#k=" + node.id + "." + node.token;
+      $("#goaim").href = "/aim" + key;
       paint();
       $("#s2").scrollIntoView({ behavior: "smooth", block: "start" });
     }).catch(function(){
