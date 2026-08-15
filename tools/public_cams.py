@@ -82,7 +82,102 @@ def nyc_index() -> list:
     return out
 
 
-SOURCES = {"nyc": nyc_index}
+def _get_json(url: str, timeout: int = 45):
+    req = urllib.request.Request(url, headers={"User-Agent": UA_SURVEY})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read())
+
+
+def finland_index() -> list:
+    """Fintraffic weathercams. CC BY 4.0, no key, and the ONE source that
+    publishes the resolution of every image in its own metadata.
+
+    🚨 THIS IS WHY FINLAND GOES FIRST. Every other network has to be probed
+    image by image to find out which cameras clear the 120px-of-vehicle bar -
+    that is one HTTP fetch per camera per survey, thousands of them, against
+    somebody else's free service. Fintraffic states it, so the whole HD subset
+    can be selected without downloading a single frame.
+    """
+    idx = _get_json("https://tie.digitraffic.fi/api/weathercam/v1/stations")
+    out = []
+    for f in (idx.get("features") or []):
+        pr = f.get("properties") or {}
+        geo = (f.get("geometry") or {}).get("coordinates") or []
+        if len(geo) < 2:
+            continue
+        lon, lat = float(geo[0]), float(geo[1])
+        sid = pr.get("id") or f.get("id")
+        for pre in (pr.get("presets") or []):
+            if str(pre.get("inCollection")).lower() == "false":
+                continue
+            res = str(pre.get("resolution") or "")
+            try:
+                w = int(res.split("x")[0])
+            except Exception:
+                w = 0
+            if w < MIN_HD_WIDTH:
+                continue
+            pid = pre.get("id")
+            if not pid:
+                continue
+            out.append({"src": "fi", "ref": pid,
+                        "name": (pre.get("presentationName")
+                                 or pr.get("name") or str(sid))[:60],
+                        "lat": lat, "lon": lon,
+                        "url": f"https://weathercam.digitraffic.fi/{pid}.jpg"})
+    return out
+
+
+def austin_index() -> list:
+    """City of Austin, explicitly PUBLIC_DOMAIN in its own metadata."""
+    rows = _get_json("https://data.austintexas.gov/resource/b4k4-adkb.json?$limit=2000")
+    out = []
+    for c in rows:
+        loc = c.get("location") or {}
+        coords = (loc.get("coordinates") or []) if isinstance(loc, dict) else []
+        try:
+            lon, lat = float(coords[0]), float(coords[1])
+        except Exception:
+            continue
+        url = c.get("screenshot_address") or c.get("image_url")
+        if not url:
+            continue
+        out.append({"src": "atx", "ref": str(c.get("camera_id") or c.get("atd_camera_id") or url)[-24:],
+                    "name": (c.get("location_name") or "Austin camera")[:60],
+                    "lat": lat, "lon": lon, "url": url})
+    return out
+
+
+def iowa_index() -> list:
+    """Iowa DOT via the ArcGIS data portal.
+
+    ⚠️ THE INDEX PATH DECIDES THE LICENCE, NOT THE IMAGE URL. The identical
+    JPEG is forbidden if reached by scraping 511ia.org - whose terms ban
+    automated retrieval - and CC BY 4.0 when reached through this layer. Same
+    bytes, different permission. Never "optimise" this to the 511 site.
+    """
+    url = ("https://services.arcgis.com/8lRhdTsQyJpO52F1/arcgis/rest/services/"
+           "Traffic_Cameras_View/FeatureServer/0/query"
+           "?where=1%3D1&outFields=*&f=geojson&resultRecordCount=2000")
+    idx = _get_json(url)
+    out = []
+    for f in (idx.get("features") or []):
+        pr = f.get("properties") or {}
+        geo = (f.get("geometry") or {}).get("coordinates") or []
+        if len(geo) < 2:
+            continue
+        img = pr.get("IMAGEURL") or pr.get("imageUrl") or pr.get("IMAGE_URL")
+        if not img:
+            continue
+        out.append({"src": "ia", "ref": str(pr.get("OBJECTID") or img)[-24:],
+                    "name": (pr.get("DESCRIPTION") or pr.get("NAME")
+                             or "Iowa camera")[:60],
+                    "lat": float(geo[1]), "lon": float(geo[0]), "url": img})
+    return out
+
+
+SOURCES = {"nyc": nyc_index, "fi": finland_index,
+           "atx": austin_index, "ia": iowa_index}
 
 
 # --------------------------------------------------------------------------

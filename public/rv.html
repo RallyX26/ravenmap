@@ -369,7 +369,7 @@
 
 <div id="toasts"></div>
 
-<script src="/static/keyimport.js?v=3"></script>
+<script src="/static/keyimport.js?v=4"></script>
 <script>
 (function(){
   "use strict";
@@ -499,6 +499,28 @@
    * to /api/rv/me and the server decides. One request, one secret, and this
    * page stops caring about the difference.
    */
+  /* 🚨 DELETED BY ACCIDENT ONCE. DO NOT INLINE IT BACK INTO A BLOCK THAT MIGHT
+   * BE REMOVED WHOLESALE.
+   *
+   * This helper lived inside the camera-key exchange block, and when that block
+   * was removed - correctly, the server does the job now - `working` went with
+   * it while three calls to it stayed behind. addToken threw ReferenceError on
+   * its first line, so the button did literally nothing: no error, no request,
+   * no change on screen. Reported as "nothing happens when i enter my token".
+   *
+   * A syntax check cannot catch this; the file parses perfectly. Only running
+   * the actual path does, which is why it has a test now (test_rv_gate.py). */
+  function working(on){
+    var b = document.getElementById("first-add");
+    if(!b) return;
+    if(on){
+      if(!b.dataset.label) b.dataset.label = b.textContent;
+      b.textContent = "checking…"; b.disabled = true;
+    } else {
+      b.textContent = b.dataset.label || "Add token"; b.disabled = false;
+    }
+  }
+
   function addToken(tok, onOk, onErr){
     tok = (tok||"").trim();
     if(!tok){ if(onErr) onErr("Paste a token first."); return; }
