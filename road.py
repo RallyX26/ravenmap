@@ -581,6 +581,59 @@ def _cell(lat: float, lon: float) -> tuple[int, int]:
     return (int(math.floor(lat / GRID_DEG)), int(math.floor(lon / dlon)))
 
 
+def ways_for_cell(lat: float, lon: float, online: bool = True,
+                  respect_backoff: bool = True) -> Optional[list]:
+    """Road geometry for this grid cell, from cache when we have it.
+
+    🚨 THE AIM PATH WAS NOT USING THIS CACHE, AND THAT IS WHY A CAMERA COULD NOT
+    BE AIMED. `resolve` called `_fetch_ways_bounded` directly, so every press of
+    "Save and check the road" was a fresh Overpass query - and Overpass rate
+    limits, as the note in `resolve` already records: "a sweep of 18 nodes
+    earned a 429 in under two minutes". Measured here: the first query returned
+    138 ways in 3.0s and the next three timed out.
+
+    The page asks the owner to adjust the direction and save AGAIN until the
+    road falls inside the cone. That workflow is a loop, so the one path that
+    most needed a cache was the only one without it, and the second attempt was
+    the one guaranteed to fail. Roads do not move; the cell is the same 400 m
+    grid the query is snapped to anyway.
+
+    ⚠️ `respect_backoff=False` FOR A HUMAN PRESSING A BUTTON. The negative cache
+    exists to stop a stampede of automated sighting lookups, and applying it to
+    a deliberate click means the owner gets an instant "no road" that never
+    asked anything. One person clicking save is not a stampede.
+    """
+    key = _cell(lat, lon)
+    ways = _WAYS_CACHE.get(key)
+    if ways is not None:
+        return ways
+    if not online:
+        return None
+    # 🚨 A FAILING CELL MUST NOT BE RETRIED ON EVERY REQUEST.
+    # Failures were never remembered, so a cell Overpass is refusing was
+    # re-fetched by every sighting from that camera - each one a synchronous
+    # call holding an admission permit, all destined to fail the same way. The
+    # negative entry is short: long enough to stop the stampede, short enough
+    # that recovery is automatic.
+    if respect_backoff and _FAIL_UNTIL.get(key, 0.0) > time.time():
+        return None
+    try:
+        ways = _fetch_ways_bounded(lat, lon)
+    except Exception:
+        _FAIL_UNTIL[key] = time.time() + _FAIL_TTL_S
+        raise
+    _FAIL_UNTIL.pop(key, None)
+    if len(_WAYS_CACHE) >= _WAYS_CACHE_MAX:
+        # ⚠️ Evict HALF, not everything. clear() threw away every warm cell the
+        # moment the 65th arrived, so a network spread over more than
+        # _WAYS_CACHE_MAX cells thrashed to permanently empty and every node
+        # re-fetched constantly.
+        for k in list(_WAYS_CACHE)[:_WAYS_CACHE_MAX // 2]:
+            _WAYS_CACHE.pop(k, None)
+    _WAYS_CACHE[key] = ways
+    return ways
+
+
 def snap_point(lat: float, lon: float, seed: str,
                online: bool = True) -> Optional[tuple[float, float]]:
     """Put a loose point on the nearest road, or None if we cannot.
@@ -605,34 +658,7 @@ def snap_point(lat: float, lon: float, seed: str,
     third-party API being down must never drop a sighting.
     """
     try:
-        key = _cell(lat, lon)
-        ways = _WAYS_CACHE.get(key)
-        if ways is None:
-            if not online:
-                return None
-            # 🚨 A FAILING CELL MUST NOT BE RETRIED ON EVERY REQUEST.
-            # Failures were never remembered, so a cell Overpass is refusing was
-            # re-fetched by every sighting from that camera - each one a 25s
-            # synchronous call holding an admission permit, all of them destined
-            # to fail the same way. The negative entry is short: long enough to
-            # stop the stampede, short enough that recovery is automatic.
-            until = _FAIL_UNTIL.get(key, 0.0)
-            if until > time.time():
-                return None
-            try:
-                ways = _fetch_ways_bounded(lat, lon)
-            except Exception:
-                _FAIL_UNTIL[key] = time.time() + _FAIL_TTL_S
-                raise
-            _FAIL_UNTIL.pop(key, None)
-            if len(_WAYS_CACHE) >= _WAYS_CACHE_MAX:
-                # ⚠️ Evict HALF, not everything. clear() threw away every warm
-                # cell the moment the 65th arrived, so a network spread over
-                # more than _WAYS_CACHE_MAX cells thrashed to permanently empty
-                # and every node re-fetched constantly.
-                for k in list(_WAYS_CACHE)[:_WAYS_CACHE_MAX // 2]:
-                    _WAYS_CACHE.pop(k, None)
-            _WAYS_CACHE[key] = ways
+        ways = ways_for_cell(lat, lon, online=online)
         if not ways:
             return None
         got = span_nearest(lat, lon, ways)
@@ -674,14 +700,17 @@ def resolve(lat: float, lon: float, heading: float, fov: float,
         try:
             # Bounded: see _fetch_ways_bounded. This is reached from
             # POST /api/enroll while holding an admission permit.
-            ways = _fetch_ways_bounded(lat, lon)
-            got = span_from_ways(lat, lon, heading, fov, reach_m, ways)
+            # Cached per 400 m cell, and NOT subject to the failure backoff:
+            # this is reached from a person pressing "save", who is entitled to
+            # an actual attempt. See ways_for_cell.
+            ways = ways_for_cell(lat, lon, online=True, respect_backoff=False)
+            got = span_from_ways(lat, lon, heading, fov, reach_m, ways or [])
             if got:
                 return got
             # No aim to work with (a window enrolment reports no heading), so
             # fall back to the road itself rather than to a compass direction
             # nobody supplied.
-            got = span_nearest(lat, lon, ways)
+            got = span_nearest(lat, lon, ways or [])
             if got:
                 return got
         except (urllib.error.URLError, OSError, ValueError, KeyError,
