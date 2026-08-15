@@ -323,11 +323,19 @@
 
     // Start the map stack under whatever Leaflet has put in its top-right
     // corner, so our buttons continue that column instead of colliding with it.
-    var stackTop = top;
+    /* 🚨 START BELOW THE CORNER COLUMN, NOT LEVEL WITH IT.
+       This defaulted stackTop to the column's own top, which is only correct on
+       a page that HAS a Leaflet control to sit under. On /rv there is no map,
+       so the bug button was placed at exactly the same coordinates as the Sign
+       in pill and the two drew on top of each other. Reported.
+       The floor is now the column itself; a Leaflet stack, where one exists,
+       pushes it further down. */
+    var colBox = col.getBoundingClientRect();
+    var stackTop = Math.round(colBox.bottom) + 8;
     var lt = document.querySelector(".leaflet-top.leaflet-right");
     if (lt) {
       var lb = lt.getBoundingClientRect();
-      if (lb.height > 0) stackTop = Math.round(lb.bottom) + 8;
+      if (lb.height > 0) stackTop = Math.max(stackTop, Math.round(lb.bottom) + 8);
     }
     /* 🚨 ALIGN TO LEAFLET'S BUTTON, NOT TO MY OWN IDEA OF THE MARGIN.
        Leaflet insets its controls by 10px and this column computed 12px from

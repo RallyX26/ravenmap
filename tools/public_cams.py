@@ -309,9 +309,18 @@ def cmd_run(args) -> int:
                           f"{b['w']:>5.0f}px  id={out.get('id')}")
                 except urllib.error.HTTPError as e:
                     print(f"  {e.code}   {c['name'][:34]:<36} {e.read()[:80]}")
+                except Exception as exc:
+                    # 🚨 ONE SLOW CAMERA MUST NOT KILL THE FLEET.
+                    # This caught HTTPError only, so a read timeout - the most
+                    # ordinary failure there is when talking to six public
+                    # cameras and a box over the internet - escaped the loop and
+                    # took the whole poller down on its first cycle. A fleet
+                    # runner has to treat every per-item failure as data, never
+                    # as an exit.
+                    print(f"  ERR   {c['name'][:34]:<36} {type(exc).__name__}: {str(exc)[:50]}")
                 if args.once:
                     continue
-            print(f"  -- cycle done: {sent} sent, {skipped} too small --")
+            print(f"  -- cycle done: {sent} sent, {skipped} too small --", flush=True)
             if args.once:
                 return 0
             time.sleep(POLL_S)
