@@ -49,6 +49,18 @@ def main() -> int:
     ap.add_argument("--box-latlon", required=True,
                     help="lat1,lon1,lat2,lon2 - only touch sightings inside")
     ap.add_argument("--max-m", type=float, default=45.0)
+    # 🚨 SCOPE, BECAUSE THE FIRST DRY RUN WANTED TO MOVE 18,126 ROWS.
+    # The ask was "the police dots in Linden that are off the road". Without a
+    # tier filter this selected every PRIVATE traffic dot in the county too -
+    # inert markers that fade in 45 seconds and are not evidence of anything -
+    # and offered to rewrite all of them. A correction that touches 1500x more
+    # rows than the thing being corrected is not a correction.
+    ap.add_argument("--tier", default="public",
+                    help="only this tier (default public; 'any' to ignore)")
+    # And a floor. A 2 m move is the jitter doing its job, not a dot in the
+    # wrong place; rewriting those is churn on stored evidence for no visible
+    # gain.
+    ap.add_argument("--min-m", type=float, default=10.0)
     ap.add_argument("--apply", action="store_true")
     a = ap.parse_args()
 
@@ -58,12 +70,15 @@ def main() -> int:
 
     con = sqlite3.connect(db.DB_PATH)
     con.row_factory = sqlite3.Row
-    rows = con.execute(
-        "SELECT id, node_id, lat, lon, tier, vclass FROM sightings "
-        "WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ? "
-        "ORDER BY id", (lat1, lat2, lon1, lon2)).fetchall()
+    sql = ("SELECT id, node_id, lat, lon, tier, vclass FROM sightings "
+           "WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?")
+    args = [lat1, lat2, lon1, lon2]
+    if a.tier != "any":
+        sql += " AND tier = ?"
+        args.append(a.tier)
+    rows = con.execute(sql + " ORDER BY id", args).fetchall()
 
-    print(f"{len(rows)} sighting(s) in the box")
+    print(f"{len(rows)} sighting(s) in the box (tier={a.tier})")
 
     # Which nodes are mobile? A node with a span is a fixed camera aimed at a
     # stretch of road and its sightings were never snapped.
@@ -91,7 +106,7 @@ def main() -> int:
             failed += 1
             continue
         d = haversine_m(r["lat"], r["lon"], snapped[0], snapped[1])
-        if d < 1.0:
+        if d < a.min_m:
             already += 1
             continue
         if d > a.max_m:
