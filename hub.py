@@ -2877,20 +2877,27 @@ class Handler(BaseHTTPRequestHandler):
                     crop_box=box if isinstance(box, dict) else None))
 
             if p == "/api/drive/report":
-                # A driver taps "patrol here". Public + rate-limited; lands on the
-                # ephemeral live layer, never the verified map. No identity, no
-                # route - only the point.
-                if not rate_ok(p, self.client_ip):
-                    return self._err(429, "reporting too fast")
-                b = self._body()
-                try:
-                    lat, lon = float(b["lat"]), float(b["lon"])
-                except (KeyError, TypeError, ValueError):
-                    return self._err(400, "need lat and lon")
-                if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-                    return self._err(400, "lat/lon out of range")
-                rid = db.add_driver_report(lat, lon, str(b.get("kind") or "police")[:16])
-                return self._json({"ok": True, "id": rid})
+                # 🚨 CLOSED 2026-08-15. His call, and the right one.
+                #
+                # It let anybody POST "there is a patrol at this coordinate" -
+                # no camera, no photograph, no review, no identity. Every other
+                # route onto this map puts a human in front of a picture before
+                # a police marker appears; this one asserted a vehicle from a
+                # pair of numbers, and the numbers were supplied by the caller.
+                # Sending someone a false "police ahead", or clearing a street
+                # by covering it in fake ones, cost one request.
+                #
+                # ⚠️ THE BUTTON WAS NOT THE VULNERABILITY. drive.html was this
+                # route's only caller, so deleting the button and leaving the
+                # route open would have removed the feature from honest users
+                # and left it working for everybody else - which is worse than
+                # doing nothing, because it looks fixed.
+                #
+                # Reads and votes stay open so reports already on the layer age
+                # out normally. Re-enabling means restoring the body below; the
+                # db helper (add_driver_report) is untouched.
+                return self._err(410, "reporting a patrol by tapping has been "
+                                      "withdrawn - sightings come from cameras")
             if p == "/api/drive/vote":
                 if not rate_ok(p, self.client_ip):
                     return self._err(429, "voting too fast")

@@ -88,29 +88,20 @@
   .rbtn.on{color:var(--accent2);border-color:var(--accent)}
   .rbtn.warn{color:var(--live2)}
   #recenter{display:none}
-  /* --- bottom report button --- */
-  #report{position:absolute;z-index:1100;left:50%;transform:translateX(-50%);
-    bottom:calc(env(safe-area-inset-bottom) + 20px);
-    background:linear-gradient(180deg,#ef4444,#c62f2f);color:#fff;border:none;
-    border-radius:999px;padding:18px 30px;font-size:1.2rem;font-weight:800;
-    box-shadow:0 10px 30px rgba(239,68,68,.4);display:flex;align-items:center;gap:10px;
-    min-width:230px;justify-content:center}
-  #report:disabled{filter:grayscale(.5) brightness(.7)}
-  #report .em{font-size:1.35rem}
   /* --- privacy chip --- */
   /* A promise that is cut off at both edges reads as a promise with something
      hidden in it, which is the opposite of the point. Wrap it instead of
      letting it overflow: bounded width, centred, two short lines on a phone. */
+  /* +150px, not +96px: the bottom bar took the strip this used to sit in. */
   #priv{position:absolute;z-index:1000;left:50%;transform:translateX(-50%);
-    bottom:calc(env(safe-area-inset-bottom) + 96px);font-size:.68rem;color:var(--dim);
+    bottom:calc(env(safe-area-inset-bottom) + 150px);font-size:.68rem;color:var(--dim);
     background:rgba(13,18,25,.82);border:1px solid var(--line);border-radius:14px;
     padding:6px 14px;backdrop-filter:blur(6px);
     max-width:min(92vw,420px);width:max-content;text-align:center;
     line-height:1.45;white-space:normal;text-wrap:balance}
   /* Leaflet's attribution ships light-on-white and lands as a bright bar across
      the bottom of a dark, night-driving screen. Attribution is required and
-     stays - it is just dressed to match, and tucked left so it never sits under
-     the thumb that presses the report button. */
+     stays - it is just dressed to match, and tucked left. */
   .leaflet-control-attribution{
     background:rgba(10,13,18,.72) !important;color:#5f7b8f !important;
     font-size:.6rem !important;padding:2px 8px !important;
@@ -125,7 +116,10 @@
     box-shadow:0 8px 24px rgba(0,0,0,.4)}
   #toast.show{display:block;animation:pop .2s ease}
   /* --- start / message overlay --- */
-  #cover{position:absolute;inset:0;z-index:2000;background:radial-gradient(120% 90% at 50% 0%,#111a26,#0B0E13);
+  /* The cover sits ABOVE the map but BELOW the bar (nav.sitenav is z-index
+     1200 and this is 1100), so the menu is reachable from the start screen
+     too - which is the state somebody is in when they are looking for it. */
+  #cover{position:absolute;inset:0 0 56px 0;z-index:1100;background:radial-gradient(120% 90% at 50% 0%,#111a26,#0B0E13);
     display:flex;flex-direction:column;align-items:center;justify-content:center;
     text-align:center;padding:32px}
   #cover h1{font-size:2rem;margin:0 0 6px;font-weight:800}
@@ -235,19 +229,49 @@
      style="display:flex;align-items:center;justify-content:center;text-decoration:none">←</a>
 </div>
 
-<button id="report" disabled><span class="em">🚨</span> Patrol here</button>
+<!-- 🚨 "PATROL HERE" WAS REMOVED 2026-08-15, AND THE ENDPOINT WITH IT.
+     His call, and it is the right one: a one-tap "there is a patrol at my GPS
+     position" that anybody can press, with no camera, no evidence and no
+     review, is a button for putting a police marker anywhere you like. Every
+     other route onto this map has a human looking at a photograph first; this
+     one asserted a vehicle from a coordinate alone. It was also the largest
+     control on the screen while driving.
+     Removing the BUTTON alone would have been theatre - the abuse surface is
+     the route, and this page was its only caller - so /api/drive/report refuses
+     now too. The vote and read paths stay, so anything already reported ages
+     out the way it always did. -->
 <div id="priv">Your route stays on your phone · the dashcam sends only vehicle crops, never video</div>
+<!-- The bottom bar (sitenav.js) is the menu on BOTH states of this page: the
+     start cover and the live driving screen. Everything here is positioned
+     against the viewport, so the fixed bar simply sits over the bottom of the
+     map - the controls that live near that edge are lifted clear below. -->
 <div id="toast"></div>
 
 <div id="cover">
   <h1>Sparrow<span class="b">Map</span> — driving</h1>
-  <p>Get a heads-up when you're near a known patrol, and tap to flag one you pass so the next driver knows too.</p>
+  <!-- ⚠️ COPY FOLLOWS THE FEATURE. This said "tap to flag one you pass so the
+       next driver knows too", which described the Patrol here button - removed
+       because a one-tap police marker with no photograph behind it is a button
+       for lying about a street. A page that goes on advertising a control that
+       is not there is the same drift as a stale privacy promise: the reader
+       hunts for it, and concludes the app is broken. -->
+  <p>Get a heads-up when you're near a known patrol. Turn on the dashcam and it
+     watches the road for you — you confirm what it catches.</p>
   <button class="go" id="startBtn">Start driving mode</button>
-  <div class="lock">🔒 Your route is never uploaded — only patrols you tap</div>
+  <div class="lock">🔒 Your route is never uploaded — only the crops you confirm</div>
   <p class="fine" id="coverFine">Keeps the screen on. Works best mounted. Turn on the
     📷 dashcam to let it watch the road and flag patrols for you.</p>
+  <div id="coverwrap"></div>
 </div>
 
+<!-- 🚨 THE MENU, ON BOTH STATES OF THIS PAGE. Driving mode is a standalone
+     PWA with no address bar and no browser back button, and it had exactly one
+     way off it: a single ← in the side rail. Every other page in the project
+     carries the shared bar; this one - the one people are inside while driving,
+     and the least able to go hunting - did not.
+     Loaded here rather than at the end of the body so the bar exists before the
+     driving script measures anything against the viewport. -->
+<script src="/static/sitenav.js?v=3"></script>
 <script src="/vendor/leaflet.js"></script>
 <script>
 (function(){
@@ -376,7 +400,6 @@
   var trail=[];                     // on-device only, never sent
   var verified=[], live=[];
   var alerted={};                   // id -> true while inside NEAR (debounce)
-  var reportBusy=false;
 
   // ---- helpers ----
   function haversine(a,b,c,d){var R=6371000,p=Math.PI/180,
@@ -621,18 +644,6 @@
   function loadLive(){ fetch('/api/drive/reports').then(function(r){return r.json();})
     .then(function(d){ live=(d&&d.reports)||[]; drawLive(); checkProximity(); }).catch(function(){}); }
 
-  function report(){ if(reportBusy||!me)return; reportBusy=true;
-    var btn=$('#report'); btn.disabled=true;
-    fetch('/api/drive/report',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({lat:me[0],lon:me[1],kind:'police'})})
-      .then(function(r){return r.json();}).then(function(res){
-        if(res&&res.ok){ toast('Reported — thanks'); if(navigator.vibrate)navigator.vibrate(40);
-          live.unshift({id:res.id,ts:Date.now()/1000,lat:me[0],lon:me[1],kind:'police',confirms:1,denies:0});
-          drawLive();
-        } else { toast('Could not send'); }
-      }).catch(function(){toast('Could not send');})
-      .then(function(){ setTimeout(function(){reportBusy=false;btn.disabled=false;},5000); });
-  }
   function vote(id,still){ fetch('/api/drive/vote',{method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({id:parseInt(id,10),still_there:!!still})})
@@ -662,7 +673,6 @@
     lastFix={ll:now,t:pos.timestamp};
     me=now;
     $('#mph').textContent=Math.max(0,Math.round(speedMph));
-    $('#report').disabled=false;
     if(trailOn){ trail.push(now); if(trail.length>1200)trail.shift(); drawTrail(); }
     drawMe();
     if(follow) map.setView(me, Math.max(map.getZoom(),16),{animate:true});
@@ -688,7 +698,6 @@
 
   // ---- controls ----
   $('#recenter').onclick=function(){follow=true;this.style.display='none';if(me)map.setView(me,17);};
-  $('#report').onclick=report;
   $('#copyes').onclick=function(){sendLabel('police');};
   $('#copno').onclick=function(){sendLabel('civilian');};
   // "Not sure" is a real answer and must cost nothing. It sends NOTHING: the
