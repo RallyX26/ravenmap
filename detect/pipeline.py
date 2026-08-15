@@ -127,6 +127,24 @@ class VehiclePass:
     first_ts: float = 0.0
     last_ts: float = 0.0
 
+    # 🚨 THE STRONGEST GOVERNMENT READ SEEN ON ANY LIVE FRAME OF THIS PASS.
+    #
+    # The red box in the viewfinder and the confirm popup use the SAME rule
+    # (VehicleIdentifier.gov_call) on DIFFERENT images: the overlay classifies
+    # each live frame's crop as the car crosses, while the popup classifies the
+    # single crop the finished pass ends up carrying. A vehicle can read
+    # government at its closest and clearest and then score under the bar on
+    # whichever frame won `best_score` - so the operator watched a patrol car
+    # light up red and was never asked about it. Reported exactly that way:
+    # "just watched a cop drive by, got a red box but no popup".
+    #
+    # Same lesson gov_call itself was written for, one level up: it stopped the
+    # two consumers using different RULES, and they were still using different
+    # INPUTS. Remembering the live verdict on the pass is what lets the prompt
+    # ask about what the operator was actually shown.
+    gov_live: bool = False
+    gov_live_conf: float = 0.0
+
     # ---- the vote ------------------------------------------------------
     def vote(self) -> tuple[str, float, float]:
         """Return (plate, confidence, agreement).

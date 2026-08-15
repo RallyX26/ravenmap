@@ -273,6 +273,16 @@ def main() -> None:
                 call = VehicleIdentifier.gov_call(r)
                 LIVE_ID[tid] = {"gov": call["gov"], "conf": call["conf"],
                                 "vclass": r["vclass"], "src": call["source"]}
+                # Remember it ON THE PASS. LIVE_ID is popped as soon as the
+                # track disappears, which is BEFORE handle_pass runs, so the
+                # verdict the operator was shown would otherwise be gone by the
+                # time we decide whether to ask them about it. See
+                # VehiclePass.gov_live.
+                _vp = passes.get(tid)
+                if _vp is not None and call["gov"]:
+                    _vp.gov_live = True
+                    _vp.gov_live_conf = max(_vp.gov_live_conf,
+                                            float(call["conf"] or 0.0))
             # Tracks that ended should not accumulate forever.
             live_ids = {t for t, _c, _b, _cf in tracked}
             for gone in [t for t in LIVE_ID if t not in live_ids]:
@@ -718,8 +728,22 @@ def handle_pass(vp, args, vid) -> None:
         vis = ev.get("_visual") or {}
         call = VehicleIdentifier.gov_call(vis) if vis else {"gov": False,
                                                             "conf": 0.0}
-        if call["gov"]:
-            push_confirm(args, stem, call["conf"], bool(verdict.get("sightable")))
+        # 🚨 ASK ABOUT WHAT THE OPERATOR WAS SHOWN, NOT ONLY ABOUT THE CROP WE
+        # KEPT. `call` judges the pass's chosen crop; `vp.gov_live` is true if
+        # ANY live frame of this same vehicle read government - which is exactly
+        # when the viewfinder drew a red box around it. Firing only on the
+        # former meant a patrol car could light up red as it went past and
+        # produce no prompt at all, which reads as the popup being broken and
+        # is the one failure that costs a confirmation nobody can get back: the
+        # car is gone.
+        #
+        # This can only ever ADD prompts, and the cost of a surplus one is a
+        # keypress. The cost of the missing one is a patrol car nobody was
+        # asked about while they were watching it.
+        if call["gov"] or vp.gov_live:
+            push_confirm(args, stem,
+                         call["conf"] if call["gov"] else vp.gov_live_conf,
+                         bool(verdict.get("sightable")))
     if args.post:
         sid = post_one(vp, args, vid, ev, verdict, plate, agree, stem)
         # Tie the published sighting to the crop it came from, both ways. A
