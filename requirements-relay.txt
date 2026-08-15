@@ -1,0 +1,10 @@
+# The business relay (detect/relay.py) and the stream tester
+# (tools/test_stream.py). Deliberately three packages and no torch: the whole
+# point of the relay is that the classifier runs at home, so a shop PC needs
+# only enough to find a vehicle and post a small crop.
+#
+# The model itself is already in the repo (public/vendor/yolo11s.onnx) - the
+# same file the browser node runs, so both clients stay on one model.
+opencv-python>=4.8
+onnxruntime>=1.16
+numpy>=1.24

@@ -165,6 +165,17 @@ a{color:var(--blue)}
       <p class="note">Any device with a camera and a browser &mdash; a phone in
         a window, a laptop, a USB webcam. <b>Nothing to install, no account.</b>
         Detection runs here; <b>no video is ever uploaded</b>.</p>
+      <!-- 🚨 THE OTHER KIND OF VOLUNTEER HAD NOWHERE TO GO. This page is built
+           around a device with its own camera and a browser, which quietly
+           excludes the people most likely to already be pointing a camera at a
+           street: businesses with a wired IP camera and no browser on it. The
+           relay exists for them; without a link here it is a tool nobody
+           finds, which is the failure this codebase keeps rediscovering. -->
+      <p class="note" style="border-left-color:var(--cam)">
+        <b>Already have an outdoor IP camera?</b> A shop, a workshop, anywhere
+        with a camera on the street: it can feed the map from the machine you
+        already have, with no video leaving your network.
+        <a href="/business" style="color:var(--cam)">Use your own cameras &rarr;</a></p>
       <div class="box">
         <label for="nname">Name it (shown on the map)</label>
         <input id="nname" placeholder="Main St, facing south" autocomplete="off" maxlength="60">

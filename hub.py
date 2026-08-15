@@ -505,7 +505,8 @@ class Handler(BaseHTTPRequestHandler):
                 return "public, max-age=4"    # live map: fresh within a few s
             return "public, max-age=15"
         if p == "/" or p.endswith(".html") or p in (
-                "/about", "/transparency", "/status", "/app", "/node", "/key"):
+                "/about", "/transparency", "/status", "/business", "/app",
+                "/node", "/key"):
             return "public, max-age=60"        # page shells: reuse, revalidate
         # /api/plate search, /api/track, /api/sighting/<id>, operator routes,
         # /api/live, /api/audit - anything per-user or a lookup - is never cached.
@@ -1076,6 +1077,12 @@ class Handler(BaseHTTPRequestHandler):
             # else. This page exists so the reply is a link rather than an
             # argument: if they can read it, they reached the server.
             if p == "/status":          return self._file(PUBLIC / "status.html")
+            # 🚨 THE ROUTE A BUSINESS IS SENT TO. Everything it needs is already
+            # public (enrol, aim, review); what did not exist was one page that
+            # walks somebody who owns a shop - not a terminal - from "I have a
+            # camera outside" to a running relay without them having to know
+            # which of these pages to visit in which order.
+            if p == "/business":        return self._file(PUBLIC / "business.html")
             # What a node costs in compute, and how to measure your own board
             # rather than take this page's word for it.
             if p == "/hardware":         return self._file(PUBLIC / "hardware.html")
