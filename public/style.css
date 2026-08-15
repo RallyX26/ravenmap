@@ -394,3 +394,30 @@ nav .addcam{color:var(--cam);font-weight:600}
   pointer-events:none;background:none;border:0}
 .placelabel span{font:700 12px var(--mono);color:var(--cam);
   text-shadow:0 0 4px #000,0 0 2px #000}
+
+/* ---- plate search, as a popup ------------------------------------------
+ * The box used to sit in the header permanently. See index.html for why it
+ * does not any more. These rules style the trigger and the dialog; the form
+ * inside keeps every rule it already had. */
+.platebtn{
+  background:#141b26;color:var(--ink);border:1px solid var(--line2);
+  border-radius:999px;padding:7px 14px;margin-left:auto;cursor:pointer;
+  font:600 12.5px system-ui,-apple-system,sans-serif;white-space:nowrap;
+  -webkit-tap-highlight-color:transparent
+}
+.platebtn:hover{border-color:var(--police);color:var(--police)}
+.pmodal{position:fixed;inset:0;z-index:9500;display:flex;
+  align-items:flex-start;justify-content:center}
+.pmodal[hidden]{display:none}
+.pmodal-bg{position:absolute;inset:0;background:rgba(4,7,12,.72)}
+.pmodal-card{position:relative;margin-top:14vh;width:min(460px,92vw);
+  background:var(--panel,#111823);border:1px solid var(--line2);
+  border-radius:14px;padding:16px;box-shadow:0 18px 50px rgba(0,0,0,.55)}
+/* Inside the dialog the form is the whole content, so it fills the width
+   rather than hugging the right edge the way it did in the header. */
+.pmodal .plateform{margin-left:0;width:100%}
+.pmodal .plateform input{flex:1;min-width:0}
+.pmodal-hint{margin:10px 2px 0;color:var(--dim);font-size:12px}
+/* The results list is fixed-position and already knows where to sit; it just
+   has to clear the dialog it is now launched from. */
+.pmodal ~ .plateresults, .plateresults{z-index:9600}

@@ -379,5 +379,16 @@ a{color:var(--blue)}
 <!-- The camera app is where owners live, so this is where an 'owner' update
      actually reaches someone who can act on it. -->
 <script src="/static/updates.js?v=2"></script>
+<!-- 🚨 THE ONE PAGE WITH NO WAY BACK TO THE MAP.
+     /app is where somebody adds a camera, sets it up, watches it and finds
+     their key - four steps deep - and it was the only page in the site that
+     never loaded sitenav, so it had no bottom bar and no Map button at all.
+     Every other page puts Map in the bottom-left corner; this one asked people
+     to use the browser's back button.
+     The top-of-page tools stay off here (see NO_TOOLS in sitenav.js): this page
+     already has its own key and camera controls, and a second Sign in pill next
+     to them is the collision that rule exists to prevent. The bottom bar is a
+     different thing - it is the way OUT. -->
+<script src="/static/sitenav.js?v=21"></script>
 </body>
 </html>

@@ -547,6 +547,20 @@
     try { has = !!JSON.parse(localStorage.getItem("sparrow.node") || "null"); }
     catch (e) { has = false; }
 
+    /* 🚨 NOT "MY CAMERA" ON THE MAP. HIS CALL, AND HE IS RIGHT.
+     *
+     * This pill does two different jobs depending on who is holding the phone.
+     * For somebody with no camera it is "Sign in", the way back to a camera
+     * they think they have lost, and that belongs on the busiest page on the
+     * site. For somebody who already HAS one it is "My camera" - a shortcut to
+     * /app, which the bottom bar already offers as "Add a camera", on the one
+     * page where map space is the whole point.
+     *
+     * So the sign-in half stays everywhere and the shortcut half stops
+     * competing with the map. Same element, one condition, no second copy. */
+    var onMap = (here === "/");
+    if (has && onMap) return;
+
     var a = document.createElement("a");
     a.className = "swtoplink";
     a.href = has ? "/app" : "/signin";

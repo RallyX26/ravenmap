@@ -1649,6 +1649,39 @@ window.sparrowRefresh = async () => {
   if (!form || !box) return;
   const input = document.querySelector('#plateq');
 
+  /* The box lives in a dialog now (see index.html). Opening and closing it is
+   * all that changed here - the search itself, below, never learns about it.
+   *
+   * ⚠️ FOCUS AFTER THE UNHIDE, NOT BEFORE. A hidden element cannot take focus,
+   * so focusing in the same tick does nothing and the phone keyboard does not
+   * appear - which turns a one-tap search into a two-tap one for no visible
+   * reason. */
+  const modal = document.querySelector('#platemodal');
+  const opener = document.querySelector('#plateopen');
+  if (modal && opener) {
+    const openModal = () => {
+      modal.hidden = false;
+      requestAnimationFrame(() => { if (input) { input.focus(); input.select(); } });
+    };
+    const closeModal = () => {
+      modal.hidden = true;
+      box.style.display = 'none';
+      box.innerHTML = '';
+    };
+    opener.addEventListener('click', openModal);
+    const bg = document.querySelector('#plateclose');
+    if (bg) bg.addEventListener('click', closeModal);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !modal.hidden) closeModal();
+    });
+    /* Picking a result means "take me there", so the dialog gets out of the
+     * way. Bound on the results list rather than inside the click handler
+     * below, so a result added by any future code path still closes it. */
+    box.addEventListener('click', (e) => {
+      if (e.target.closest('.hit')) setTimeout(closeModal, 60);
+    });
+  }
+
   const close = () => { box.style.display = 'none'; box.innerHTML = ''; };
 
   // A place result is deliberately a DIFFERENT shape from a sighting: no

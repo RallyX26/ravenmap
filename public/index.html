@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
-<link rel="stylesheet" href="/static/style.css?v=27">
+<link rel="stylesheet" href="/static/style.css?v=90">
 </head>
 <body>
 
@@ -28,12 +28,31 @@
 
   <div class="stats" id="stats"></div>
 
-  <form class="plateform" id="plateform" autocomplete="off">
-    <input id="plateq" type="search" placeholder="search a plate, town or road"
-           maxlength="12" autocapitalize="characters" spellcheck="false"
-           aria-label="Search a plate, town or road">
-    <button type="submit" aria-label="Search">Find</button>
-  </form>
+  <!-- 🚨 THE SEARCH BOX IS A POPUP NOW, AND THE HEADER GOT ITS ROOM BACK.
+       A full-width text input lived permanently in the header, and on a phone
+       it took an entire row of a header that is already carrying the wordmark,
+       the live count and the tools. Searching a plate is something people do
+       occasionally; looking at the map is what they came for. A button costs
+       one word of space and the box appears when it is actually wanted.
+       The FORM ITSELF IS UNCHANGED and simply lives inside the dialog - every
+       existing handler, the results list and the submit path all still bind to
+       the same #plateform and #plateq, so this moved the furniture without
+       touching the machinery. -->
+  <button type="button" class="platebtn" id="plateopen">🔍 Search plates</button>
+
+  <div class="pmodal" id="platemodal" hidden>
+    <div class="pmodal-bg" id="plateclose"></div>
+    <div class="pmodal-card" role="dialog" aria-modal="true"
+         aria-label="Search plates">
+      <form class="plateform" id="plateform" autocomplete="off">
+        <input id="plateq" type="search" placeholder="search a plate, town or road"
+               maxlength="12" autocapitalize="characters" spellcheck="false"
+               aria-label="Search a plate, town or road">
+        <button type="submit" aria-label="Search">Search</button>
+      </form>
+      <p class="pmodal-hint">A plate, a town, or a road name.</p>
+    </div>
+  </div>
 
   <nav>
     <a href="/app" class="addcam">Add a camera</a>
@@ -142,7 +161,7 @@
 <script src="/static/transparency.js?v=19"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
 <script src="/static/sitenav.js?v=21"></script>
-<script src="/static/app.js?v=48"></script>
+<script src="/static/app.js?v=90"></script>
 <script src="/static/refresh.js?v=18"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->
