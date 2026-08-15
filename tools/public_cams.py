@@ -154,9 +154,12 @@ def crop_b64(img: Image.Image, box) -> str:
     vehicle being reported.
     """
     x0, y0, x1, y1 = box
-    pw, ph = (x1 - x0) * 0.06, (y1 - y0) * 0.06
-    sx, sy = max(0, int(x0 - pw)), max(0, int(y0 - ph))
-    ex, ey = min(img.width, int(x1 + pw)), min(img.height, int(y1 + ph))
+    # Asymmetric, matching every other node kind: the roof is where the light
+    # bar is, and the detector's box stops at the car.
+    bw, bh = (x1 - x0), (y1 - y0)
+    pad_x, pad_top, pad_bot = bw * 0.10, bh * 0.28, bh * 0.08
+    sx, sy = max(0, int(x0 - pad_x)), max(0, int(y0 - pad_top))
+    ex, ey = min(img.width, int(x1 + pad_x)), min(img.height, int(y1 + pad_bot))
     if ex - sx < 8 or ey - sy < 8:
         return ""
     sub = img.crop((sx, sy, ex, ey))

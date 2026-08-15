@@ -872,10 +872,29 @@
   var fullCv=document.createElement('canvas');
   function cropOf(video,box,maxEdge,quality,cv){
     var x0=box[0],y0=box[1],x1=box[2],y1=box[3];
-    var pw=(x1-x0)*0.06, ph=(y1-y0)*0.06;
-    var sx=Math.max(0,x0-pw), sy=Math.max(0,y0-ph);
-    var sw=Math.min(video.videoWidth-sx,(x1-x0)+2*pw);
-    var sh=Math.min(video.videoHeight-sy,(y1-y0)+2*ph);
+    /* 🚨 MORE ROOM AT THE TOP, BECAUSE THAT IS WHERE THE LIGHT BAR IS.
+     *
+     * Reported from the road: head-on with a patrol car, watched it get
+     * detected, and the classifier still said no - because the crop cut the
+     * light bar off. A roof bar is the single most diagnostic thing on a
+     * marked vehicle, and the detector's box is drawn tight to the CAR, so a
+     * bar, an aerial or a push-bar sits just outside it. At 6% of box height
+     * that margin was about ten pixels. Losing it does not make the crop
+     * slightly worse - it removes the feature the whole decision rests on.
+     *
+     * Asymmetric on purpose: nothing diagnostic hangs off the BOTTOM of a car,
+     * and widening left and right only buys pavement and other people's
+     * vehicles - which is a privacy cost as well as a wasted one.
+     *
+     * ⚠️ NOT FREE. SEND_EDGE caps the long edge at 200px, so every padded pixel
+     * is one not spent on the vehicle, and resolution is the other thing
+     * starving this pipeline. Sized to bring the roof back while keeping the
+     * vehicle past the ~120px the classifier needs. */
+    var bw=(x1-x0), bh=(y1-y0);
+    var padX=bw*0.10, padTop=bh*0.28, padBot=bh*0.08;
+    var sx=Math.max(0,x0-padX), sy=Math.max(0,y0-padTop);
+    var sw=Math.min(video.videoWidth-sx, bw+2*padX);
+    var sh=Math.min(video.videoHeight-sy, bh+padTop+padBot);
     var s=Math.min(1,(maxEdge||SEND_EDGE)/Math.max(sw,sh));
     cv=cv||cropCv;
     cv.width=Math.max(1,Math.round(sw*s));

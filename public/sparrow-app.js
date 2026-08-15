@@ -504,10 +504,14 @@ function drawOverlay(hits, vw, vh) {
    than believing this page. */
 function cropOf(video, box) {
   const [x0, y0, x1, y1] = box;
-  const pw = (x1-x0) * 0.06, ph = (y1-y0) * 0.06;
-  const sx = Math.max(0, x0-pw), sy = Math.max(0, y0-ph);
-  const sw = Math.min(video.videoWidth - sx, (x1-x0) + 2*pw);
-  const sh = Math.min(video.videoHeight - sy, (y1-y0) + 2*ph);
+  // Asymmetric: a roof light bar sits just outside the detector's box, and a
+  // crop that clips it removes the feature the decision rests on. Nothing
+  // diagnostic hangs off the bottom. See drive.html cropOf for the full note.
+  const bw = x1-x0, bh = y1-y0;
+  const padX = bw * 0.10, padTop = bh * 0.28, padBot = bh * 0.08;
+  const sx = Math.max(0, x0-padX), sy = Math.max(0, y0-padTop);
+  const sw = Math.min(video.videoWidth - sx, bw + 2*padX);
+  const sh = Math.min(video.videoHeight - sy, bh + padTop + padBot);
   const s = Math.min(1, SEND_EDGE / Math.max(sw, sh));
   cropCv.width = Math.max(1, Math.round(sw * s));
   cropCv.height = Math.max(1, Math.round(sh * s));

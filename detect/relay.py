@@ -217,9 +217,15 @@ def crop_of(frame, box):
     """The vehicle, shrunk below plate legibility BEFORE it leaves this machine."""
     fh, fw = frame.shape[:2]
     x0, y0, x1, y1 = box
-    pw, ph = (x1 - x0) * 0.06, (y1 - y0) * 0.06
-    sx, sy = max(0, int(x0 - pw)), max(0, int(y0 - ph))
-    ex, ey = min(fw, int(x1 + pw)), min(fh, int(y1 + ph))
+    # Asymmetric padding: a roof light bar sits just outside the detector's
+    # box, and a crop that clips it removes the feature the classifier decides
+    # on. Nothing diagnostic hangs off the bottom of a car, and widening the
+    # sides only buys pavement and other people's vehicles. Same numbers as the
+    # browser clients - one crop shape across every node kind.
+    bw, bh = (x1 - x0), (y1 - y0)
+    pad_x, pad_top, pad_bot = bw * 0.10, bh * 0.28, bh * 0.08
+    sx, sy = max(0, int(x0 - pad_x)), max(0, int(y0 - pad_top))
+    ex, ey = min(fw, int(x1 + pad_x)), min(fh, int(y1 + pad_bot))
     if ex - sx < 8 or ey - sy < 8:
         return None
     sub = frame[sy:ey, sx:ex]

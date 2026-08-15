@@ -25,7 +25,20 @@ from core import CONFIG, SNAPS
 
 # Crop is expanded by this fraction beyond the detected vehicle box, so the
 # vehicle is not clipped. Small on purpose.
-CROP_PAD = 0.12
+# 🚨 ASYMMETRIC, AND THE TOP ONE IS THE ONE THAT MATTERS.
+# This is the SERVER-side crop, applied to the whole frame a camera node sends
+# (store_submitted) and to the full-resolution evidence copy. A roof light bar
+# sits just outside the detector's box, so a symmetric 12% clipped the single
+# most diagnostic feature on a marked vehicle - reported from the road, where a
+# patrol car was detected head-on and still classified as ordinary because the
+# bar was not in the picture.
+# Nothing diagnostic hangs off the bottom of a car, and widening the sides only
+# brings in pavement and other people's vehicles - a privacy cost as well as a
+# wasted one. CROP_PAD stays as the side value so existing callers read the
+# same; the vertical pair is explicit.
+CROP_PAD = 0.10
+CROP_PAD_TOP = 0.28
+CROP_PAD_BOTTOM = 0.08
 MAX_EDGE = 900          # stored snapshots are downscaled to this longest edge
 JPEG_QUALITY = 82
 
@@ -224,9 +237,11 @@ def store_crop(frame: Image.Image, bbox: Optional[tuple], meta: dict,
 
     if bbox:
         x0, y0, x1, y1 = bbox
-        pw, ph = (x1 - x0) * CROP_PAD, (y1 - y0) * CROP_PAD
-        box = (max(0, int(x0 - pw)), max(0, int(y0 - ph)),
-               min(img.width, int(x1 + pw)), min(img.height, int(y1 + ph)))
+        pw = (x1 - x0) * CROP_PAD
+        box = (max(0, int(x0 - pw)),
+               max(0, int(y0 - (y1 - y0) * CROP_PAD_TOP)),
+               min(img.width, int(x1 + pw)),
+               min(img.height, int(y1 + (y1 - y0) * CROP_PAD_BOTTOM)))
         img = img.crop(box)
 
         # 🚨 REMOVE THE SURROUNDINGS. See isolate.py for why this matters more
@@ -536,9 +551,11 @@ def crop_full(data_url: str, vehicle_box: tuple) -> bytes:
     import io
     img = decode_upload(data_url)
     x0, y0, x1, y1 = vehicle_box
-    pw, ph = (x1 - x0) * CROP_PAD, (y1 - y0) * CROP_PAD
-    box = (max(0, int(x0 - pw)), max(0, int(y0 - ph)),
-           min(img.width, int(x1 + pw)), min(img.height, int(y1 + ph)))
+    pw = (x1 - x0) * CROP_PAD
+    box = (max(0, int(x0 - pw)),
+           max(0, int(y0 - (y1 - y0) * CROP_PAD_TOP)),
+           min(img.width, int(x1 + pw)),
+           min(img.height, int(y1 + (y1 - y0) * CROP_PAD_BOTTOM)))
     img = img.crop(box)
     # Same ceiling every stored snapshot gets. Not a degradation of this one in
     # particular: a published public-tier photograph is already capped here, so
@@ -596,9 +613,13 @@ def crop_to_subres(data_url: str, vehicle_box: tuple) -> bytes:
     import io
     img = decode_upload(data_url)
     x0, y0, x1, y1 = vehicle_box
-    pw, ph = (x1 - x0) * CROP_PAD, (y1 - y0) * CROP_PAD
-    img = img.crop((max(0, int(x0 - pw)), max(0, int(y0 - ph)),
-                    min(img.width, int(x1 + pw)), min(img.height, int(y1 + ph))))
+    # Same asymmetric crop as everywhere else: the reviewer needs to see the
+    # roof for the same reason the classifier does.
+    pw = (x1 - x0) * CROP_PAD
+    img = img.crop((max(0, int(x0 - pw)),
+                    max(0, int(y0 - (y1 - y0) * CROP_PAD_TOP)),
+                    min(img.width, int(x1 + pw)),
+                    min(img.height, int(y1 + (y1 - y0) * CROP_PAD_BOTTOM))))
     if max(img.size) > SUBRES_MAX_EDGE:
         s = SUBRES_MAX_EDGE / max(img.size)
         img = img.resize((max(1, int(img.width * s)),
