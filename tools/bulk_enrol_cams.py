@@ -61,9 +61,25 @@ def main() -> int:
         if nm.startswith(PREFIX):
             have.add(nm)
 
+    # 🚨 THE NAME ALONE IS NOT UNIQUE, AND THAT WOULD HAVE LOST THOUSANDS.
+    #
+    # Fintraffic reuses preset names across stations - "Tienpinta" (road
+    # surface) appears at almost every site, at different coordinates. Keyed on
+    # the name, the first one would register and every later camera with the
+    # same name would be silently skipped as "already registered". Silent, and
+    # therefore invisible: the run would report success having dropped most of
+    # the network.
+    #
+    # The source's own reference is the only thing guaranteed unique, so it
+    # goes in the name and the name stays the durable link. Truncation puts the
+    # ref FIRST-CLASS at the end where it cannot be cut off, and the human part
+    # is what gets shortened.
     todo = []
     for c in cams:
-        name = (PREFIX + c["name"])[:80]
+        ref = str(c.get("ref") or "")
+        tail = f" [{c['src']}:{ref}]"
+        human = c["name"][:max(8, 80 - len(PREFIX) - len(tail))]
+        name = PREFIX + human + tail
         if name in have:
             continue
         todo.append((name, c))
