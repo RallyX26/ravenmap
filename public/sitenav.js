@@ -269,6 +269,28 @@
         top = Math.max(top, Math.round(rb.bottom) + 10);
       }
     }
+    /* 🚨 AND OUT OF THE SIDE PANEL, WHICH OWNS THE RIGHT EDGE ON A DESKTOP.
+     *
+     * Clearing the header and the refresh button still left the Sign in pill
+     * sitting on the map's "watched roads" checkbox - a real control, covered.
+     * The map's #panel occupies the right-hand side on a wide screen, so
+     * "top-right, below the furniture" is not empty space there at all.
+     *
+     * Measured, and only when the panel is genuinely a right-hand column: on a
+     * phone the same element is a bottom sheet spanning the full width, and
+     * treating that as something to dodge would push these buttons off the
+     * screen entirely.
+     */
+    var right = 12;
+    var panel = document.querySelector(".panel, #panel");
+    if (panel) {
+      var pb = panel.getBoundingClientRect();
+      if (pb.width > 0 && pb.left > window.innerWidth / 2
+          && pb.right > window.innerWidth - 40) {
+        right = Math.round(window.innerWidth - pb.left) + 12;
+      }
+    }
+    col.style.right = right + "px";
     col.style.top = "calc(" + top + "px + env(safe-area-inset-top))";
   }
 
