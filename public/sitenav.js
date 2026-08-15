@@ -450,6 +450,21 @@
         bar.className = "swbar";
         head.appendChild(bar);
       }
+      /* 🚨 A ROW ONLY WRAPS IF THE CONTAINER LETS IT.
+       *
+       * .swbar asks for flex:1 0 100%, which is meant to push it onto a line of
+       * its own under the search box. The map header is a flex row with the
+       * default flex-wrap:nowrap, so instead of wrapping it simply STRETCHED
+       * the header: measured 1892px of bar inside a 1568px viewport, putting
+       * Sign in at x=2538 - off the right-hand edge, invisible, on the busiest
+       * page on the site.
+       *
+       * Nothing overlapped, which is why this survived an overlap check and had
+       * to be caught by reading the coordinates. "Not colliding" and "on the
+       * screen" are different claims. */
+      if (getComputedStyle(head).display.indexOf("flex") >= 0) {
+        head.style.flexWrap = "wrap";
+      }
     }
 
     /* Order top to bottom: the control someone is HUNTING for goes first.
