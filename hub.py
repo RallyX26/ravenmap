@@ -167,6 +167,13 @@ CACHE_BUCKET_S = 4
 
 MAX_REQUESTS = 200
 
+# The most cameras one /api/heartbeat/bulk request may beat. Sized against
+# MAX_BODY rather than taste: an entry is a node id and a token, ~80 bytes of
+# JSON, so a thousand is ~80 KB and comfortably inside the body cap. The
+# 4,400-camera fleet therefore arrives as five requests instead of 4,400, and
+# a caller cannot make one request cost unbounded work.
+BULK_BEAT_MAX = 1000
+
 
 # ---------------------------------------------------------------------------
 # Live feed
@@ -2790,6 +2797,63 @@ class Handler(BaseHTTPRequestHandler):
                                                "its sightings are refused"})
                 db.heartbeat(nd["id"])
                 return self._json({"ok": True, "posting": True, "ts": now()})
+
+            if p == "/api/heartbeat/bulk":
+                # 🚨 ONE PROCESS, THOUSANDS OF CAMERAS, ONE REQUEST.
+                #
+                # The public-camera poller holds ~4,400 credentials. Beating
+                # them individually is 4,400 requests and 4,400 commits every
+                # five minutes at a box that is two cores and has already been
+                # taken down once by concurrency it was not sized for. This is
+                # the same operation, batched, and it is the ONLY reason it
+                # exists - it grants no authority the single endpoint does not.
+                #
+                # ⚠️ EVERY ENTRY IS AUTHENTICATED SEPARATELY. There is no
+                # "trusted caller" here: a batch of a thousand is a thousand
+                # token checks, and one bad token fails that entry alone.
+                #
+                # ⚠️ AND THE TOKEN IS IN THE BODY, WHICH IS A DEPARTURE.
+                # _token_ok deliberately reads the Authorization HEADER only,
+                # because a body-supplied token was once a way round it. That
+                # rule is intact: this route does not call _token_ok, it
+                # compares each entry's token against that node's own record
+                # with compare_digest, and a batch can only ever beat cameras
+                # whose tokens the caller already holds. One header cannot
+                # carry a thousand different credentials, so a body field is
+                # the only shape available - and it authorises nothing beyond
+                # "this camera is awake".
+                import hmac as _hmac
+                b = self._body()
+                items = b.get("nodes")
+                if not isinstance(items, list):
+                    return self._err(400, "nodes must be a list")
+                if len(items) > BULK_BEAT_MAX:
+                    return self._err(413, f"at most {BULK_BEAT_MAX} per request")
+                ok, bad, inactive = [], 0, 0
+                for it in items:
+                    if not isinstance(it, dict):
+                        bad += 1
+                        continue
+                    nd = db.node(str(it.get("node_id") or ""))
+                    if not nd:
+                        bad += 1
+                        continue
+                    tok = str(nd.get("token") or "")
+                    if tok and not _hmac.compare_digest(str(it.get("token") or ""),
+                                                        tok):
+                        bad += 1
+                        continue
+                    # Same rule as the single endpoint: a paused or revoked
+                    # camera must not beat, or it counts as online while every
+                    # sighting it sends is refused.
+                    if nd["status"] != "active":
+                        inactive += 1
+                        continue
+                    ok.append(nd["id"])
+                db.heartbeat_many(ok)
+                return self._json({"ok": True, "beat": len(ok),
+                                   "rejected": bad, "inactive": inactive,
+                                   "ts": now()})
 
             if p == "/api/review/edit":
                 # Operator fixes a cosmetic description (e.g. the detector called

@@ -67,6 +67,7 @@ CONF = 0.45              # matches the live node
 SEND_EDGE = 200          # the plate-illegible cap, same as detect/relay
 MIN_VEHICLE_PX = 120     # the bar: below this the head is guessing
 POLL_S = 20.0            # per camera; DOT snapshots refresh slower than this
+BEAT_BATCH = 1000        # must not exceed hub.BULK_BEAT_MAX
 MIN_HD_WIDTH = 1280
 
 
@@ -677,6 +678,43 @@ def cmd_run(args) -> int:
     sent = skipped = 0
     seen_last = {}
 
+    def beat(reached: list) -> None:
+        """Tell the hub these cameras are awake.
+
+        🚨 WITHOUT THIS THE WHOLE FLEET READS AS OFFLINE, and the map says so on
+        its front page. A camera is "online" when it has BEATEN recently, never
+        when it last saw a car - deliberately, because a camera pointed at an
+        empty street at 4am is working perfectly and has nothing to report.
+        Almost every camera here is that camera on almost every sweep: the bar
+        is a 120px vehicle, so a sweep that posts a dozen sightings has ~4,400
+        cameras working correctly and silently.
+
+        ⚠️ ONLY CAMERAS WE ACTUALLY REACHED. Beating for one that just timed out
+        would be inventing liveness for a camera nobody can see - the exact
+        thing the separate heartbeat exists to prevent. A 304 counts: the
+        server answered, the picture simply had not changed.
+        """
+        for i in range(0, len(reached), BEAT_BATCH):
+            chunk = reached[i:i + BEAT_BATCH]
+            body = {"nodes": [{"node_id": c["node_id"], "token": c["token"]}
+                              for c in chunk]}
+            req = urllib.request.Request(
+                args.hub.rstrip("/") + "/api/heartbeat/bulk", method="POST",
+                data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json",
+                         "User-Agent": UA_NODE})
+            try:
+                with urllib.request.urlopen(req, timeout=40) as r:
+                    out = json.loads(r.read() or b"{}")
+                if out.get("rejected") or out.get("inactive"):
+                    print(f"  -- beat: {out.get('beat')} ok, "
+                          f"{out.get('rejected')} rejected, "
+                          f"{out.get('inactive')} not active")
+            except Exception as exc:
+                # A missed heartbeat costs an "offline" badge, not a sighting.
+                print(f"  -- beat failed for {len(chunk)}: "
+                      f"{type(exc).__name__}: {str(exc)[:60]}")
+
     def grab(c):
         """Fetch one camera. Returns (cam, image or None, error).
 
@@ -695,13 +733,16 @@ def cmd_run(args) -> int:
         while True:
             cycle_started = time.time()
             unchanged = 0
+            reached = []
             for c, img, err in pool.map(grab, cams):
                 if err == "304":
                     unchanged += 1          # nothing new; costs ~200 bytes
+                    reached.append(c)       # it answered: it is awake
                     continue
                 if err:
                     print(f"  {c['name'][:34]:<36} unreachable ({err})")
                     continue
+                reached.append(c)
                 boxes = detect(sess, size, img)
                 # 🚨 ONLY VEHICLES BIG ENOUGH TO BE JUDGED. A snapshot of a
                 # motorway holds dozens of 30px blobs; posting them would bury
@@ -750,10 +791,12 @@ def cmd_run(args) -> int:
                     print(f"  ERR   {c['name'][:34]:<36} {type(exc).__name__}: {str(exc)[:50]}")
                 if args.once:
                     continue
+            beat(reached)
             took = time.time() - cycle_started
             if unchanged:
                 print(f"  -- {unchanged}/{len(cams)} unchanged (304, no download)")
-            print(f"  -- cycle done in {took:.1f}s: {sent} sent, {skipped} too "
+            print(f"  -- cycle done in {took:.1f}s: {len(reached)}/{len(cams)} "
+                  f"reached and beating, {sent} sent, {skipped} too "
                   f"small --" + ("  ⚠ SLOWER THAN THE POLL INTERVAL"
                                  if took > interval else ""), flush=True)
             if args.once:

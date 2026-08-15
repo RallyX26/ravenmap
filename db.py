@@ -517,6 +517,29 @@ def heartbeat(node_id: str, ts: Optional[float] = None) -> None:
     conn.commit()
 
 
+def heartbeat_many(node_ids: list, ts: Optional[float] = None) -> int:
+    """Many nodes reporting at once, in ONE transaction.
+
+    🚨 EXISTS BECAUSE ONE PROCESS NOW SPEAKS FOR THOUSANDS OF CAMERAS. The
+    public-traffic-camera poller watches ~4,400 of them; beaten one at a time
+    that is 4,400 requests and 4,400 commits every cycle against a two-core box
+    whose descriptor ceiling has taken the site down once already.
+
+    ⚠️ Callers MUST authenticate every id first. This function trusts its list
+    completely - it is the storage half only, and the checking half is in the
+    route.
+    """
+    if not node_ids:
+        return 0
+    t = ts or now()
+    conn = connect()
+    conn.executemany("UPDATE nodes SET last_beat = ?, "
+                     "beats = COALESCE(beats, 0) + 1 WHERE id = ?",
+                     [(t, nid) for nid in node_ids])
+    conn.commit()
+    return len(node_ids)
+
+
 def audit(action: str, target: str = "", actor: str = "anon", ip: str = "") -> None:
     conn = connect()
     conn.execute("INSERT INTO audit (ts, action, target, actor, ip) VALUES (?,?,?,?,?)",
