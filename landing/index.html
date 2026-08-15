@@ -225,16 +225,37 @@ footer a{color:var(--steel)}
     </ul>
     <div class="actions" id="actions"></div>
 
-    <h3 style="margin-top:2rem">Want an always-on camera?</h3>
+    <!-- 🚨 THE THIRD KIND OF VOLUNTEER, WHO HAD NO ROUTE IN. This page offered
+         a browser camera and a full desktop node, both of which assume you are
+         buying into running a camera. A business that ALREADY has one pointed
+         at the street is the easiest yes in the project and there was nothing
+         here for them. -->
+    <h3 style="margin-top:2rem">Already have cameras outside? (shops, workshops)</h3>
     <p>
-      A spare PC with a webcam can run the full detector locally — it tells a
-      patrol car from an ordinary one on the machine, and reads plates. One
-      command sets it up and starts contributing to the map:
+      If a camera already watches the street outside your business, it can feed
+      the map without you buying anything or changing how it works. The video
+      never leaves your network &mdash; only a crop of a vehicle, shrunk below
+      the size a number plate can be read at.
     </p>
     <ul class="specs">
-      <li><strong>Windows:</strong> run <code>irm https://sparrowmap.com/install-node-windows.ps1 | iex</code> in PowerShell, or download <a href="https://github.com/SparrowMap/sparrowmap/releases">SparrowMapCameraSetup.exe</a></li>
+      <li><strong>Start here:</strong> <a href="https://map.sparrowmap.com/business">Set up your camera</a> &mdash; type your address, drop the pin, point the cone at the road. It gives you the camera id the app asks for.</li>
+      <li><strong>Then run it:</strong> <a href="https://map.sparrowmap.com/download">SparrowMap4Biz for Windows</a> (76 MB), or <a href="https://map.sparrowmap.com/relay.py">relay.py</a> on any machine with <code>pip install opencv-python onnxruntime numpy</code></li>
+      <li>Works with RTSP / ONVIF cameras &mdash; Hikvision, Dahua, Reolink, Axis, UniFi and most others</li>
+      <li>No graphics card needed: the vehicle spotting is light, and deciding &ldquo;patrol car or not&rdquo; happens on our hardware, not yours</li>
+    </ul>
+
+    <h3 style="margin-top:2rem">Want an always-on camera?</h3>
+    <p>
+      The other route, and the heavier one: a spare PC with a <strong>webcam</strong>
+      running the full detector locally. It tells a patrol car from an ordinary
+      one on the machine and reads plates, so nothing waits on us. One command
+      sets it up and starts contributing to the map:
+    </p>
+    <ul class="specs">
+      <li><strong>Windows:</strong> run <code>irm https://sparrowmap.com/install-node-windows.ps1 | iex</code> in PowerShell, or download <a href="https://github.com/SparrowMap/sparrowmap/releases/latest/download/SparrowMapCameraSetup.exe">SparrowMapCameraSetup.exe</a></li>
       <li><strong>Linux</strong> (help us test): <code>curl -fsSL https://sparrowmap.com/install-node-linux.sh | bash</code></li>
       <li>Everything still runs on your machine — only detections leave it, never video</li>
+      <li><strong>It is a big install:</strong> about 2.5 GB of models, and it wants a PC left on, ideally with an NVIDIA card. If you already have an IP camera, the business option above is far lighter.</li>
       <li>Full guide: <a href="https://github.com/SparrowMap/sparrowmap/blob/main/docs/DESKTOP_NODE.md">Running a desktop camera</a></li>
     </ul>
   </section>

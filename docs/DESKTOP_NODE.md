@@ -4,16 +4,18 @@ This is the guide for running SparrowMap's **full recognition pipeline** on a
 computer with a camera. It is a different thing from the one-tap browser camera,
 and which one you want depends on what you need.
 
-## Two ways to run a camera, and why they differ
+## Three ways to run a camera, and why they differ
 
-| | **Browser camera** | **Desktop node** (this guide) |
-|---|---|---|
-| Install | none — a web page | clone the repo, a Python env |
-| Detector | YOLO11-small, in the browser | RF-DETR + CLIP + a trained head |
-| Tells truck from car | roughly | reliably |
-| Flags government vehicles | no (needs a human, or routing to a desktop head) | **yes, on the machine** |
-| Reads plates | no | yes (retroreflective plates, daylight or with IR) |
-| Runs on | any phone or laptop | a PC left on, ideally with an NVIDIA GPU |
+| | **Browser camera** | **SparrowMap4Biz** | **Desktop node** (this guide) |
+|---|---|---|---|
+| Your camera is | the phone or laptop itself | an **IP / RTSP camera** you already own | a webcam on that PC |
+| Install | none — a web page | one 76 MB app, or one Python file | ~2.5 GB of models and Python |
+| Detector | YOLO11-small, in the browser | the **same** YOLO11-small, on the CPU | RF-DETR + CLIP + a trained head |
+| Tells truck from car | roughly | roughly | reliably |
+| Flags government vehicles | no — a human decides later | no — scored on SparrowMap's hardware | **yes, on the machine** |
+| Reads plates | no | no | yes (retroreflective plates, daylight or with IR) |
+| Runs on | any phone or laptop | any PC, no graphics card | a PC left on, ideally with an NVIDIA GPU |
+| Get it | *Add a camera* on the map | [/business](https://map.sparrowmap.com/business) | this guide |
 
 The browser camera is deliberately tiny so it runs on any phone with nothing to
 install. It finds vehicles and sends a crop, but it cannot run CLIP or the
@@ -21,9 +23,17 @@ trained head, so it cannot decide "that was a patrol car" by itself. The desktop
 node runs the real models locally and makes that call before it sends anything.
 
 **If you just want to contribute a camera, use the browser** — open the site,
-press *Add a camera*. Use a desktop node when you want accurate classification,
-plate reading, or you are running the camera that does the government-vehicle
-calls for a whole instance.
+press *Add a camera*. **If a camera already points at the street outside your
+business, use SparrowMap4Biz** — it is the same light detector as the browser
+one, pointed at an RTSP stream instead of a webcam, so it costs your machine
+almost nothing and needs no models. Use a **desktop node** when you want
+accurate classification, plate reading, or you are running the camera that does
+the government-vehicle calls for a whole instance.
+
+⚠️ **Two installers, and they are not versions of each other.**
+`SparrowMapCameraSetup.exe` is *this* guide's node: a webcam, the full models,
+about 2.5 GB. `SparrowMap4Biz.exe` is the light relay for an IP camera. Neither
+replaces the other — see [Which download?](https://github.com/SparrowMap/sparrowmap/releases/tag/v0.1.0)
 
 Everything still holds to the same rule: **recognition happens on your machine,
 and only a small detection event leaves it. Video never does.**
