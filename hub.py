@@ -316,6 +316,45 @@ def _resolve_hash(h: str) -> str:
     return _ALIAS.get(h, h)
 
 
+
+# The packaged desktop app. Hosted on GitHub releases rather than here - see the
+# /download route for why - and CHECKED rather than assumed: the button on
+# /business appears only when the asset really exists, so the page never offers
+# a download that 404s. Cached, because this is a third-party round trip on a
+# path a crowd may hit.
+DOWNLOAD_URL = CONFIG.get(
+    "download_url",
+    "https://github.com/SparrowMap/sparrowmap/releases/latest/download/SparrowMap.exe")
+_DL_CACHE = {"at": 0.0, "ok": False}
+_DL_TTL_S = 600.0
+
+
+def _download_url():
+    """The URL if a build is actually published, else None."""
+    if not DOWNLOAD_URL:
+        return None
+    if now() - _DL_CACHE["at"] < _DL_TTL_S:
+        return DOWNLOAD_URL if _DL_CACHE["ok"] else None
+    ok = False
+    try:
+        # Imported here, not at module scope: this is the only outbound HTTP
+        # call the hub makes on a page path, and keeping it local makes that
+        # obvious to anyone auditing what this server talks to.
+        import urllib.request
+        req = urllib.request.Request(
+            DOWNLOAD_URL, method="HEAD",
+            # 🚨 A User-Agent is REQUIRED. GitHub refuses requests without one,
+            # and this project has already lost a whole ingest path to exactly
+            # that mistake behind Cloudflare.
+            headers={"User-Agent": "SparrowMap"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            ok = r.status == 200
+    except Exception:
+        ok = False
+    _DL_CACHE.update(at=now(), ok=ok)
+    return DOWNLOAD_URL if ok else None
+
+
 def _public_rows(rows: list[dict]) -> list[dict]:
     _alias_map(rows)
     return [privacy.redact(r, "anon") for r in rows]
@@ -1094,7 +1133,32 @@ class Handler(BaseHTTPRequestHandler):
             # paths - preflight caught exactly that), so this 404s cleanly until
             # somebody uploads one, and /business hides its button accordingly.
             if p == "/download":
-                return self._file(PUBLIC / "downloads" / "SparrowMap.exe")
+                # 🚨 REDIRECTED TO A GITHUB RELEASE, NOT SERVED FROM HERE.
+                # The app is 76 MB. This box is 2 vCPUs on a 13 Mbps uplink and
+                # also serves the map, so handing that file to a crowd would
+                # take the site down at exactly the moment attention arrives -
+                # which is the moment the download matters. GitHub carries it
+                # for free and is built for it.
+                #
+                # `/releases/latest/download/` is a stable URL that always
+                # points at the newest release's asset of that name, so cutting
+                # a new version needs no change here.
+                url = _download_url()
+                if not url:
+                    return self._err(404, "no desktop build is published yet")
+                self._status = 302
+                self.send_response(302)
+                self.send_header("Location", url)
+                self.send_header("Cache-Control", "public, max-age=300")
+                self.end_headers()
+                return
+
+            if p == "/api/download":
+                # Same-origin, so the page can ask without CORS - a HEAD from
+                # the browser straight to GitHub is opaque and would leave the
+                # button hidden even when the file is there.
+                url = _download_url()
+                return self._json({"available": bool(url), "url": url})
             # What a node costs in compute, and how to measure your own board
             # rather than take this page's word for it.
             if p == "/hardware":         return self._file(PUBLIC / "hardware.html")

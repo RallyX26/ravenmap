@@ -268,9 +268,14 @@
   }
   $("#rtsp").addEventListener("input", paint);
 
-  // Only offer the app if it is really being served right now.
-  fetch("/download", { method: "HEAD" }).then(function(r){
-    if (r.ok) $("#approw").classList.remove("hidden");
+  // Only offer the app if a build is really published. Asked of OUR server,
+  // not of GitHub directly: a cross-origin HEAD from the browser is opaque, so
+  // it would leave the button hidden even when the file is there.
+  fetch("/api/download").then(function(r){ return r.json(); }).then(function(d){
+    if (d && d.available){
+      if (d.url) $("#dl-app").href = d.url;
+      $("#approw").classList.remove("hidden");
+    }
   }).catch(function(){});
 
   document.addEventListener("click", function(e){
