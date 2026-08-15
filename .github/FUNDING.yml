@@ -1,15 +1,24 @@
 # Shows a "Sponsor" button on the GitHub repo.
 #
-# Open Collective, hosted by the Open Source Collective (a non-profit fiscal
-# host). Every dollar in and every dollar out is public - the same principle
-# this project holds itself to. Funds are held by the non-profit host, not by any
-# person or company, and only documented expenses (hosting, reviewer time) are
-# paid, in the open. That is the "nobody profits" model, enforced by structure.
-#   -> create the collective at https://opencollective.com (slug: sparrowmap),
-#      apply to the "Open Source Collective" host, and this button lights up.
+# ⚠️ THE TWO ENTRIES BELOW ARE NOT THE SAME KIND OF THING, and the difference is
+# the project's own argument about itself. Say which is which, in public,
+# wherever these are offered.
+#
+#   Buy Me a Coffee pays a PERSON. It is live today, it is what actually keeps
+#   the two servers running, and it is honest as long as it is described that
+#   way rather than as a donation to a foundation.
+#
+#   Open Collective holds the money at a non-profit fiscal host, where every
+#   dollar in and out is public and only documented expenses are paid. That is
+#   the model this project wants, and it is not set up yet.
+#     -> create the collective at https://opencollective.com (slug: sparrowmap),
+#        apply to the "Open Source Collective" host, and this lights up.
+#
+# When the collective exists, this file should lead with it and Buy Me a Coffee
+# should follow, not the other way round.
+buy_me_a_coffee: sparrowmap
 open_collective: sparrowmap
 
-# Deliberately NOT pointing GitHub Sponsors at a personal account: routing
-# donations to an individual would break the non-profit model. If GitHub Sponsors
-# is added later, enrol the SparrowMap ORG and route its payouts to the Open
-# Collective above, so there is still one transparent destination.
+# Deliberately NOT pointing GitHub Sponsors at a personal account. If GitHub
+# Sponsors is added later, enrol the SparrowMap ORG and route its payouts to the
+# Open Collective above, so there is one transparent destination.
