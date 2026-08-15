@@ -261,14 +261,23 @@
      * If the button is up here, sit under it; if it has gone to the bottom,
      * take the space it left.
      */
+    /* 🚨 SWAPPED, HIS CALL: SIGN IN TAKES THE TOP SLOT, REFRESH GOES BELOW IT.
+     *
+     * Sign in is the control a volunteer is hunting for - it is the way back to
+     * a camera they think they have lost - and refresh is the one you reach for
+     * only when something already looks wrong. The more-wanted control gets the
+     * corner your thumb finds first.
+     *
+     * ⚠️ ONE FUNCTION OWNS THIS STACK NOW. refresh.js still styles its own
+     * button; it just no longer decides WHERE it sits when this column is on
+     * the page. Two components positioning themselves against the same corner
+     * from different files is exactly how they ended up on top of each other
+     * twice today - the fix is a single owner, not a third guess at the
+     * offsets. If this column is not present (a page without sitenav.js),
+     * refresh.js keeps its own placement and nothing here runs.
+     */
     var ref = document.querySelector(".swrefresh");
-    if (ref) {
-      var rb = ref.getBoundingClientRect();
-      // Only defer to it while it is actually in the top half of the screen.
-      if (rb.height > 0 && rb.top < window.innerHeight / 2) {
-        top = Math.max(top, Math.round(rb.bottom) + 10);
-      }
-    }
+    var refTop = top;                       // the slot the column is vacating
     /* 🚨 AND OUT OF THE SIDE PANEL, WHICH OWNS THE RIGHT EDGE ON A DESKTOP.
      *
      * Clearing the header and the refresh button still left the Sign in pill
@@ -290,8 +299,29 @@
         right = Math.round(window.innerWidth - pb.left) + 12;
       }
     }
-    col.style.right = right + "px";
+    /* The column takes the plain corner. It is a pill and a small circle, both
+     * narrow, and the slot is above the panel's own controls. */
+    col.style.right = "12px";
     col.style.top = "calc(" + top + "px + env(safe-area-inset-top))";
+
+    /* Refresh drops into the position the column used to hold: under it, and
+     * shifted clear of a right-hand panel so it does not cover a real control.
+     * Only while it is a TOP-corner button - below 860px refresh.js moves it to
+     * the bottom right on purpose, and that placement is better than anything
+     * this function would invent. */
+    if (ref) {
+      var rb = ref.getBoundingClientRect();
+      if (rb.height > 0 && rb.top < window.innerHeight / 2) {
+        var cb = col.getBoundingClientRect();
+        ref.style.top = "calc(" + (Math.round(cb.bottom) + 10)
+                      + "px + env(safe-area-inset-top))";
+        ref.style.right = right + "px";
+      } else {
+        // It has gone to the bottom corner; leave its own rules alone.
+        ref.style.top = "";
+        ref.style.right = "";
+      }
+    }
   }
 
   /* ⚠️ NOT ON /drive. Driving mode already has its own control rail down the
