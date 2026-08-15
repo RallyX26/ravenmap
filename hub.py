@@ -235,7 +235,17 @@ _HIT_LOCK = threading.Lock()
 #
 # Sized as what it actually is: a flood guard against a script, not a guard
 # against a person. A runaway loop still gets stopped; a viral hour does not.
-RATE = {"/api/enroll": (120, 3600), "/api/sightings": (600, 3600),
+# ⚠️ `/api/sightings` IS NOW PER CAMERA (see rate_ok's `who`), so this number
+# changed meaning: it is what ONE camera may post in an hour, not what the
+# whole project may. A busy street node runs a few hundred passes an hour, so
+# 900 is generous for a real camera and still stops a runaway loop.
+# `_all_sightings` is the network-wide ceiling that used to be the only bucket.
+# Sized from measurement rather than habit: the busiest hour on the live box
+# carried 1,267 sightings, so a global cap of 600 was already refusing real
+# work. 20,000/hour is roughly 5.5 a second, which is about what 2 vCPUs will
+# ingest before the tile path starts to suffer.
+RATE = {"/api/enroll": (120, 3600), "/api/sightings": (900, 3600),
+        "_all_sightings": (20000, 3600),
         "/api/drive/report": (40, 3600), "/api/drive/vote": (120, 3600),
         "/api/tile": (600, 300), "/api/report": (20, 3600),
         # Reading back your own placement. Not brute-forceable (the token is
@@ -256,17 +266,43 @@ RATE = {"/api/enroll": (120, 3600), "/api/sightings": (600, 3600),
 _TILE_FETCH = threading.Semaphore(12)
 
 
-def rate_ok(path: str, ip: str) -> bool:
+def rate_ok(path: str, ip: str, who: str = "") -> bool:
+    """Is this caller allowed another request on this route?
+
+    🚨 `who` IS THE FIX FOR A CAP THAT WAS NEVER PER-PERSON.
+    Caddy strips X-Forwarded-For on purpose, so `ip` is 127.0.0.1 for every
+    caller on earth and every bucket keyed on it is really ONE bucket shared by
+    the whole network. That is tolerable for a cheap public route and wrong for
+    the route cameras post through: measured on the live box, the busiest hour
+    carried 1,267 sightings against a 600/hour "per caller" cap, and 40 requests
+    were refused in a day - volunteers losing real passes, on a project with no
+    node outbox to retry them.
+
+    Pass an authenticated identity - a node id - and the bucket becomes that
+    node's own. It is a BETTER key than an address as well as a working one: a
+    camera keeps its identity across a reconnect, a new address, and a phone
+    moving between wifi and cellular mid-drive.
+
+    ⚠️ IT MUST BE AUTHENTICATED FIRST. Keying on an id taken straight from an
+    unauthenticated body would let anyone empty a chosen camera's bucket by
+    naming it - a targeted denial of service against one volunteer, which is
+    worse than the shared cap it replaces.
+    """
     limit = RATE.get(path)
     if not limit:
         return True
     n, window = limit
     bucket = int(now() // window)
-    key = (path, ip, bucket)
+    key = (path, who or ip, bucket)
     with _HIT_LOCK:
-        # Drop old buckets rather than growing for ever.
-        if len(_HITS) > 5000:
-            _HITS.clear()
+        # 🚨 EVICT BY AGE, NEVER `clear()`. Wiping the whole table on overflow
+        # reset every counter in it, so the limiter quietly stopped limiting
+        # exactly when it was busiest - a pressure valve that opened under
+        # pressure. With per-node keys the table is also much larger, which
+        # would have made that far easier to trip.
+        if len(_HITS) > 20000:
+            for k in [k for k in _HITS if k[2] < bucket]:
+                del _HITS[k]
         _HITS[key] = _HITS.get(key, 0) + 1
         return _HITS[key] <= n
 
@@ -2192,9 +2228,30 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(out)
 
             if p == "/api/sightings":
-                if not rate_ok(p, self.client_ip):
-                    return self._err(429, "posting too fast")
-                return self._ingest(self._body())
+                # 🚨 AUTHENTICATE BEFORE SPENDING THE BUDGET, AND SPEND THE
+                # RIGHT NODE'S. This charged a single network-wide bucket
+                # before it knew who was calling, so one busy camera could
+                # refuse every other camera on the project for the rest of the
+                # hour - and _ingest, which does the real authentication, only
+                # ran afterwards. Same shape as the geocode cache-before-budget
+                # note above: the check has to know what it is protecting.
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if nd["status"] != "active":
+                    return self._err(403, f"node is {nd['status']}")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                if not rate_ok(p, self.client_ip, who=nd["id"]):
+                    return self._err(429, "this camera is posting too fast")
+                # A second, much higher ceiling that protects the BOX rather
+                # than any one camera. Without it a fleet of nodes each inside
+                # its own limit can still add up to more than 2 vCPUs can take.
+                if not rate_ok("_all_sightings", self.client_ip):
+                    return self._err(503, "the map is at capacity right now - "
+                                          "your camera will retry")
+                return self._ingest(b)
 
             if p == "/api/node/progress":
                 # How far setup got, so "never started" stops being one bucket.
