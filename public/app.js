@@ -88,6 +88,10 @@ const state = {
   // read as context behind the dots instead of as the content. The toggle in the
   // header does it, and the choice is remembered - see SHOWCAMS_KEY.
   showCams: false,
+  // Town badges default ON - they are how somebody who has just arrived sees
+  // that this is a network rather than one street - but they are the first
+  // thing in the way when you zoom into a road, so the answer is remembered.
+  showPlaces: true,
   sightings: new Map(),   // id -> record  (public tier: the records)
   markers: new Map(),     // id -> leaflet marker
   traffic: new Map(),     // id -> {rec, marker}  (private tier: the live view)
@@ -961,6 +965,10 @@ async function loadPlaces() {
 
 function drawPlaces() {
   state.placeLayer.clearLayers();
+  // 🚨 CLEAR FIRST, THEN BAIL. Returning before clearLayers would leave the
+  // badges on screen after the box is unticked and the toggle would look dead
+  // until the next reload - the same trap the watched-roads toggle documents.
+  if (!state.showPlaces) return;
   if (!state.places || map.getZoom() > PLACE_MAX_ZOOM) return;
 
   const G = '#3ddc97';
@@ -1141,6 +1149,23 @@ try {
   const saved = localStorage.getItem(SHOWCAMS_KEY);
   if (saved !== null) state.showCams = saved === '1';
 } catch (e) { /* private mode: keep the default */ }
+
+const SHOWPLACES_KEY = 'sparrow.showPlaces';
+try {
+  const saved = localStorage.getItem(SHOWPLACES_KEY);
+  if (saved !== null) state.showPlaces = saved === '1';
+} catch (err) { /* the default stands */ }
+const _showplaces = $('#showplaces');
+if (_showplaces) {
+  // Agree with state before anyone sees it, for the reason spelled out below.
+  _showplaces.checked = state.showPlaces;
+  _showplaces.onchange = (e) => {
+    state.showPlaces = e.target.checked;
+    try { localStorage.setItem(SHOWPLACES_KEY, state.showPlaces ? '1' : '0'); }
+    catch (err) { /* not remembering is survivable; not drawing is not */ }
+    drawPlaces();
+  };
+}
 
 const _showcams = $('#showcams');
 // The checkbox must be made to AGREE with state before anyone sees it. The
