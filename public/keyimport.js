@@ -35,11 +35,32 @@ window.sparrowKeyImport = function (opts) {
   function loadJsQR() {
     if (window.jsQR) return Promise.resolve(window.jsQR);
     if (jsqrLoading) return jsqrLoading;
+    /* 🚨 A SCRIPT TAG CAN FAIL TO DO EITHER THING.
+     * onload and onerror between them look total, and they are not: a stalled
+     * connection - a phone halfway between cells, a captive portal that
+     * accepts the socket and never answers - fires neither, so this promise
+     * simply never settles and "Reading the QR code…" stays on screen for
+     * ever. Reported as "its like stuck reading the token". The decoder is
+     * 130 KB; 15 seconds is generous for it and still finite. */
     jsqrLoading = new Promise(function (res, rej) {
+      var done = false;
+      var finish = function (fn, arg) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        fn(arg);
+      };
+      var timer = setTimeout(function () {
+        jsqrLoading = null;              // let a later attempt try again
+        finish(rej, new Error("decoder-timeout"));
+      }, 15000);
       var sc = document.createElement("script");
       sc.src = "/vendor/jsqr.min.js";
-      sc.onload = function () { res(window.jsQR); };
-      sc.onerror = function () { rej(new Error("decoder")); };
+      sc.onload = function () { finish(res, window.jsQR); };
+      sc.onerror = function () {
+        jsqrLoading = null;
+        finish(rej, new Error("decoder"));
+      };
       document.head.appendChild(sc);
     });
     return jsqrLoading;
@@ -101,13 +122,33 @@ window.sparrowKeyImport = function (opts) {
           .catch(function () { return null; })
       : Promise.resolve(null);
 
+    /* And the whole read is bounded too, not only the download. Decoding runs
+     * on the main thread, so a pathological image can wedge the tab; the
+     * person watching has no way to tell that apart from a page that has given
+     * up, and either way they deserve a sentence rather than a spinner. */
+    var settled = false;
+    var giveUp = setTimeout(function () {
+      if (settled) return;
+      settled = true;
+      say("That image is taking too long to read. Try the key file instead, or "
+        + "paste the code above.", false);
+    }, 25000);
+    var finish = function (fn) {
+      return function (arg) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(giveUp);
+        fn(arg);
+      };
+    };
+
     native.then(function (hit) {
-      if (hit) { useDecoded(hit); return; }
-      return decodeWithJsQR(file).then(useDecoded);
-    }).catch(function () {
+      if (hit) { finish(useDecoded)(hit); return; }
+      return decodeWithJsQR(file).then(finish(useDecoded));
+    }).catch(finish(function () {
       say("Could not read that image. Try the file instead, or paste it above.",
           false);
-    });
+    }));
   }
 
   input.addEventListener("change", function () {

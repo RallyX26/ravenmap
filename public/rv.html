@@ -369,7 +369,7 @@
 
 <div id="toasts"></div>
 
-<script src="/static/keyimport.js?v=1"></script>
+<script src="/static/keyimport.js?v=2"></script>
 <script>
 (function(){
   "use strict";
@@ -398,7 +398,35 @@
       opts.body = JSON.stringify(opts.body);
       opts.headers["Content-Type"] = "application/json";
     }
-    return fetch(path, opts);
+    return withTimeout(path, opts);
+  }
+
+  /* 🚨 A REQUEST THAT NEVER ANSWERS MUST NOT LOOK LIKE A PAGE THAT IS THINKING.
+   *
+   * Reported as "its like stuck reading the token". Nothing in the sign-in path
+   * was bounded: fetch has no timeout of its own, so on a phone that has moved
+   * between cells - or against a server that accepts the connection and then
+   * says nothing - the promise simply never settles. No error, no message, no
+   * spinner ending. The page is not stuck; it is waiting for ever, which looks
+   * exactly the same and is worse, because waiting for ever cannot be reported
+   * as anything more useful than "stuck".
+   *
+   * 20s is deliberately generous - a cold hub on a slow connection does take
+   * seconds - but it is finite, and a finite wait always ends in a sentence. */
+  var REQ_TIMEOUT_MS = 20000;
+  function withTimeout(path, opts){
+    opts = opts || {};
+    var ctl = ("AbortController" in window) ? new AbortController() : null;
+    if(ctl) opts.signal = ctl.signal;
+    var timer = setTimeout(function(){ if(ctl) ctl.abort(); }, REQ_TIMEOUT_MS);
+    return fetch(path, opts).then(function(r){
+      clearTimeout(timer); return r;
+    }, function(e){
+      clearTimeout(timer);
+      // An abort and a dead network are the same thing to the person holding
+      // the phone, and neither is their fault. Say so in one sentence.
+      throw new Error("timeout");
+    });
   }
   function toast(msg){
     var t = document.createElement("div");
@@ -461,7 +489,7 @@
   var CAMKEY = /^(n_[A-Za-z0-9_]+)\.([A-Za-z0-9_\-]+)$/;
 
   function cameraKeyToReviewToken(id, nodeTok, onOk, onErr){
-    fetch("/api/rv/my-token", {
+    withTimeout("/api/rv/my-token", {
       method: "POST",
       headers: {"Content-Type":"application/json",
                 "Authorization": "Bearer " + nodeTok},
@@ -479,7 +507,7 @@
        * again. The camera key in hand is entitled to replace it - the old one
        * is revoked server-side, because a token that was lost to somebody else
        * must not stay live. */
-      fetch("/api/rv/my-token", {
+      withTimeout("/api/rv/my-token", {
         method: "POST",
         headers: {"Content-Type":"application/json",
                   "Authorization": "Bearer " + nodeTok},
@@ -492,9 +520,28 @@
     }).catch(function(){ if(onErr) onErr("Network error — try again."); });
   }
 
+  /* The gate's button is the only thing on screen that can show progress, and
+   * pasting a camera key costs THREE round trips (ask, regenerate, verify).
+   * Three seconds of an unchanged button is indistinguishable from a dead one -
+   * which is what "stuck" means. */
+  function working(on){
+    var b = document.getElementById("first-add");
+    if(!b) return;
+    if(on){
+      if(!b.dataset.label) b.dataset.label = b.textContent;
+      b.textContent = "checking…"; b.disabled = true;
+    } else {
+      b.textContent = b.dataset.label || "Add token"; b.disabled = false;
+    }
+  }
+
   function addToken(tok, onOk, onErr){
     tok = (tok||"").trim();
     if(!tok){ if(onErr) onErr("Paste a token first."); return; }
+    working(true);
+    var _ok = onOk, _err = onErr;
+    onOk  = function(d){ working(false); if(_ok) _ok(d); };
+    onErr = function(m){ working(false); if(_err) _err(m); };
 
     // A whole sign-in link, or a key that wrapped across lines, is still a key.
     var frag = /[#&]k=(n_[A-Za-z0-9_]+)\.([A-Za-z0-9_\-]+)/.exec(tok);
@@ -545,7 +592,11 @@
       wallet.push({ token:tok, label:d.label || "camera", scope:d.scope || "own", nodes:d.nodes || [] });
       saveWallet();
       if(onOk) onOk(false);
-    }).catch(function(){ if(onErr) onErr("Network error — try again."); });
+    }).catch(function(e){
+      if(onErr) onErr(e && e.message === "timeout"
+        ? "The server did not answer in 20 seconds. Check your connection and tap again."
+        : "Network error — try again.");
+    });
   }
 
   function dropToken(tok, why){
@@ -1156,7 +1207,7 @@
     err.textContent = "";
     var got = 0, already = 0, done = 0;
     ["own", "pool"].forEach(function(scope){
-      fetch("/api/rv/my-token", {
+      withTimeout("/api/rv/my-token", {
         method: "POST",
         headers: {"Content-Type": "application/json",
                   "Authorization": "Bearer " + n.token},
