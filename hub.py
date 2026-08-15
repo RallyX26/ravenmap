@@ -25,6 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+import bugs
 import classify
 import db
 import mirror
@@ -248,6 +249,10 @@ RATE = {"/api/enroll": (120, 3600), "/api/sightings": (900, 3600),
         "_all_sightings": (20000, 3600),
         "/api/drive/report": (40, 3600), "/api/drive/vote": (120, 3600),
         "/api/tile": (600, 300), "/api/report": (20, 3600),
+        # Network-wide (client_ip is 127.0.0.1 for everyone), so this is
+        # a flood guard on the whole site rather than a per-person cap.
+        # bugs.py enforces its own per-hour ceiling as well.
+        "/api/bug": (120, 3600),
         # Reading back your own placement. Not brute-forceable (the token is
         # 24 random bytes), but a wrong-token loop should still cost something.
         "/api/node/me": (120, 3600),
@@ -1237,6 +1242,28 @@ class Handler(BaseHTTPRequestHandler):
                 return self._file(PUBLIC / "app.html")
             # The way back in for a camera whose browser lost its key. See
             # /api/node/whoami for what was actually happening to these people.
+            if p == "/admin/bugs":
+                if not self._is_local():
+                    return self._err(403, "operator only")
+                return self._file(PUBLIC / "bugs.html")
+            if p == "/api/bug/list":
+                if not self._is_local():
+                    return self._err(403, "operator only")
+                q = parse_qs(urlparse(self.path).query)
+                return self._json({"bugs": bugs.listing(
+                    limit=200, include_closed=(q.get("all", ["0"])[0] == "1"))})
+            if p.startswith("/api/bug/shot/"):
+                # 🚨 OPERATOR ONLY, AND NOT IN SNAPS. A reporter's screenshot
+                # can contain their own camera key or the QR that is their key.
+                # It is served from core.BUGS, which no other route touches, so
+                # a leaked filename reaches nothing.
+                if not self._is_local():
+                    return self._err(403, "operator only")
+                raw = bugs.shot_bytes(p.rsplit("/", 1)[-1])
+                if not raw:
+                    return self._err(404, "no screenshot")
+                return self._send(200, raw, "image/jpeg")
+
             if p in ("/signin", "/login/camera"):
                 return self._file(PUBLIC / "signin.html")
             if p.startswith("/vendor/"):
@@ -2392,6 +2419,51 @@ class Handler(BaseHTTPRequestHandler):
                              actor=f"camera {nd['id']}",
                              ip=privacy.audit_ip(self.client_ip))
                 return self._json(out)
+
+            if p == "/api/bug":
+                # 🚨 UNAUTHENTICATED ON PURPOSE, AND BOUNDED BECAUSE OF IT.
+                # The people most likely to report a bug are the ones who
+                # cannot get in - a volunteer whose key is gone, somebody whose
+                # browser will not install the app. Requiring a login to report
+                # "I cannot log in" is how a report never arrives.
+                #
+                # The cost of that is an open upload on a 3 GB box, so: a rate
+                # bucket, a size cap checked before anything is decoded, a
+                # re-encode that strips EXIF, a ceiling on how many reports can
+                # exist per hour, and a TTL sweep. See bugs.py.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "too many reports right now - "
+                                          "please try again in a few minutes")
+                b = self._body()
+                out = bugs.save(str(b.get("desc") or ""),
+                                str(b.get("shot") or ""),
+                                page=str(b.get("page") or ""),
+                                ua=(self.headers.get("User-Agent") or ""))
+                if out.get("error"):
+                    return self._err(400, out["error"])
+                # Tell the operator it exists. The alert carries an ID and
+                # NOTHING ELSE - the default alert repo is the public one.
+                try:
+                    import subprocess
+                    subprocess.Popen(
+                        [sys.executable, str(DATA.parent / "tools" / "bug_alert.py"),
+                         out["id"]],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass          # a failed alert must never lose the report
+                return self._json({"ok": True, "id": out["id"]})
+
+            if p == "/api/bug/close":
+                if not self._is_local():
+                    return self._err(403, "operator only")
+                b = self._body()
+                return self._json({"ok": bugs.close(str(b.get("id") or ""))})
+
+            if p == "/api/bug/delete":
+                if not self._is_local():
+                    return self._err(403, "operator only")
+                b = self._body()
+                return self._json({"ok": bugs.delete(str(b.get("id") or ""))})
 
             if p == "/api/node/whoami":
                 # 🚨 "MY CAMERA GOT DELETED." NOTHING WAS EVER DELETED.

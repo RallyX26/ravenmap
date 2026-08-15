@@ -81,6 +81,39 @@
     "    top:calc(10px + env(safe-area-inset-top))}}",
     "@media (max-width:520px){.swtoplink{padding:6px 10px;font-size:12px}}",
     "@media print{.swtoplink{display:none !important}}",
+    /* Under the top link, clear of both the header and refresh.js's button. */
+    ".swbug{position:fixed;z-index:9001;right:12px;",
+    "  top:calc(56px + env(safe-area-inset-top));width:38px;height:38px;",
+    "  border-radius:50%;border:1px solid #2a3547;background:#141c28ee;",
+    "  color:#cfe3f5;font-size:17px;line-height:1;cursor:pointer;",
+    "  -webkit-tap-highlight-color:transparent}",
+    ".swbug:hover{border-color:#3d8cff}",
+    "@media print{.swbug{display:none}}",
+    ".swbugwrap{position:fixed;inset:0;z-index:9500;display:flex;",
+    "  align-items:flex-end;justify-content:center;background:rgba(4,7,12,.72);",
+    "  padding:16px}",
+    ".swbugcard{background:#0f151f;border:1px solid #27354a;border-radius:16px;",
+    "  padding:18px;max-width:460px;width:100%;color:#c7d2dc;",
+    "  font:14px/1.6 system-ui,sans-serif;max-height:92vh;overflow-y:auto}",
+    ".swbugcard b{color:#e8eef6;display:block;margin-bottom:8px;font-size:16px}",
+    ".swbugcard p{margin:6px 0 10px}",
+    ".swbugcard textarea{width:100%;background:#080b11;color:#e8eef6;",
+    "  border:1px solid #2a3244;border-radius:9px;padding:10px;font:inherit;",
+    "  resize:vertical;box-sizing:border-box}",
+    ".swbugpick{display:block;text-align:center;padding:11px;border-radius:10px;",
+    "  background:#131c27;border:1px solid #2a3244;margin-top:10px;",
+    "  cursor:pointer;font-weight:600}",
+    ".swbugshot img{max-width:100%;border-radius:9px;margin-top:10px;",
+    "  border:1px solid #2a3244}",
+    ".swbugnote{font-size:12px;color:#8a97a8;line-height:1.5}",
+    ".swbugmsg{font-size:13px;color:#7fd1ff;min-height:18px}",
+    ".swbugsend{width:100%;margin-top:8px;padding:13px;border-radius:10px;",
+    "  border:0;background:#3d8cff;color:#04101f;font:700 15px system-ui;",
+    "  cursor:pointer}",
+    ".swbugsend:disabled{opacity:.6}",
+    ".swbugclose{width:100%;margin-top:8px;padding:11px;border-radius:10px;",
+    "  background:#1b2432;border:1px solid #2b3a4f;color:#c7d2dc;",
+    "  font:600 14px system-ui;cursor:pointer}",
     "nav.sitenav{position:fixed;left:0;right:0;bottom:0;z-index:1200;display:flex;",
     "  background:#0d1219;border-top:1px solid #25303f;",
     "  overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}",
@@ -196,6 +229,140 @@
     document.body.appendChild(a);
   }
 
+  /* 🐞 REPORT A BUG, BESIDE THE WAY BACK IN.
+   *
+   * Next to the sign-in link because the two are wanted by the same person at
+   * the same moment: something is wrong and they want a human. Until now the
+   * only route was finding an email address on another page, which nobody in
+   * the middle of a problem does - every fault fixed today arrived because
+   * somebody happened to already have the operator's contact details.
+   *
+   * A screenshot is the whole point. "It says no road visible but clearly it
+   * is", "the login button is not anywhere", "it opens on Lansing" - each took
+   * one picture to diagnose and would have taken a dozen messages to describe.
+   */
+  function bugButton() {
+    if (document.querySelector(".swbug")) return;
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "swbug";
+    b.textContent = "\U0001F41E";
+    b.title = "Report a problem";
+    b.setAttribute("aria-label", "report a problem");
+    b.addEventListener("click", openBugSheet);
+    document.body.appendChild(b);
+  }
+
+  function openBugSheet() {
+    if (document.querySelector(".swbugwrap")) return;
+    var back = document.createElement("div");
+    back.className = "swbugwrap";
+    var card = document.createElement("div");
+    card.className = "swbugcard";
+    // Built with DOM calls rather than one innerHTML blob: this file is loaded
+    // on every page including ones under a strict CSP, and nothing here should
+    // depend on markup parsing.
+    var h = document.createElement("b"); h.textContent = "Report a problem";
+    var p1 = document.createElement("p");
+    p1.textContent = "What went wrong? A screenshot helps more than anything - "
+      + "most bugs are obvious in a picture and hard to describe.";
+    var ta = document.createElement("textarea");
+    ta.className = "swbugdesc"; ta.rows = 4;
+    ta.placeholder = "What were you doing, and what happened?";
+    var pick = document.createElement("label");
+    pick.className = "swbugpick";
+    pick.textContent = "\U0001F4F7 Attach a screenshot";
+    var input = document.createElement("input");
+    input.type = "file"; input.accept = "image/*"; input.hidden = true;
+    pick.appendChild(input);
+    var prev = document.createElement("div"); prev.className = "swbugshot";
+    var note = document.createElement("p");
+    note.className = "swbugnote";
+    note.textContent = "\u26A0\uFE0F Check your screenshot does not show your "
+      + "camera key or QR code - those are the password to your camera. It is "
+      + "sent privately to the person who runs SparrowMap and is never published.";
+    var msg = document.createElement("div"); msg.className = "swbugmsg";
+    var send = document.createElement("button");
+    send.className = "swbugsend"; send.type = "button"; send.textContent = "Send";
+    var cancel = document.createElement("button");
+    cancel.className = "swbugclose"; cancel.type = "button";
+    cancel.textContent = "Cancel";
+    card.append(h, p1, ta, pick, prev, note, msg, send, cancel);
+    back.appendChild(card);
+    document.body.appendChild(back);
+
+    var shot = "";
+    input.addEventListener("change", function () {
+      var f = this.files && this.files[0];
+      if (!f) return;
+      if (f.size > 12 * 1024 * 1024) {
+        msg.textContent = "That image is very large - please crop it.";
+        return;
+      }
+      var fr = new FileReader();
+      fr.onload = function () {
+        /* Downscale in the BROWSER. A phone screenshot is several megabytes
+         * and the box has 3 GB and two cores. Re-encoding here also drops any
+         * EXIF before it leaves the device, rather than trusting the server to
+         * strip a GPS fix out of a picture sent by somebody reporting a bug on
+         * a project about locations. */
+        var im = new Image();
+        im.onload = function () {
+          var sc = Math.min(1, 1400 / Math.max(im.width, im.height));
+          var cv = document.createElement("canvas");
+          cv.width = Math.max(1, Math.round(im.width * sc));
+          cv.height = Math.max(1, Math.round(im.height * sc));
+          cv.getContext("2d").drawImage(im, 0, 0, cv.width, cv.height);
+          shot = cv.toDataURL("image/jpeg", 0.8);
+          prev.textContent = "";
+          var thumb = new Image(); thumb.src = shot; prev.appendChild(thumb);
+          msg.textContent = "Screenshot attached.";
+        };
+        im.onerror = function () { msg.textContent = "Could not read that image."; };
+        im.src = fr.result;
+      };
+      fr.readAsDataURL(f);
+    });
+
+    send.addEventListener("click", function () {
+      var desc = ta.value.trim();
+      if (!desc && !shot) {
+        msg.textContent = "Say what went wrong, or attach a screenshot.";
+        return;
+      }
+      send.disabled = true;
+      msg.textContent = "Sending\u2026";
+      fetch("/api/bug", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ desc: desc, shot: shot, page: location.pathname })
+      }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+      }).then(function (res) {
+        if (!res.ok) {
+          send.disabled = false;
+          msg.textContent = res.d.error || "Could not send that.";
+          return;
+        }
+        card.textContent = "";
+        var t = document.createElement("b"); t.textContent = "Thank you";
+        var pp = document.createElement("p");
+        pp.textContent = "That went straight to the person who runs SparrowMap. "
+          + "Reference " + res.d.id + ".";
+        var cl = document.createElement("button");
+        cl.className = "swbugclose"; cl.type = "button"; cl.textContent = "Close";
+        cl.addEventListener("click", function () { back.remove(); });
+        card.append(t, pp, cl);
+      }).catch(function () {
+        send.disabled = false;
+        msg.textContent = "Could not reach SparrowMap. Check your connection.";
+      });
+    });
+
+    back.addEventListener("click", function (e) {
+      if (e.target === back || e.target.className === "swbugclose") back.remove();
+    });
+  }
+
   function go() {
     // A page that already has this bar (the map builds it with panes, below)
     // must not get a second one.
@@ -208,6 +375,7 @@
     document.body.appendChild(nav);
     fit(Math.ceil(nav.getBoundingClientRect().height));
     topLink();
+    bugButton();
   }
 
   // 🚨 IMMEDIATELY IF THE BODY EXISTS, NOT ON DOMContentLoaded.

@@ -69,6 +69,25 @@ HELD = DATA / "held"
 # is why the sweep is aggressive rather than tidy.
 EVIDENCE = DATA / "evidence"
 
+# Bug reports from the site: a description, and usually a screenshot.
+#
+# 🚨 NO ROUTE SERVES THIS DIRECTORY, and the reason is specific rather than
+# habitual. A screenshot of SparrowMap taken by somebody having trouble with it
+# very often contains the thing they were having trouble WITH - their camera
+# key, the QR that is their camera key, a reviewer token, or the street outside
+# their window. They are handing it over to get help, not to publish it.
+#
+# It follows that a bug report must never reach the alert channel either. The
+# GitHub issue that notifies the operator carries an id and nothing else,
+# because ALERT_REPO defaults to the PUBLIC code repo - see tools/bug_alert.py.
+BUGS = DATA / "bugs"
+
+# How long a report is kept if nobody deals with it. Longer than EVIDENCE
+# because a bug report is not imagery of the street and the person chose to
+# send it - but bounded, because "we still have your screenshot from March" is
+# not an answer anybody wants.
+BUGS_TTL_S = 30 * 24 * 3600
+
 # How long an unanswered candidate's original may sit there. Deliberately far
 # shorter than the 14-day private-tier retention: this is un-degraded imagery,
 # and the only thing justifying it is that somebody is about to look.
