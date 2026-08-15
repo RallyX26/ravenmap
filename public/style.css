@@ -429,3 +429,30 @@ nav .addcam{color:var(--cam);font-weight:600}
 .airwrap.orbit{border-radius:50%;box-shadow:0 0 0 2px #ff3b47aa;animation:airpulse 1.8s ease-in-out infinite}
 @keyframes airpulse{0%,100%{box-shadow:0 0 0 2px #ff3b4788}50%{box-shadow:0 0 0 7px #ff3b4711}}
 @media (prefers-reduced-motion:reduce){.airwrap.orbit{animation:none}}
+
+/* ---- the View picker ---------------------------------------------------
+ * The chips are still the chips; this only decides whether they are on screen.
+ */
+.viewpick{position:relative}
+.viewbtn{
+  background:#141b26;color:var(--ink);border:1px solid var(--line2);
+  border-radius:999px;padding:8px 14px;cursor:pointer;white-space:nowrap;
+  font:600 12.5px system-ui,-apple-system,sans-serif;
+  -webkit-tap-highlight-color:transparent
+}
+.viewbtn:hover{border-color:var(--police);color:var(--police)}
+.viewbtn b{font-weight:700}
+.viewbtn .car{opacity:.6;margin-left:2px}
+/* Open: a real menu over the map rather than a row that pushes it down. */
+.viewpick .filters{
+  position:absolute;top:calc(100% + 6px);left:0;z-index:1100;
+  display:flex;flex-direction:column;gap:0;min-width:170px;
+  background:#0f1520;border:1px solid var(--line2);border-radius:12px;
+  padding:5px;box-shadow:0 14px 34px rgba(0,0,0,.5)
+}
+.viewpick .filters[hidden]{display:none}
+.viewpick .filters .chip{
+  width:100%;text-align:left;border:0;background:none;border-radius:8px;
+  padding:10px 11px
+}
+.viewpick .filters .chip.on{background:#1b2636}

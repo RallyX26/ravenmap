@@ -1,9 +1,3 @@
-    /* ⚠️ Leaflet's controls were briefly pulled in here and that was wrong.
-     * The heat, locate and fit-the-map buttons act ON the map and are placed
-     * relative to it; lifting them into a site-wide row separates a control
-     * from the thing it controls, and leaves them stranded on pages with no
-     * map at all. They keep their corner. */
-
 /* The bottom bar, defined ONCE and dropped on every page.
  *
  * 🚨 WHY THIS EXISTS. The shared review pool had no way out. rv.html carries a
@@ -491,7 +485,33 @@
      * drawn straight through the refresh button, because 70px and 64px are not
      * far enough apart to be two rows. Whichever corner refresh has chosen for
      * this width, the banner is now directly above it and never on it. */
-    adopt(site, ref);
+    /* 🚁 REFRESH SITS UNDER THE FIRE BUTTON. HIS CALL.
+     *
+     * The heat/fire button is a Leaflet control at position:topright. Appending
+     * refresh to Leaflet's OWN corner container - rather than computing
+     * coordinates near it, which is what produced six collisions earlier today
+     * - means Leaflet lays them out as one column with its own spacing, free.
+     *
+     * ⚠️ Looked up HERE, inside placeTools, not at module scope. This ran once
+     * at load in its first version, before Leaflet had built the corner, so it
+     * was always null and refresh silently stayed in the header row. placeTools
+     * re-runs as the page settles, so by the time the map exists this finds it.
+     * ⚠️ And only where the corner exists at all: on a page with no map there
+     * is nothing to sit under, so refresh keeps the site row. */
+    var leafletCorner = document.querySelector(".leaflet-top.leaflet-right");
+
+    // Refresh prefers the map's corner, under the fire button; the site row is
+    // the fallback for pages that have no map.
+    if (leafletCorner && ref) {
+      if (ref.parentNode !== leafletCorner) leafletCorner.appendChild(ref);
+      ref.style.position = "relative";
+      ref.style.top = ""; ref.style.right = ""; ref.style.bottom = "";
+      ref.style.marginTop = "8px";
+      ref.style.clear = "both";
+      ref.style.float = "none";
+    } else {
+      adopt(site, ref);
+    }
     adopt(BR, document.querySelector(".instwrap"));
 
     TR.style.right = right + "px";

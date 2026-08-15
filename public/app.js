@@ -1351,6 +1351,37 @@ _airTimer = setInterval(loadAircraft, 30000);
 map.on('moveend', () => { if (state.showAircraft) loadAircraft(); });
 if (state.showAircraft) loadAircraft();
 
+/* The View button: open the chips, close them, and keep the label honest.
+ *
+ * ⚠️ It does NOT own the filter. The chips still do, and their existing click
+ * handler still runs - this listens for the same click and follows. Two things
+ * deciding what the filter is would be the same "one rule, many owners" bug
+ * this codebase keeps finding in itself; the label is a READOUT, never a
+ * source of truth. */
+(function () {
+  const btn = $('#viewbtn'), menu = $('#filters'), now = $('#viewnow');
+  if (!btn || !menu || !now) return;
+  const open = (on) => {
+    menu.hidden = !on;
+    btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+  };
+  btn.addEventListener('click', (e) => { e.stopPropagation(); open(menu.hidden); });
+  menu.addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    now.textContent = chip.textContent.trim();
+    open(false);
+  });
+  // Anywhere else on the page closes it, including on the map.
+  document.addEventListener('click', (e) => {
+    if (!menu.hidden && !menu.contains(e.target) && e.target !== btn) open(false);
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') open(false); });
+  // Start agreeing with whatever chip is actually selected.
+  const on = menu.querySelector('.chip.on');
+  if (on) now.textContent = on.textContent.trim();
+})();
+
 const _showcams = $('#showcams');
 // The checkbox must be made to AGREE with state before anyone sees it. The
 // markup ships checked; if the stored answer or the default is off, a control

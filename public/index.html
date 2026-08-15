@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
-<link rel="stylesheet" href="/static/style.css?v=92">
+<link rel="stylesheet" href="/static/style.css?v=94">
 </head>
 <body>
 
@@ -75,17 +75,30 @@
   <section class="pane" id="pane-transparency" hidden><div class="paneinner"></div></section>
 
   <aside class="panel" id="panel">
-    <div class="filters">
-      <button class="chip on" data-f="all">All</button>
-      <button class="chip" data-f="police"   data-c="police">Government</button>
-      <button class="chip" data-f="gov"      data-c="gov">Gov plate</button>
-      <!-- The inverse of "Government": the live road, with the records taken
-           off it. Nothing new is revealed - these are the same inert dots that
-           are already drawn under "All" - it just stops a handful of red
-           records from being the only thing the eye lands on when what you
-           want to see is whether the street is actually moving. -->
-      <button class="chip" data-f="traffic"  data-c="civilian">Traffic only</button>
-      <button class="chip" data-f="none">None</button>
+    <!-- 🚨 FIVE CHIPS BECAME ONE BUTTON. HIS CALL.
+         All / Government / Gov plate / Traffic only / None wrapped onto two
+         rows on a phone and ate the top of the map - and four of the five are
+         showing the state you are NOT in, which is a lot of permanent screen
+         for a choice most people make once. A button that says what you are
+         looking at, and opens the five when tapped, spends one row instead of
+         two and reads as an answer rather than a row of options.
+         The chips themselves are UNCHANGED and still carry data-f, so every
+         existing handler binds to exactly the same elements. -->
+    <div class="viewpick">
+      <button type="button" class="viewbtn" id="viewbtn" aria-haspopup="true"
+              aria-expanded="false">View: <b id="viewnow">All</b> <span class="car">▾</span></button>
+      <div class="filters" id="filters" hidden>
+        <button class="chip on" data-f="all">All</button>
+        <button class="chip" data-f="police"   data-c="police">Government</button>
+        <button class="chip" data-f="gov"      data-c="gov">Gov plate</button>
+        <!-- The inverse of "Government": the live road, with the records taken
+             off it. Nothing new is revealed - these are the same inert dots
+             already drawn under "All" - it just stops a handful of red records
+             being the only thing the eye lands on when what you want to know
+             is whether the street is actually moving. -->
+        <button class="chip" data-f="traffic"  data-c="civilian">Traffic only</button>
+        <button class="chip" data-f="none">None</button>
+      </div>
     </div>
 
     <div class="win">
@@ -167,8 +180,8 @@
 <script src="/vendor/leaflet.js"></script>
 <script src="/static/transparency.js?v=19"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
-<script src="/static/sitenav.js?v=22"></script>
-<script src="/static/app.js?v=93"></script>
+<script src="/static/sitenav.js?v=23"></script>
+<script src="/static/app.js?v=94"></script>
 <script src="/static/refresh.js?v=18"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->

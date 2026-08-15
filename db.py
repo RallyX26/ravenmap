@@ -385,6 +385,10 @@ def insert_sighting(rec: dict) -> int:
         rec["plate_text"] = None
         rec["plate_state"] = None
 
+    # The other high-traffic write. Same reasoning as upsert_node: a sighting
+    # carries a lat/lon that several code paths compute, and snap_point returns
+    # a TUPLE - exactly the shape that broke node writes.
+    guard_bindable({f: rec.get(f) for f in FIELDS}, "add_sighting")
     conn = connect()
     cols = ",".join(FIELDS)
     marks = ",".join("?" for _ in FIELDS)
@@ -398,7 +402,42 @@ def insert_sighting(rec: dict) -> int:
     return int(cur.lastrowid)
 
 
+# 🚨 NOTHING THAT IS NOT A SCALAR GOES NEAR THE DATABASE.
+#
+# HIS INSTRUCTION, after a road-name cache bug wrote a tuple into a node's
+# road_name and every camera signup started returning "internal error".
+#
+# What made that expensive was not the bug, it was the DIAGNOSIS. sqlite3 says
+#     Error binding parameter 21: type 'tuple' is not supported
+# which names a POSITION in a generated SQL statement, not a field. Finding out
+# that 21 meant `road_name` took counting placeholders by hand in a 22-column
+# insert, in a live outage, while signups were failing.
+#
+# This costs one dict walk per write and turns that into
+#     upsert_node: road_name is tuple, expected str/int/float/bytes/None
+# before the statement is prepared. It cannot fix a bad value - only the caller
+# knows what was meant - but a write that is going to fail should fail by
+# NAME, immediately, and never leave a half-formed row behind it.
+_BINDABLE = (str, int, float, bytes, bool, type(None))
+
+
+def guard_bindable(mapping: dict, where: str) -> dict:
+    """Every value must be something SQLite can bind. Raises TypeError if not.
+
+    Returned so it can be used inline: conn.execute(sql, guard_bindable(d, "x"))
+    """
+    bad = [(k, type(v).__name__) for k, v in mapping.items()
+           if not isinstance(v, _BINDABLE)]
+    if bad:
+        detail = ", ".join(f"{k} is {t}" for k, t in sorted(bad))
+        raise TypeError(
+            f"{where}: {detail}; expected str/int/float/bytes/None. "
+            f"Nothing was written.")
+    return mapping
+
+
 def upsert_node(n: dict) -> None:
+    guard_bindable(n, "upsert_node")
     conn = connect()
     conn.execute("""
         INSERT INTO nodes (id, name, pubkey, token, lat, lon, pub_lat, pub_lon,
