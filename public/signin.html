@@ -101,9 +101,17 @@ a{color:var(--blue)}
     // into localStorage and redirecting would look like success and fail later
     // on the first upload, somewhere with no explanation - and by then they are
     // back to believing the camera is gone.
+    // ⚠️ THE TOKEN GOES IN THE HEADER, NOT THE BODY. _token_ok reads
+    // Authorization and nothing else, so a body token is silently ignored and
+    // every valid key is rejected - which is precisely what the first live test
+    // of this page did. Every other node route already sends it this way; this
+    // one briefly did not, because the endpoint's signature made a body field
+    // look like the natural place for it.
     fetch("/api/node/whoami", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ node_id: k.id, token: k.token })
+      method: "POST",
+      headers: { "Content-Type": "application/json",
+                 "Authorization": "Bearer " + k.token },
+      body: JSON.stringify({ node_id: k.id })
     }).then(function (r) {
       return r.json().then(function (d) { return { ok: r.ok, d: d }; });
     }).then(function (res) {

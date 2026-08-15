@@ -2363,6 +2363,12 @@ class Handler(BaseHTTPRequestHandler):
                 # it discloses nothing that the holder of the key does not
                 # already have, and it returns the node's own public-facing
                 # details rather than anything new.
+                #
+                # ⚠️ THE TOKEN ARRIVES IN `Authorization`, NOT THE BODY, because
+                # that is the only place _token_ok looks. Worth stating: this
+                # route takes an id in the body and a credential in a header,
+                # and the first version of /signin put both in the body - so it
+                # rejected every valid key while looking entirely correct.
                 b = self._body()
                 nd = db.node(str(b.get("node_id") or ""))
                 if not nd:
