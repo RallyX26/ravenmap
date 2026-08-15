@@ -124,9 +124,21 @@
        because refresh.js and install.js still ship the stylesheets that put
        them in a corner, and they are right to - those rules are what position
        them on a page that has no stack. */
-    "#swTR>*,#swBR>*{pointer-events:auto;position:relative !important;",
+    /* 🚨 .swbar BELONGS IN THIS LIST, AND LEAVING IT OUT COST A WHOLE ROUND.
+       The reset was written for the two floating stacks and the header row was
+       added afterwards, so the adopted buttons kept their own position:fixed
+       and went on drawing at the coordinates their own stylesheet chose - the
+       Sign in pill and the bug button measured 44x32px on top of each other
+       INSIDE a flex row, which is a contradiction until you notice that a
+       fixed child is not laid out by its parent at all.
+       An element only joins a layout if it is actually in it. */
+    "#swTR>*,#swBR>*,.swbar>*{pointer-events:auto;position:relative !important;",
     "  top:auto !important;right:auto !important;bottom:auto !important;",
     "  left:auto !important;margin:0 !important;float:none !important}",
+    /* And the page must end above the nav bar - see padBottom(). Not a blanket
+       rule here on purpose: the map and /rv are full-height documents with
+       overflow:hidden, and padding their body moves the map instead of the
+       text. Only a page that actually scrolls needs it. */
     ".swtoplink{display:inline-flex !important;align-items:center;gap:6px;",
     "  white-space:nowrap;padding:7px 12px;border-radius:999px;",
     "  text-decoration:none;background:#141c28;border:1px solid #2a3547;",
@@ -481,6 +493,27 @@
     }
     BR.style.bottom = "calc(" + (navh + 10) + "px + env(safe-area-inset-bottom))";
     BR.style.display = BR.children.length ? "flex" : "none";
+
+    /* 🚨 THE PAGE HAS TO END ABOVE THE NAV BAR.
+     *
+     * The nav is fixed to the bottom of the window, so on a scrolling page the
+     * last ~58px of content is drawn underneath it and cannot be reached by
+     * scrolling further - measured on /transparency, where it swallowed the
+     * end of the policy table, the one thing that page exists to show.
+     *
+     * ⚠️ ONLY where the document actually scrolls. The map and /rv are
+     * full-height documents with overflow:hidden; padding their body moves the
+     * map down instead of moving text up, which is a worse bug than the one
+     * being fixed. Measured rather than guessed from the path. */
+    if (nav && navh && document.body) {
+      var bodyStyle = getComputedStyle(document.body);
+      var scrolls = bodyStyle.overflow !== "hidden"
+                 && getComputedStyle(document.documentElement).overflow !== "hidden";
+      if (scrolls) {
+        document.body.style.paddingBottom =
+          "calc(" + (navh + 16) + "px + env(safe-area-inset-bottom))";
+      }
+    }
   }
 
   /* ⚠️ NOT ON /drive. Driving mode already has its own control rail down the
