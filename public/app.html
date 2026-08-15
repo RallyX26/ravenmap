@@ -340,7 +340,12 @@ a{color:var(--blue)}
 </nav>
 
 <script src="/vendor/ort.wasm.min.js"></script>
-<script src="/static/sparrow-app.js?v=29"></script>
+<!-- Before sparrow-app.js: the review banner is built during boot and asks for
+     window.sparrowCopyButton, so loading this after would give the first
+     banner - the one shown the moment a camera is enrolled, which is exactly
+     when someone needs to move their token - no copy buttons at all. -->
+<script src="/static/copy.js?v=1"></script>
+<script src="/static/sparrow-app.js?v=30"></script>
 <!-- The camera app is where owners live, so this is where an 'owner' update
      actually reaches someone who can act on it. -->
 <script src="/static/updates.js?v=2"></script>

@@ -68,6 +68,12 @@
       <p class="note"><b>Photograph this with another device</b> to give it
         control of this camera &mdash; live view, aim, rename. No sign-in, no
         email, nothing to remember.</p>
+      <!-- 🔑 THE OPTION THAT WAS MISSING, AND THE ONE PEOPLE REACH FOR FIRST.
+           A QR needs a second device with a camera pointed at this screen, and
+           a key file needs somewhere to put it. Sending the link to yourself -
+           in a message, a note, an email - needs neither, and is what somebody
+           setting a camera up on a phone actually tries to do. -->
+      <button class="big alt" id="btnCopy">Copy the key link</button>
       <button class="big alt" id="btnFile">Save a key file (USB stick)</button>
       <button class="big alt" id="btnPrint">Print it</button>
       <div class="msg" id="msg"></div>
@@ -162,6 +168,21 @@ key &mdash; this file stops working immediately.</p>
   $('#msg').className = 'msg ok';
 };
 
+$('#btnCopy').onclick = () => {
+  // ⚠️ SAY WHAT IT IS, IN THE SAME BREATH. This copies a working key to the
+  // clipboard, and a clipboard is shared with every app on the device and
+  // survives until something else overwrites it. Anyone who has this link has
+  // the camera, so the confirmation says so rather than a bare "Copied".
+  window.sparrowCopy(keyURL()).then((ok) => {
+    $('#msg').textContent = ok
+      ? 'Copied. Anyone who has this link has the camera - send it to yourself, '
+        + 'not to a group.'
+      : 'Your browser would not let the page copy. Press and hold the QR link '
+        + 'to copy it by hand.';
+    $('#msg').className = ok ? 'msg ok' : 'msg bad';
+  });
+};
+
 $('#btnPrint').onclick = () => window.print();
 
 $('#btnRotate').onclick = async () => {
@@ -181,5 +202,6 @@ $('#btnRotate').onclick = async () => {
 };
 </script>
 <script src="/static/refresh.js"></script>
+<script src="/static/copy.js?v=1"></script>
 </body>
 </html>

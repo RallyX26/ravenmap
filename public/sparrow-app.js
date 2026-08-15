@@ -234,6 +234,14 @@ function showReviewBanner(tok) {
   Object.assign(hint.style, { opacity: '.7', marginTop: '4px', fontSize: '12px' });
 
   // Kept, smaller, for anyone moving to another device or re-adding by hand.
+  //
+  // 🔑 AND NOW WITH A COPY BUTTON, BECAUSE THE LINK ONLY SOLVES ONE HALF.
+  // The tappable link above covers "same browser, right now" and the wallet
+  // remembers it afterwards. It does nothing for the case people actually hit:
+  // camera app on the phone, review page on the laptop - or an installed PWA,
+  // whose storage the browser tab cannot see. Those all end at this line, where
+  // the only instruction was to select 32 characters by hand. A volunteer
+  // setting up a camera reported exactly that: "the key is difficult to use".
   const code = document.createElement('code');
   code.textContent = tok;
   Object.assign(code.style, { userSelect: 'all', color: '#7fd1ff' });
@@ -241,6 +249,19 @@ function showReviewBanner(tok) {
   Object.assign(lbl.style, { opacity: '.55', marginTop: '6px', fontSize: '11px' });
   lbl_label(lbl, 'token: ');
   lbl.appendChild(code);
+
+  const row = document.createElement('div');
+  Object.assign(row.style, { display: 'flex', gap: '8px', marginTop: '8px',
+                             flexWrap: 'wrap' });
+  if (window.sparrowCopyButton) {
+    row.appendChild(window.sparrowCopyButton(tok, { label: '📋 Copy token' }));
+    // The whole link, for sending to another device - a token on its own still
+    // needs the receiver to know where to paste it, and this one does not.
+    row.appendChild(window.sparrowCopyButton(
+      () => location.origin + '/rv#t=' + encodeURIComponent(tok),
+      { label: '🔗 Copy review link', done: '✓ Link copied' }));
+  }
+  lbl.appendChild(row);
 
   el.appendChild(line); el.appendChild(hint); el.appendChild(lbl);
   showAimLink(el);
