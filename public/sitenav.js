@@ -213,15 +213,40 @@
   function placeTools() {
     var col = document.querySelector(".swtools");
     if (!col) return;
-    var hdr = document.querySelector("header");
     var top = 10;
-    if (hdr) {
-      var r = hdr.getBoundingClientRect();
-      // Only clear it if it is actually pinned at the top of the screen; a
-      // header that scrolls away should not push these buttons down the page.
-      var fixed = getComputedStyle(hdr).position;
-      if ((fixed === "fixed" || fixed === "sticky" || r.top <= 1) && r.height > 0) {
-        top = Math.round(r.bottom) + 10;
+
+    /* 🚨 PREFER --headh, THE PAGE'S OWN ANSWER, OVER MEASURING IT MYSELF.
+     *
+     * app.js publishes the map header's real height as --headh and keeps it
+     * updated on load, resize and orientationchange - it exists precisely
+     * because the search box wraps onto a second row on a phone, taking the
+     * header from ~56px to ~120px. refresh.js already positions its button
+     * from it.
+     *
+     * My own getBoundingClientRect ran while the header was still one row, so
+     * the column landed ON the search row and the Sign in pill covered the
+     * FIND button. Reported with a screenshot. Measuring a thing that is still
+     * settling gives a confident wrong answer; asking the page for the number
+     * it maintains does not.
+     */
+    var hv = 0;
+    try {
+      hv = parseFloat(getComputedStyle(document.documentElement)
+                        .getPropertyValue("--headh"));
+    } catch (e) { hv = 0; }
+
+    if (hv > 0) {
+      top = Math.round(hv) + 10;
+    } else {
+      var hdr = document.querySelector("header");
+      if (hdr) {
+        var r = hdr.getBoundingClientRect();
+        // Only clear it if it is actually pinned at the top of the screen; a
+        // header that scrolls away should not push these buttons down the page.
+        var pos = getComputedStyle(hdr).position;
+        if ((pos === "fixed" || pos === "sticky" || r.top <= 1) && r.height > 0) {
+          top = Math.round(r.bottom) + 10;
+        }
       }
     }
     col.style.top = "calc(" + top + "px + env(safe-area-inset-top))";
@@ -413,7 +438,11 @@
     // measurement has to survive a rotation rather than be taken once.
     window.addEventListener("resize", placeTools);
     window.addEventListener("orientationchange", placeTools);
+    // --headh is published on 'load', which is AFTER this script runs, so the
+    // first placement has to be redone once the page settles.
+    window.addEventListener("load", placeTools);
     setTimeout(placeTools, 400);
+    setTimeout(placeTools, 1500);
   }
 
   // 🚨 IMMEDIATELY IF THE BODY EXISTS, NOT ON DOMContentLoaded.
