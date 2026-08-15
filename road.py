@@ -84,7 +84,32 @@ DRIVEABLE = {
     "unclassified", "residential", "living_street", "service", "road",
 }
 
-OVERPASS = "https://overpass-api.de/api/interpreter"
+# 🚨 ONE ENDPOINT MEANT ONE POINT OF FAILURE, AND IT FAILED SILENTLY.
+#
+# The box cannot reach overpass-api.de at all: it resolves IPv6-only from there
+# and that route is refused, with no usable A record to fall back to. General
+# outbound is fine (github answers 200 over IPv4), so nothing looked broken -
+# except that EVERY road lookup raised URLError, snap() swallowed it and
+# returned None, and /aim told the owner "no road fell inside the view" over a
+# map visibly full of roads. The camera could not be aimed at all, and the
+# message blamed their distance setting.
+#
+# So: mirrors, tried in order, with a cooldown on whichever one just failed so a
+# dead endpoint is not re-dialled on every lookup. overpass-api.de stays first
+# because it is the canonical instance and works from most machines - the home
+# hub reaches it fine - it is simply not reachable from this box today.
+OVERPASS_MIRRORS = (
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+)
+# Kept as a name because other code and tests refer to it; it is the primary.
+OVERPASS = OVERPASS_MIRRORS[0]
+
+# endpoint -> the time it may be tried again. A mirror that refused a connection
+# is skipped for this long rather than costing every later lookup its timeout.
+_MIRROR_COOLDOWN_S = 600.0
+_MIRROR_DOWN: dict = {}
 
 # Grid the bbox onto ~400 m so the request does not carry the camera's precise
 # position. 0.004 deg of latitude is ~445 m; longitude is scaled at query time.
@@ -174,11 +199,35 @@ def fetch_ways(lat: float, lon: float, timeout: float = 25.0) -> list[list[tuple
     bbox = f"{s - dlat:.6f},{w - dlon:.6f},{s + 2 * dlat:.6f},{w + 2 * dlon:.6f}"
 
     q = f'[out:json][timeout:20];way["highway"]({bbox});out geom;'
-    req = urllib.request.Request(
-        OVERPASS, data=urllib.parse.urlencode({"data": q}).encode(),
-        headers={"User-Agent": "SparrowMap/0.1 (citizen ALPR; road snapping)"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        doc = json.loads(r.read().decode("utf-8"))
+    data = urllib.parse.urlencode({"data": q}).encode()
+
+    # Try each mirror that is not in cooldown. A connection-level failure moves
+    # to the next; the LAST failure is re-raised so the caller's except path and
+    # the negative cache still see a real error rather than an empty result -
+    # "no roads here" and "could not ask" must never look the same, which is the
+    # lesson the remark check below already encodes.
+    now = time.time()
+    live = [m for m in OVERPASS_MIRRORS if _MIRROR_DOWN.get(m, 0) <= now]
+    if not live:                      # all cooling down: try them all anyway
+        live = list(OVERPASS_MIRRORS)
+    doc = None
+    last = None
+    for url in live:
+        req = urllib.request.Request(
+            url, data=data,
+            headers={"User-Agent": "SparrowMap/0.1 (citizen ALPR; road snapping)"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                doc = json.loads(r.read().decode("utf-8"))
+            _MIRROR_DOWN.pop(url, None)
+            break
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+            last = exc
+            _MIRROR_DOWN[url] = time.time() + _MIRROR_COOLDOWN_S
+            print(f"[road] overpass mirror unreachable ({url}): "
+                  f"{exc.__class__.__name__}: {exc}")
+    if doc is None:
+        raise last or urllib.error.URLError("no overpass mirror answered")
 
     # 🚨 OVERPASS SIGNALS OVERLOAD AS HTTP 200 WITH AN EMPTY RESULT.
     # The body comes back {"elements": [], "remark": "runtime error: Query timed
