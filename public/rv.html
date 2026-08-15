@@ -369,7 +369,7 @@
 
 <div id="toasts"></div>
 
-<script src="/static/keyimport.js?v=5"></script>
+<script src="/static/keyimport.js?v=6"></script>
 <script>
 (function(){
   "use strict";
@@ -1374,6 +1374,42 @@
     return null;
   }
 
+  /* 🚨 A DEAD TOKEN MUST NOT SIT IN THE WALLET PRETENDING TO BE A LOGIN.
+   *
+   * Every volunteer reviewer token was revoked in the re-mint, so wallets are
+   * full of credentials that will never work again. They are not harmless:
+   * `wallet.length` is used to decide whether somebody is signed in, so a
+   * wallet of corpses reads as "signed in" and every check downstream believes
+   * it. That is what turned one revocation into a sign-in loop.
+   *
+   * So on boot, each stored token is checked once against /api/rv/me and the
+   * dead ones are removed. Silent, and deliberately so - the person did not do
+   * anything wrong, and "3 of your tokens expired" is noise to somebody who
+   * only ever knew about one.
+   *
+   * ⚠️ Only removes on an explicit 401. A network error must NEVER empty
+   * somebody's wallet: being offline is not proof that a token is dead, and
+   * this codebase has the rule already - missing data is not negative data.
+   */
+  function pruneDeadTokens(done){
+    if(!wallet.length){ done(); return; }
+    var left = wallet.length, dead = [];
+    wallet.slice().forEach(function(e){
+      api("/api/rv/me", e.token).then(function(r){
+        if(r.status === 401) dead.push(e.token);
+      }).catch(function(){
+        /* offline, a timeout, anything that is not a refusal: keep it */
+      }).then(function(){
+        if(--left > 0) return;
+        if(dead.length){
+          wallet = wallet.filter(function(w){ return dead.indexOf(w.token) < 0; });
+          saveWallet();
+        }
+        done();
+      });
+    });
+  }
+
   function boot(){
     wallet = loadWallet();
     var urlTok = tokenFromUrl();
@@ -1412,9 +1448,24 @@
     // silent-empty-state failure this codebase keeps finding. Ask for the
     // right token instead.
     if(!scoped().length){
-      // Before asking for a credential, check whether this device already
-      // holds one. See keyFromDevice: signing in twice was the complaint.
-      var devKey = wallet.length ? null : keyFromDevice();
+      /* 🚨 "wallet.length" WAS THE WRONG QUESTION, AND IT RECREATED THE BUG.
+       *
+       * This read `wallet.length ? null : keyFromDevice()` - use the device key
+       * only if the wallet is empty. Almost nobody's wallet is empty: every
+       * volunteer reviewer token was revoked in the re-mint, so their wallets
+       * are full of DEAD tokens. A wallet that is full of nothing that works is
+       * exactly the wallet that needs the device key, and this skipped it.
+       *
+       * Reported: "only works at sign in then makes me sign in again and again
+       * then blocked at pool again". Signing in wrote the key; this page looked
+       * at a non-empty wallet, ignored it, and asked again - for ever.
+       *
+       * The right question is whether the DEVICE KEY IS ALREADY IN the wallet.
+       * If it is, adding it again achieves nothing. If it is not, it is worth
+       * trying no matter what else is in there.
+       */
+      var devKey = keyFromDevice();
+      if (devKey && wallet.some(function(e){ return e.token === devKey; })) devKey = null;
       if(devKey){
         addToken(devKey, function(){
           if(scoped().length){ start(); }
@@ -1431,7 +1482,11 @@
     }
     start();
   }
-  boot();
+  /* Prune first, THEN decide what to show. Deciding against a wallet that
+   * still contains dead tokens is the whole bug: boot() would see length > 0,
+   * conclude the person is signed in, and never reach for the device key. */
+  wallet = loadWallet();
+  pruneDeadTokens(boot);
 })();
 
 </script>
