@@ -734,63 +734,81 @@ def cmd_run(args) -> int:
             cycle_started = time.time()
             unchanged = 0
             reached = []
-            for c, img, err in pool.map(grab, cams):
-                if err == "304":
-                    unchanged += 1          # nothing new; costs ~200 bytes
-                    reached.append(c)       # it answered: it is awake
-                    continue
-                if err:
-                    print(f"  {c['name'][:34]:<36} unreachable ({err})")
-                    continue
-                reached.append(c)
-                boxes = detect(sess, size, img)
-                # 🚨 ONLY VEHICLES BIG ENOUGH TO BE JUDGED. A snapshot of a
-                # motorway holds dozens of 30px blobs; posting them would bury
-                # the review queue in things no human could rule on either.
-                big = [b for b in boxes if b["w"] >= MIN_VEHICLE_PX]
-                skipped += len(boxes) - len(big)
-                if not big:
-                    continue
-                # One per poll: these are stills seconds apart, so several
-                # boxes are usually the same traffic seen twice.
-                b = big[0]
-                crop = crop_b64(img, b["box"])
-                if not crop:
-                    continue
-                key = c["node_id"]
-                if time.time() - seen_last.get(key, 0) < interval * 0.9:
-                    continue
-                seen_last[key] = time.time()
-                body = {"node_id": c["node_id"], "ts": time.time(),
-                        "source": "phone_node", "body": b["cls"],
-                        "det_conf": round(b["conf"], 3), "plate_text": "",
-                        "plate_conf": 0, "evidence": {}, "snap_b64": crop,
-                        "lat": c["lat"], "lon": c["lon"]}
-                req = urllib.request.Request(
-                    args.hub.rstrip("/") + "/api/sightings", method="POST",
-                    data=json.dumps(body).encode(),
-                    headers={"Content-Type": "application/json",
-                             "Authorization": "Bearer " + c["token"],
-                             "User-Agent": UA_NODE})
-                try:
-                    with urllib.request.urlopen(req, timeout=25) as r:
-                        out = json.loads(r.read() or b"{}")
-                    sent += 1
-                    print(f"  sent  {c['name'][:34]:<36} {b['cls']:<6} "
-                          f"{b['w']:>5.0f}px  id={out.get('id')}")
-                except urllib.error.HTTPError as e:
-                    print(f"  {e.code}   {c['name'][:34]:<36} {e.read()[:80]}")
-                except Exception as exc:
-                    # 🚨 ONE SLOW CAMERA MUST NOT KILL THE FLEET.
-                    # This caught HTTPError only, so a read timeout - the most
-                    # ordinary failure there is when talking to six public
-                    # cameras and a box over the internet - escaped the loop and
-                    # took the whole poller down on its first cycle. A fleet
-                    # runner has to treat every per-item failure as data, never
-                    # as an exit.
-                    print(f"  ERR   {c['name'][:34]:<36} {type(exc).__name__}: {str(exc)[:50]}")
-                if args.once:
-                    continue
+            # 🚨 CHUNKED, AND THE CHUNK IS THE MEMORY BOUND. MEASURED: 15.8 GB
+            # AND CLIMBING BEFORE THIS EXISTED.
+            #
+            # `pool.map(grab, cams)` submits ALL of them at once and hands back
+            # results in order. The fetches are 96-way concurrent but the
+            # inference below is serial, so completed frames pile up in the
+            # executor's result queue waiting to be consumed - and `grab`
+            # returns a DECODED image, about 6 MB for an HD frame. At 4,412
+            # cameras that is ~27 GB of pictures nobody is looking at yet, on a
+            # 30 GB box.
+            #
+            # This is the shape of every outage in this project: a bound on the
+            # wrong noun. Concurrency WAS limited - it was the queue behind it
+            # that was not - and at eighteen cameras the difference did not
+            # exist. Chunking makes the ceiling `chunk` frames, ~1.2 GB, and
+            # costs nothing: the pool refills while inference runs.
+            chunk = max(workers * 2, 32)
+            for _batch in (cams[i:i + chunk] for i in range(0, len(cams), chunk)):
+                for c, img, err in pool.map(grab, _batch):
+                    if err == "304":
+                        unchanged += 1          # nothing new; costs ~200 bytes
+                        reached.append(c)       # it answered: it is awake
+                        continue
+                    if err:
+                        print(f"  {c['name'][:34]:<36} unreachable ({err})")
+                        continue
+                    reached.append(c)
+                    boxes = detect(sess, size, img)
+                    # 🚨 ONLY VEHICLES BIG ENOUGH TO BE JUDGED. A snapshot of a
+                    # motorway holds dozens of 30px blobs; posting them would bury
+                    # the review queue in things no human could rule on either.
+                    big = [b for b in boxes if b["w"] >= MIN_VEHICLE_PX]
+                    skipped += len(boxes) - len(big)
+                    if not big:
+                        continue
+                    # One per poll: these are stills seconds apart, so several
+                    # boxes are usually the same traffic seen twice.
+                    b = big[0]
+                    crop = crop_b64(img, b["box"])
+                    if not crop:
+                        continue
+                    key = c["node_id"]
+                    if time.time() - seen_last.get(key, 0) < interval * 0.9:
+                        continue
+                    seen_last[key] = time.time()
+                    body = {"node_id": c["node_id"], "ts": time.time(),
+                            "source": "phone_node", "body": b["cls"],
+                            "det_conf": round(b["conf"], 3), "plate_text": "",
+                            "plate_conf": 0, "evidence": {}, "snap_b64": crop,
+                            "lat": c["lat"], "lon": c["lon"]}
+                    req = urllib.request.Request(
+                        args.hub.rstrip("/") + "/api/sightings", method="POST",
+                        data=json.dumps(body).encode(),
+                        headers={"Content-Type": "application/json",
+                                 "Authorization": "Bearer " + c["token"],
+                                 "User-Agent": UA_NODE})
+                    try:
+                        with urllib.request.urlopen(req, timeout=25) as r:
+                            out = json.loads(r.read() or b"{}")
+                        sent += 1
+                        print(f"  sent  {c['name'][:34]:<36} {b['cls']:<6} "
+                              f"{b['w']:>5.0f}px  id={out.get('id')}")
+                    except urllib.error.HTTPError as e:
+                        print(f"  {e.code}   {c['name'][:34]:<36} {e.read()[:80]}")
+                    except Exception as exc:
+                        # 🚨 ONE SLOW CAMERA MUST NOT KILL THE FLEET.
+                        # This caught HTTPError only, so a read timeout - the most
+                        # ordinary failure there is when talking to six public
+                        # cameras and a box over the internet - escaped the loop and
+                        # took the whole poller down on its first cycle. A fleet
+                        # runner has to treat every per-item failure as data, never
+                        # as an exit.
+                        print(f"  ERR   {c['name'][:34]:<36} {type(exc).__name__}: {str(exc)[:50]}")
+                    if args.once:
+                        continue
             beat(reached)
             took = time.time() - cycle_started
             if unchanged:
