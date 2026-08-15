@@ -45,20 +45,37 @@
     /* The top link. Sized and coloured to read as a quiet secondary control,
        because on the map it sits next to "Add a camera" - the primary ask of
        the whole site - and must not compete with it. */
-    ".swtoplink{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;",
-    "  padding:7px 12px;border-radius:999px;text-decoration:none;",
-    "  background:#141c28;border:1px solid #2a3547;color:#cfe3f5;",
-    "  font:600 12.5px system-ui,-apple-system,sans-serif;",
-    "  -webkit-tap-highlight-color:transparent}",
+    /* 🚨 `display` IS !important, AND THAT IS NOT DEFENSIVENESS FOR ITS OWN
+       SAKE. style.css line 295 is `@media (max-width:860px){header nav a{
+       display:none}}` - a deliberate declutter of the map header on a phone,
+       written long before anything was injected into it. It matches ANY anchor
+       in that nav, so this link was invisible on every phone while being
+       present, styled and correct in the DOM. Reported as "I don't see the
+       login button anywhere".
+       That rule has already done this once: its own comment records `nav a`
+       previously matching the BOTTOM bar too and removing the only route to
+       the contributor page. A rule that hides by tag and position will keep
+       catching things that arrive later, so this link states what it is rather
+       than hoping. */
+    ".swtoplink{display:inline-flex !important;align-items:center;gap:6px;",
+    "  white-space:nowrap;padding:7px 12px;border-radius:999px;",
+    "  text-decoration:none;background:#141c28;border:1px solid #2a3547;",
+    "  color:#cfe3f5;font:600 12.5px system-ui,-apple-system,sans-serif;",
+    "  -webkit-tap-highlight-color:transparent;visibility:visible;opacity:1}",
     ".swtoplink:hover{border-color:#3d8cff;color:#fff}",
     ".swtoplink.inhdr{margin-left:10px}",
     ".swtoplink.swfloat{position:fixed;z-index:9001;right:12px;",
     "  top:calc(10px + env(safe-area-inset-top))}",
-    /* On a phone refresh.js moves its button to the BOTTOM right, so the float
-       has the top corner to itself; on a narrow screen it only needs to shrink
-       enough not to crowd whatever the page puts up there. */
+    /* On a narrow screen the header is deliberately stripped back for the
+       search box, so an extra pill inside it would crowd the one control that
+       matters there. It lifts out to the top-right corner instead - which is
+       free on a phone, because refresh.js moves ITS button to the bottom right
+       below 860px. Same element, no second copy to drift. */
+    "@media (max-width:860px){",
+    "  .swtoplink.inhdr{position:fixed;z-index:9001;right:12px;margin:0;",
+    "    top:calc(10px + env(safe-area-inset-top))}}",
     "@media (max-width:520px){.swtoplink{padding:6px 10px;font-size:12px}}",
-    "@media print{.swtoplink{display:none}}",
+    "@media print{.swtoplink{display:none !important}}",
     "nav.sitenav{position:fixed;left:0;right:0;bottom:0;z-index:1200;display:flex;",
     "  background:#0d1219;border-top:1px solid #25303f;",
     "  overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}",

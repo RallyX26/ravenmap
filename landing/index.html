@@ -65,6 +65,19 @@ body{
   color:var(--steel);display:flex;align-items:center;gap:8px;text-transform:uppercase;
 }
 .dot{width:7px;height:7px;border-radius:50%;background:var(--blue-hi);flex:none}
+/* Sits after the live-state chip, which already takes the margin-left:auto. */
+.signin{margin-left:14px;font-family:var(--mono);font-size:11px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--steel);text-decoration:none;
+  border:1px solid var(--line);border-radius:999px;padding:6px 12px;white-space:nowrap}
+.signin:hover{color:#fff;border-color:var(--blue-hi)}
+/* On a phone the header wraps; the chip goes and the link stays, because a
+   volunteer hunting for a way back into their camera needs it more than a
+   visitor needs to be told the map is up (the hero says so anyway). */
+@media (max-width:560px){
+  .top{flex-wrap:wrap;gap:8px}
+  .top .state{display:none}
+  .signin{margin-left:auto}
+}
 
 /* ---------- hero ---------- */
 .hero{padding:clamp(48px,10vw,104px) 0 clamp(32px,6vw,56px)}
@@ -172,6 +185,16 @@ footer a{color:var(--steel)}
     <img src="mark.png" alt="">
     <span class="wordmark">SPARROWMAP</span>
     <span class="state"><span class="dot"></span><span class="txt">The map is live.</span></span>
+    <!-- 🚨 THE FRONT DOOR NEEDS THIS TOO, AND IT CANNOT BE THE SHARED ONE.
+         sitenav.js injects a sign-in link on every page of the MAP, but this
+         landing page is a different site on a different origin (Cloudflare
+         Pages) and does not load it - so somebody whose phone lost its camera
+         key, arriving at sparrowmap.com, saw no way back at all.
+         It is also a plain link rather than the map's state-aware "My camera /
+         Sign in": localStorage is per-ORIGIN, so this page genuinely cannot
+         tell whether the visitor already holds a key. Guessing would be worse
+         than asking. -->
+    <a class="signin" href="https://map.sparrowmap.com/signin">Camera sign in</a>
   </header>
 
   <section class="hero framed">
@@ -186,6 +209,13 @@ footer a{color:var(--steel)}
       <a href="https://map.sparrowmap.com" class="btn">Open the live map</a>
       <a href="https://map.sparrowmap.com/app" class="btn ghost">Add a camera</a>
       <a href="https://map.sparrowmap.com/drive" class="btn ghost">Driving mode</a>
+    </p>
+    <p class="rise" style="font-size:13.5px;color:var(--steel);margin-top:14px">
+      Set up a camera before and it is asking you to start again?
+      <strong style="color:#cfe3f5">Nothing was deleted</strong> &mdash; your phone
+      just lost the key.
+      <a href="https://map.sparrowmap.com/signin" style="color:var(--blue-hi)">Sign
+      back in &rarr;</a>
     </p>
   </section>
 

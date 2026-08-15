@@ -110,6 +110,52 @@
     if (wrap) { wrap.remove(); wrap = null; }
   }
 
+  function hasKey() {
+    try { return !!JSON.parse(localStorage.getItem("sparrow.node") || "null"); }
+    catch (e) { return false; }
+  }
+
+  /* 🚨 AN INSTALLED APP ON IPHONE STARTS WITH AN EMPTY CUPBOARD.
+   *
+   * A home-screen web app on iOS gets its OWN storage container, separate from
+   * Safari's. So a camera owner who installs the app is signed out the moment
+   * they open it - their key is still in Safari, and the new app cannot see it.
+   * That is Apple's design and nothing this page does can share storage across
+   * it. On Android there is no such split: Chrome mints a WebAPK that uses the
+   * same profile, so the key comes with it.
+   *
+   * What CAN be fixed is the surprise. Somebody who installs and is then asked
+   * to sign in, with their key sitting in a browser they have just navigated
+   * away from, reasonably concludes the app is broken - and the earlier report
+   * of a "deleted" camera is exactly what that looks like from their side. So
+   * an owner is told BEFORE they install, and handed their key to carry across
+   * while it is still in front of them.
+   *
+   * Only for an owner. A visitor with no camera has nothing to carry and does
+   * not need a warning about a step they will never take. */
+  function keyWarning() {
+    if (!hasKey()) return "";
+    return '<div style="background:#241c0c;border:1px solid #5c4a1d;' +
+      'border-radius:10px;padding:11px 12px;margin:12px 0 0;color:#f0c674;' +
+      'font-size:13px;line-height:1.5"><b>Copy your camera key first.</b> ' +
+      'An installed app has its own storage on iPhone, so it will ask you to ' +
+      'sign in once. Copy it now while it is in front of you.</div>';
+  }
+
+  function addKeyButton(card) {
+    if (!hasKey() || !window.sparrowCopyButton) return;
+    var n = null;
+    try { n = JSON.parse(localStorage.getItem("sparrow.node") || "null"); }
+    catch (e) { return; }
+    if (!n || !n.id || !n.token) return;
+    var b = window.sparrowCopyButton(
+      function () { return location.origin + "/node#k=" + n.id + "." + n.token; },
+      { label: "🔑 Copy my camera key", done: "✓ Key copied — paste it after installing" });
+    b.style.cssText += ";display:block;width:100%;margin-top:10px;padding:12px";
+    var btn = card.querySelector("button.close");
+    card.insertBefore(b, btn);
+  }
+
   function howToIOS() {
     var back = document.createElement("div");
     back.className = "insthow";
@@ -120,10 +166,12 @@
       '<ol><li>Tap the <b>Share</b> button at the bottom of Safari ' +
       '(the square with an arrow).</li>' +
       '<li>Scroll down and tap <b>Add to Home Screen</b>.</li></ol>' +
+      keyWarning() +
       '<button class="close">Got it</button></div>';
     back.addEventListener("click", function (e) {
       if (e.target === back || e.target.className === "close") back.remove();
     });
+    addKeyButton(back.querySelector(".card"));
     document.body.appendChild(back);
   }
 
