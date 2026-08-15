@@ -311,7 +311,7 @@
      and the least able to go hunting - did not.
      Loaded here rather than at the end of the body so the bar exists before the
      driving script measures anything against the viewport. -->
-<script src="/static/sitenav.js?v=9"></script>
+<script src="/static/sitenav.js?v=10"></script>
 <script src="/vendor/leaflet.js"></script>
 <script>
 (function(){
@@ -677,7 +677,22 @@
     clearTimeout(fireAlert._t);fireAlert._t=setTimeout(function(){a.className=''},6000);}
 
   // ---- data ----
-  function loadVerified(){ fetch('/api/sightings').then(function(r){return r.json();})
+  /* 🚨 ASK THE SERVER FOR PUBLIC ONES. THIS ASKED FOR EVERYTHING.
+   *
+   * A bare /api/sightings returns the most recent 400 rows of ALL traffic,
+   * overwhelmingly private civilian passes, and this then filtered client-side
+   * for tier==='public'. Measured: 400 rows returned, 2 of them public - while
+   * the map holds 97 confirmed patrol sightings, every one with coordinates.
+   *
+   * So the alert layer knew about 2 patrol cars out of 97, and a driver could
+   * pass a dozen confirmed locations in silence. Reported as 'I didn't hear any
+   * alerts'. app.js has always asked with vclass=public; this page never did.
+   *
+   * The window matters as much as the filter: a patrol car confirmed last week
+   * is a place patrols are, which is exactly what a driver wants warning about,
+   * so this takes 7 days rather than the newest few hundred rows of anything. */
+  function loadVerified(){ fetch('/api/sightings?vclass=public&limit=1000&since='
+      + Math.floor(Date.now()/1000 - 7*86400)).then(function(r){return r.json();})
     .then(function(d){ verified=(d||[]).filter(function(s){
         return s.tier==='public' && s.lat!=null && s.lon!=null;});
       drawVerified(); checkProximity(); }).catch(function(){}); }

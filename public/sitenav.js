@@ -249,6 +249,26 @@
         }
       }
     }
+    /* 🚨 AND CLEAR OF THE REFRESH BUTTON, WHICH LIVES AT THE SAME COORDINATES.
+     *
+     * refresh.js positions itself at right:12px, top:calc(var(--headh) + 10px).
+     * This column computed the identical spot, so on the map the Sign in pill
+     * and the bug button sat directly on top of it. Reported twice.
+     *
+     * Measured rather than hard-coded around, because refresh.js MOVES: below
+     * 860px it drops to the bottom-right corner, and duplicating that
+     * breakpoint here would be a second copy of a rule that is free to change.
+     * If the button is up here, sit under it; if it has gone to the bottom,
+     * take the space it left.
+     */
+    var ref = document.querySelector(".swrefresh");
+    if (ref) {
+      var rb = ref.getBoundingClientRect();
+      // Only defer to it while it is actually in the top half of the screen.
+      if (rb.height > 0 && rb.top < window.innerHeight / 2) {
+        top = Math.max(top, Math.round(rb.bottom) + 10);
+      }
+    }
     col.style.top = "calc(" + top + "px + env(safe-area-inset-top))";
   }
 
@@ -451,6 +471,10 @@
     window.addEventListener("load", placeTools);
     setTimeout(placeTools, 400);
     setTimeout(placeTools, 1500);
+    // refresh.js adds its button from its own script tag, which may run after
+    // this one; without a later pass the column would keep the spot it took
+    // before the button existed.
+    setTimeout(placeTools, 3000);
   }
 
   // 🚨 IMMEDIATELY IF THE BODY EXISTS, NOT ON DOMContentLoaded.
