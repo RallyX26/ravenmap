@@ -14,6 +14,15 @@ Description=SparrowMap public traffic camera poller
 After=network-online.target
 Wants=network-online.target
 
+# ⚠️ THESE TWO LIVE IN [Unit], NOT [Service], and systemd does not stop you
+# putting them in the wrong one - it logs "Unknown key name" and carries on
+# with no rate limit at all. A restart loop against somebody else's public
+# camera network is how we get blocked, so the guard failing open is worse than
+# it looks. If it has failed five times in ten minutes it is broken, and the
+# right outcome is a stopped unit somebody has to look at.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
 [Service]
 User=sparrow
 Group=sparrow
@@ -40,11 +49,6 @@ ExecStart=/opt/sparrowmap/.venv/bin/python /opt/sparrowmap/tools/public_cams.py 
 
 Restart=on-failure
 RestartSec=30
-# A restart loop against somebody else's public camera network is rude and gets
-# us blocked. If it has failed five times in ten minutes it is broken, and the
-# right outcome is a stopped unit somebody has to look at.
-StartLimitIntervalSec=600
-StartLimitBurst=5
 
 NoNewPrivileges=true
 PrivateTmp=true
