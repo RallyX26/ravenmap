@@ -59,6 +59,8 @@ header .tag{font-size:10.5px;color:var(--dim2);letter-spacing:.06em}
 .cbtns kbd{font:600 9.5px var(--mono);opacity:.65}
 .cyes{background:#2a1013;border-color:#7a2630;color:#ff8a92}
 .cyes:hover{border-color:#ff3b47;color:#fff}
+.cgov{background:#1a1408;border-color:#5c4a1c;color:#ffc866}
+.cgov:hover{border-color:#ffb547;color:#fff}
 .cno{background:#0d121c}
 .cskip{flex:0 0 90px;background:#0a0e15;color:var(--dim)}
 .cnote{font-size:11px;color:var(--dim2);margin-top:9px;line-height:1.5}
@@ -120,16 +122,31 @@ select,input[type=text]{width:100%;background:#0a0e15;color:var(--ink);
       <div id="detstat" class="detstat">detector not running</div>
       <div id="confirm" class="confirm" style="display:none">
         <div class="cbox">
-          <div class="chead">GOVERNMENT VEHICLE?</div>
+          <!-- 🚨 THIS ASKED "GOVERNMENT VEHICLE?" AND WROTE `police` FOR YES.
+               labelbank.py:56 already records why that is wrong: "a municipal
+               pickup and a marked patrol car both had to be clicked police...
+               it is why there is no police-vs-gov classifier". The LABELLING
+               page was given a Government button when that was written; this
+               popup was not, so the live prompt went on merging the two.
+               And it is worse here than there, because `police` PUBLISHES -
+               public_tiers is police-only - so one click on a council truck
+               put it on the map as a patrol car. That is the bin-lorry failure
+               the classifier was already fixed for, arriving through the
+               operator's own keyboard. -->
+          <div class="chead">WHAT WAS THAT?</div>
           <img id="cimg" alt="">
           <div class="cmeta" id="cmeta"></div>
           <div class="cbtns">
-            <button class="cyes" id="cyes">Yes &mdash; government<kbd>Y</kbd></button>
-            <button class="cno"  id="cno">No &mdash; ordinary<kbd>N</kbd></button>
+            <button class="cyes" id="cyes">Police<kbd>P</kbd></button>
+            <button class="cgov" id="cgov">Government<kbd>G</kbd></button>
+            <button class="cno"  id="cno">Ordinary<kbd>N</kbd></button>
             <button class="cskip" id="cskip">Skip<kbd>Esc</kbd></button>
           </div>
           <div class="cnote">Your answer labels the crop <b>and</b> moves the
-            sighting on the map. It is the strongest signal the classifier gets.</div>
+            sighting on the map. It is the strongest signal the classifier gets.
+            <b>Police</b> publishes it; <b>Government</b> is recorded as a
+            government vehicle but stays private, because this map is for
+            patrol vehicles.</div>
         </div>
       </div>
       <div id="stalled" style="display:none;position:absolute;inset:0;
@@ -655,12 +672,20 @@ async function answerConfirm(label){
 }
 
 $('#cyes').onclick  = () => answerConfirm('police');
+// 'gov' is RECORDED and does not publish - node_label checks public_tiers,
+// which is police-only on this deployment. That asymmetry is the point of
+// having the button at all.
+$('#cgov').onclick  = () => answerConfirm('gov');
 $('#cno').onclick   = () => answerConfirm('civilian');
 $('#cskip').onclick = () => answerConfirm(null);
 addEventListener('keydown', e => {
   if (!showing) return;
   const k = e.key.toLowerCase();
-  if (k === 'y') answerConfirm('police');
+  // 'y' kept as an alias for police: it is muscle memory from when this
+  // prompt was a yes/no, and silently doing nothing would be worse than
+  // doing the thing that key has always done.
+  if (k === 'p' || k === 'y') answerConfirm('police');
+  else if (k === 'g') answerConfirm('gov');
   else if (k === 'n') answerConfirm('civilian');
   else if (k === 'escape') answerConfirm(null);
 });

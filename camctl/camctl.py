@@ -117,6 +117,22 @@ DETECTIONS: dict = {"boxes": [], "w": None, "h": None, "ts": 0.0}
 CONFIRMS: list = []
 CONFIRM_MAX = 6
 
+# 🚨 A PROMPT HAS A SHELF LIFE, AND IT DID NOT HAVE ONE.
+#
+# The whole justification for interrupting the operator is in the line above:
+# "while the car is still in sight". Nothing enforced it. A prompt sat in this
+# list until it was answered here or camctl restarted, so the operator came back
+# to the desk and was asked to identify vehicles that had passed hours earlier -
+# including ones they had already judged on the review page, which clears the
+# card on the box and knows nothing about this in-memory list.
+#
+# Answering late is not merely annoying, it is worse evidence: the honest answer
+# to "what was that car" ten minutes later is "I do not remember", and the value
+# of this prompt over the review queue is entirely that you just watched it go
+# past. If it has expired, the review queue is the right place for it and the
+# crop is already there.
+CONFIRM_TTL_S = 180.0
+
 
 class CameraBusy(Exception):
     """The grabber did not answer in time. Never block an HTTP request on it."""
@@ -491,6 +507,42 @@ def save_presets(p: dict) -> None:
     PRESETS.write_text(json.dumps(p, indent=2), encoding="utf-8")
 
 
+def _already_judged(c: dict) -> bool:
+    """Has this crop already been given a label by a human, anywhere?
+
+    The prompt and the review page are two front ends onto the same crop, and
+    only one of them knew that. Answering on /rv writes a label through
+    labelbank (set_label, and the box's verdicts come back the same way), so the
+    sidecar is the one place both can see. Without this the operator answered a
+    card on the review page and was then asked about the same vehicle here.
+
+    Fails OPEN - a crop we cannot read is still worth asking about. The cost of
+    a wrong answer here is one extra prompt; the cost of the opposite default is
+    a government vehicle nobody is ever asked about.
+    """
+    try:
+        p = labelbank._sidecar(c.get("day", ""), c.get("stem", ""))
+        if not p.exists():
+            return False
+        return bool(json.loads(p.read_text(encoding="utf-8")).get("label"))
+    except Exception:
+        return False
+
+
+def _live_confirms() -> list:
+    """The prompts still worth showing, pruning the list as it goes.
+
+    Pruning on READ rather than on a timer: this is the only thing that looks at
+    the list, so a timer would be a second moving part to keep correct for no
+    benefit.
+    """
+    now = time.time()
+    CONFIRMS[:] = [c for c in CONFIRMS
+                   if now - float(c.get("ts") or 0) <= CONFIRM_TTL_S
+                   and not _already_judged(c)]
+    return CONFIRMS
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -597,7 +649,7 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/confirm":
             if not is_operator_addr(self.client_address[0]):
                 return self._json({"error": "not an operator address"}, 403)
-            return self._json({"pending": CONFIRMS})
+            return self._json({"pending": _live_confirms()})
         if p == "/api/detections":
             # What the detector is seeing right now. OPERATOR ONLY - this app
             # is the camera owner's own control panel and never leaves the
