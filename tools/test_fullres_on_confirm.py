@@ -16,6 +16,7 @@ which is the single function both confirm paths now go through.
 from __future__ import annotations
 
 import io
+import json
 
 import shutil
 import sys
@@ -156,6 +157,33 @@ def main() -> int:
     # --- 4. no crop at all is a no-op, not a crash ----------------------
     none_out = review_api.attach_confirmed_photo(sid, db.sighting(sid), None)
     check("no crop attaches nothing and returns None", none_out is None)
+
+    # --- 5. THE REVIEWER'S OWN PATH STILL WORKS -------------------------
+    # 🚨 _publish is the /rv confirm button, in use every day. The swap logic
+    # moved out from under it, so the refactor is only safe if this still
+    # publishes - a passing test of the NEW caller says nothing about the old
+    # one. Full pen item: the un-degraded original in EVIDENCE (where a home
+    # deployment puts it) plus the meta json.
+    psid = 987655
+    (Path(core.EVIDENCE) / f"{psid}.jpg").write_bytes(jpeg(1400, 700))
+    (Path(mirror.REVIEW) / f"{psid}.json").write_text(json.dumps(
+        {"ts": 1_700_000_000, "node_id": "n_test", "node_name": "test camera",
+         "vclass": "police", "score": 0.97}), encoding="utf-8")
+    conn.execute("INSERT OR REPLACE INTO sightings (id, ts, node_id, vclass, "
+                 "tier, snap) VALUES (?,?,?,?,?,?)",
+                 (psid, 1_700_000_000, "n_test", "police", "private", None))
+    conn.commit()
+    review_api._publish(psid, {"label": "test reviewer"}, force_vclass="police")
+    prow = db.sighting(psid) or {}
+    check("a reviewer's confirm still publishes the sighting",
+          prow.get("tier") == "public", str(prow.get("tier")))
+    psize = snap_size(prow.get("snap")) if prow.get("snap") else None
+    check("and still publishes it at full resolution",
+          bool(psize) and max(psize) > snapshot.SUBRES_MAX_EDGE, str(psize))
+    check("and clears the pen entry behind it",
+          not (Path(mirror.REVIEW) / f"{psid}.json").exists())
+    check("and destroys the un-degraded original it was holding",
+          not (Path(core.EVIDENCE) / f"{psid}.jpg").exists())
 
     print()
     if FAIL:
