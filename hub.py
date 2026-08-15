@@ -2048,9 +2048,26 @@ class Handler(BaseHTTPRequestHandler):
                     # road_name and span_source go with it: naming the street a
                     # camera watches re-states most of the span in words.
                     shares = bool(n.get("publish_span"))
+                    # 🚨 A GOVERNMENT TRAFFIC CAMERA IS NOT SOMEBODY'S HOUSE.
+                    #
+                    # Every rule above exists because a volunteer's camera
+                    # position describes where they live, and the project
+                    # refuses to publish that. A public_cam is the opposite
+                    # case: it is a state-owned camera on a pole whose exact
+                    # coordinates the transport department publishes itself, in
+                    # the same feed we read the pictures from. Withholding it
+                    # protects nobody and hides the coverage from the people
+                    # deciding whether this project is worth anything.
+                    #
+                    # So these get their true position and nothing else changes:
+                    # the consent gate above still governs every volunteer node,
+                    # which is the field it was written to protect.
+                    is_public_cam = n["kind"] == "public_cam"
                     rec = {
                         "id": n["id"], "name": n["name"],
                         "kind": n["kind"], "sightings": n["sightings"],
+                        "lat": n["lat"] if is_public_cam else None,
+                        "lon": n["lon"] if is_public_cam else None,
                         "span": span if shares else None,
                         "road_name": n["road_name"] if shares else None,
                         "span_source": n["span_source"] if shares else None,

@@ -909,6 +909,34 @@ async function loadCameras() {
   // that is wrong for every deployment except the one it was written for.
   // Spans only now - a span-less node contributes no geometry to fit to, and
   // that is correct: it has no published location to open on.
+  /* 🎥 PUBLIC TRAFFIC CAMERAS GET A MARKER, because they are the only cameras
+   * on this map whose position is already public - the transport department
+   * publishes it in the same feed the pictures come from. A volunteer's camera
+   * still gets no dot, ever: that one describes a house.
+   *
+   * Drawn distinctly on purpose. This project's argument is that a VOLUNTEER
+   * pointed a camera at their own street, and a viewer has to be able to tell
+   * which dots are that and which are a government camera we are reading.
+   */
+  state.publicCamLayer = state.publicCamLayer || L.layerGroup().addTo(map);
+  state.publicCamLayer.clearLayers();
+  cams.filter((c) => c.kind === 'public_cam' && c.lat != null).forEach((c) => {
+    L.marker([c.lat, c.lon], {
+      icon: L.divIcon({
+        className: '', iconSize: [18, 18], iconAnchor: [9, 9],
+        html: '<div style="width:18px;height:18px;border-radius:4px;'
+            + 'background:#1b2a3d;border:1.5px solid #7fd1ff;color:#7fd1ff;'
+            + 'font:10px/16px system-ui;text-align:center">\u25A3</div>',
+      }),
+      title: c.name,
+    }).bindPopup(
+      '<b>' + esc(c.name) + '</b><br>'
+      + '<span style="color:#93a3b3">A public traffic camera, read by SparrowMap.'
+      + ' Not a volunteer\u2019s camera.</span><br>'
+      + esc(String(c.sightings || 0)) + ' passes seen'
+    ).addTo(state.publicCamLayer);
+  });
+
   const spans = cams.filter((c) => c.span && c.span.length);
   state.spans = spans;          // kept so zoomend can redraw without refetching
   if (spans.length) _spanBounds = L.latLngBounds(spans.flatMap((c) => c.span));
