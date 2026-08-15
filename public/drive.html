@@ -307,17 +307,53 @@
     }
     if(h==null || isNaN(h)) return;
     compassHeading=h;
-    if(speedMph<=3) heading=h;      // at rest the compass IS the travel heading
+    // At rest the compass is the only answer, but it says where the PHONE
+    // faces - so it has to have the mount offset taken out of it, exactly as
+    // the camera aim does. See aimFromCompass.
+    if(speedMph<=3) heading=aimFromCompass(h);
     var now=Date.now();
     if(now-lastCompassDraw>200){    // redraw at ~5fps, not per sensor event
       lastCompassDraw=now;
-      var el=$('#hdg'); if(el) el.textContent=Math.round(h)+'° '+compassPoint(h);
+      drawHdg();
       if(me) drawMe();
     }
   }
   function compassPoint(h){
     var pts=['N','NE','E','SE','S','SW','W','NW'];
     return pts[Math.round(((h%360)+360)%360/45)%8];
+  }
+
+  /* 🚨 THE READOUT AND THE ARROW WERE SHOWING DIFFERENT QUANTITIES.
+   *
+   * The arrow is drawn from `heading` - GPS course while moving, i.e. where the
+   * CAR is going - and it was right. The text beside it printed the raw
+   * magnetometer value, i.e. where the PHONE is facing. Those differ by exactly
+   * the angle the phone is rotated in its cradle, so on a mount that sits
+   * sideways the words were consistently 90 degrees out while the arrow was
+   * correct: reported as NE reading "north west", S reading "east", E reading
+   * "north", N reading "west" - four readings, all exactly -90.
+   *
+   * The offset was already being measured. `calOffset` exists for precisely
+   * this ("the angle the phone is rotated in its cradle") and is applied to the
+   * camera aim; the readout simply never used it. Same shape as the red box
+   * with no popup: one quantity, two consumers, and only one of them corrected.
+   *
+   * Until enough straight fast driving has been sampled, calOffset is null and
+   * this returns the raw compass - which is the honest answer, because nothing
+   * yet knows how the phone is sitting. */
+  function aimFromCompass(h){
+    if(h==null || isNaN(h)) return h;
+    if(calOffset==null) return h;
+    return ((h-calOffset)%360+360)%360;
+  }
+
+  /* One writer for the heading readout, so it can never drift from the arrow
+   * again: both now read the same `heading`. */
+  function drawHdg(){
+    var el=$('#hdg'); if(!el) return;
+    if(heading==null || isNaN(heading)){ el.textContent='—'; return; }
+    var h=((heading%360)+360)%360;
+    el.textContent=Math.round(h)+'° '+compassPoint(h);
   }
   function startCompass(){
     // iOS 13+ gates the sensor behind a permission prompt that must be asked
@@ -595,7 +631,12 @@
     if(c.heading!=null && !isNaN(c.heading) && speedMph>3) course=c.heading;
     else if(lastFix && speedMph>3){ course=bearing(lastFix.ll[0],lastFix.ll[1],now[0],now[1]); }
     if(course!=null){ heading=course; calSample(course); }
-    else if(compassHeading!=null) heading=compassHeading;
+    else if(compassHeading!=null) heading=aimFromCompass(compassHeading);
+    // The readout follows the SAME value the arrow is drawn from. Updated here
+    // too because a GPS fix can change `heading` between compass events, and a
+    // readout that only refreshes on a sensor tick lags the arrow it sits next
+    // to - which is how the two came to disagree in the first place.
+    drawHdg();
     lastFix={ll:now,t:pos.timestamp};
     me=now;
     $('#mph').textContent=Math.max(0,Math.round(speedMph));
