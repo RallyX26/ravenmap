@@ -15,10 +15,11 @@ itself, and therefore does not pretend to be five thousand strangers signing up.
 ⚠️ SAFETY, because this writes thousands of rows:
   * dry run unless --apply, printing exactly what it would create;
   * --limit caps every run, so a mistake is small and bounded;
-  * idempotent: a camera already registered (matched on its source ref, which
-    is recorded in the node name) is skipped, so re-running never duplicates -
-    duplicate cameras are already the single biggest data-quality problem on
-    this map;
+  * idempotent: cameras already registered under a given node name are
+    skipped - COUNTED, not merely detected, because one name can legitimately
+    cover several cameras (see the `have` comment). Re-running never
+    duplicates and never leaves a shortfall; duplicate cameras are already the
+    single biggest data-quality problem on this map;
   * snap_road=False. A public camera gets no span (see nodes.enroll), so there
     is no road lookup at all - which is what makes this finish at all rather
     than issuing one Overpass query per camera.
@@ -50,33 +51,51 @@ def main() -> int:
     a = ap.parse_args()
 
     print(f"fetching the {a.source} index...")
-    cams = pc.SOURCES[a.source]()
-    print(f"  {len(cams)} camera(s) offered")
+    offered = pc.SOURCES[a.source]()
+    # ⚠️ THE SOURCE ITSELF SERVES THE SAME PICTURE TWICE. Iowa publishes some
+    # RWIS snapshots under both `/Public/` and `/public/`, and both were
+    # registered, putting two nodes on one mast. Deduped before anything is
+    # created, because a duplicate node is the hardest thing here to undo.
+    cams = pc.dedupe_index(offered)
+    dropped = len(offered) - len(cams)
+    print(f"  {len(cams)} camera(s) offered"
+          + (f" ({dropped} dropped as the same image under another URL)"
+             if dropped else ""))
 
-    # Already-registered cameras, by the name we give them. The name is the
-    # only durable link between a source's camera and our node id.
-    have = set()
+    # 🚨 HOW MANY ARE REGISTERED UNDER THAT NAME, NOT WHETHER ANY IS.
+    #
+    # Even the full name is not unique. Iowa runs three cameras at one rest area
+    # - ENTRY, CENTER and EXIT - sharing coordinates, device_id and description,
+    # so 101 names cover 499 real cameras. A set says "registered" after the
+    # first of them, and the other two would never be created; the run would
+    # report success having quietly enrolled a third of that rest area.
+    #
+    # Counting instead makes this idempotent AND complete: register the
+    # shortfall, whatever it is, and nothing on a re-run.
+    have: dict = {}
     for n in db.nodes():
         nm = n.get("name") or ""
         if nm.startswith(PREFIX):
-            have.add(nm)
+            have[nm] = have.get(nm, 0) + 1
 
     # 🚨 THE NAME IS THE DURABLE LINK AND IT IS BUILT IN EXACTLY ONE PLACE.
     #
     # Neither half of it is unique alone. Fintraffic reuses preset names across
     # stations ("Tienpinta" at almost every site), so the human part cannot be
-    # the key; Iowa publishes several directional views per device_id, so the
-    # source ref cannot be either. Together they are unique, and the poller has
-    # to rebuild the identical string to find these credentials again - so
-    # pc.node_name_for is the one definition and nobody writes a second.
+    # the key; Iowa reuses device_id across views, so the source ref cannot be
+    # either. pc.node_name_for is the one definition - the poller has to rebuild
+    # this identical string to find the credentials again, and a second copy of
+    # the formula would drift silently in both directions.
+    registered = sum(have.values())
     todo = []
     for c in cams:
         name = pc.node_name_for(c)
-        if name in have:
+        if have.get(name, 0) > 0:
+            have[name] -= 1
             continue
         todo.append((name, c))
 
-    print(f"  {len(have)} already registered, {len(todo)} new")
+    print(f"  {registered} already registered, {len(todo)} new")
     batch = todo[:a.limit]
     print(f"  this run would create {len(batch)}")
 

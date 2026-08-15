@@ -457,19 +457,25 @@ def cmd_tokens(args) -> int:
         if not n.get("token"):
             tokenless += 1
             continue
-        # Keyed on the WHOLE name, which is the only unique thing - see
-        # node_name_for. A collision here means two rows are the same camera.
-        out[name] = {"node_id": n["id"], "token": n["token"],
-                     "lat": n.get("lat"), "lon": n.get("lon"), "status": st}
+        # 🚨 A LIST, NOT A VALUE, AND THIS IS THE WHOLE LESSON OF THIS FILE.
+        # Even the full name is not unique: Iowa runs three cameras at one rest
+        # area (ENTRY, CENTER, EXIT) that share coordinates, device_id AND
+        # description - 101 names cover 499 real cameras. Every previous version
+        # of this key assumed uniqueness and silently kept the last row it saw,
+        # so ~400 working cameras were dropped without appearing in any count.
+        out.setdefault(name, []).append(
+            {"node_id": n["id"], "token": n["token"],
+             "lat": n.get("lat"), "lon": n.get("lon"), "status": st})
     path = Path(args.out)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(out), encoding="utf-8")
-    print(f"{len(out)} public camera(s) exported to {path}")
+    exported = sum(len(v) for v in out.values())
+    print(f"{exported} public camera(s) under {len(out)} name(s) exported to {path}")
     print("  by status: " + ", ".join(f"{k}={v}" for k, v in sorted(status.items())))
     # 🚨 EVERY ROW MUST BE ACCOUNTED FOR. A count that only reports successes
     # is how 400 cameras went missing in silence the first time.
     total = sum(status.values())
-    dropped = total - len(out) - unkeyed - tokenless
+    dropped = total - exported - unkeyed - tokenless
     if unkeyed:
         print(f"  {unkeyed} node(s) carry no [src:ref] and are not from bulk "
               f"enrolment - the survey fleet, polled from its own state file")
@@ -483,31 +489,77 @@ def cmd_tokens(args) -> int:
     return 0
 
 
+def dedupe_index(idx: list) -> list:
+    """Drop cameras that are literally the same picture twice.
+
+    ⚠️ Iowa serves the identical RWIS snapshot under `/Public/` and `/public/`.
+    Different strings, one JPEG, and the pair registered as two nodes drawing
+    two dots on one mast. The URL decides identity, case-insensitively; the
+    first spelling offered wins so the choice is stable between runs.
+    """
+    seen, out = set(), []
+    for c in idx:
+        k = (c.get("url") or "").lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(c)
+    return out
+
+
 def cams_from_tokens(tokens_path: str, sources: list) -> list:
-    """Join the live source indexes to exported credentials on the node name."""
+    """Join the live source indexes to exported credentials.
+
+    🚨 THE NAME IS NOT A UNIQUE KEY, so this pairs GROUPS, not rows. One name
+    can cover several real cameras (Iowa's ENTRY/CENTER/EXIT at a rest area),
+    and the export therefore carries a list of nodes per name.
+
+    Within a group the pairing is by NEAREST COORDINATES, then by a stable sort
+    for the ones that genuinely share a position - so a camera keeps the same
+    node across restarts, and its sightings keep landing on the same dot.
+    """
     creds = json.loads(Path(tokens_path).read_text(encoding="utf-8"))
-    cams, missing = [], 0
+    cams, missing, ambiguous = [], 0, 0
     for src in sources:
         try:
-            idx = SOURCES[src]()
+            idx = dedupe_index(SOURCES[src]())
         except Exception as exc:
             print(f"  ⚠ {src} index unavailable ({type(exc).__name__}: "
                   f"{str(exc)[:60]}) - its cameras are skipped this run")
             continue
-        hit = 0
+        groups: dict = {}
         for c in idx:
-            cr = creds.get(node_name_for(c))
-            if not cr:
-                missing += 1
+            groups.setdefault(node_name_for(c), []).append(c)
+        hit = 0
+        for name, views in groups.items():
+            pool = list(creds.get(name) or [])
+            if not pool:
+                missing += len(views)
                 continue
-            # Position comes from the DB, which is what the map draws. A source
-            # quietly moving a camera must not make the dots disagree with the
-            # node.
-            cams.append({**c, "node_id": cr["node_id"], "token": cr["token"],
-                         "lat": cr.get("lat", c["lat"]),
-                         "lon": cr.get("lon", c["lon"])})
-            hit += 1
+            if len(views) > 1:
+                ambiguous += len(views) - 1
+            for c in sorted(views, key=lambda v: v.get("url") or ""):
+                if not pool:
+                    missing += 1
+                    continue
+                # Nearest first. Where a name covers cameras at genuinely
+                # different points this is exact; where they share a position
+                # every candidate ties and the sorted order decides, which is
+                # arbitrary but at least the SAME arbitrary every restart.
+                pool.sort(key=lambda cr: ((cr.get("lat") or 0) - c["lat"]) ** 2
+                                         + ((cr.get("lon") or 0) - c["lon"]) ** 2)
+                cr = pool.pop(0)
+                # Position comes from the DB, which is what the map draws. A
+                # source quietly moving a camera must not make the dots
+                # disagree with the node.
+                cams.append({**c, "node_id": cr["node_id"], "token": cr["token"],
+                             "lat": cr.get("lat", c["lat"]),
+                             "lon": cr.get("lon", c["lon"])})
+                hit += 1
         print(f"  {src}: {hit} of {len(idx)} camera(s) matched to a node")
+    if ambiguous:
+        print(f"  {ambiguous} camera(s) share a name with another and were "
+              f"paired by position - correct, but not guaranteed correct")
     if missing:
         print(f"  {missing} camera(s) offered by a source are not registered "
               f"(run tools/bulk_enrol_cams.py, then re-export tokens)")
