@@ -62,28 +62,31 @@
        the contributor page. A rule that hides by tag and position will keep
        catching things that arrive later, so this link states what it is rather
        than hoping. */
+    /* 🚨 ONE FIXED COLUMN, PLACED BY MEASUREMENT, NOT BY GUESSWORK.
+       The link and the bug button were each positioned with their own hard
+       offset from the top of the viewport - 10px and 56px. That works on a
+       page whose header is short and lands ON TOP of the map's header on a
+       phone, where it wraps to ~130px: reported with "My camera" sitting over
+       the LIVE indicator and the bug button hidden behind the header
+       completely. An offset guessed from one page cannot be right on all of
+       them, so fit() measures the real header instead (see placeTools). */
+    ".swtools{position:fixed;z-index:9001;right:12px;display:flex;",
+    "  flex-direction:column;align-items:flex-end;gap:8px}",
     ".swtoplink{display:inline-flex !important;align-items:center;gap:6px;",
     "  white-space:nowrap;padding:7px 12px;border-radius:999px;",
     "  text-decoration:none;background:#141c28;border:1px solid #2a3547;",
     "  color:#cfe3f5;font:600 12.5px system-ui,-apple-system,sans-serif;",
     "  -webkit-tap-highlight-color:transparent;visibility:visible;opacity:1}",
     ".swtoplink:hover{border-color:#3d8cff;color:#fff}",
-    ".swtoplink.inhdr{margin-left:10px}",
-    ".swtoplink.swfloat{position:fixed;z-index:9001;right:12px;",
-    "  top:calc(10px + env(safe-area-inset-top))}",
     /* On a narrow screen the header is deliberately stripped back for the
        search box, so an extra pill inside it would crowd the one control that
        matters there. It lifts out to the top-right corner instead - which is
        free on a phone, because refresh.js moves ITS button to the bottom right
        below 860px. Same element, no second copy to drift. */
-    "@media (max-width:860px){",
-    "  .swtoplink.inhdr{position:fixed;z-index:9001;right:12px;margin:0;",
-    "    top:calc(10px + env(safe-area-inset-top))}}",
     "@media (max-width:520px){.swtoplink{padding:6px 10px;font-size:12px}}",
     "@media print{.swtoplink{display:none !important}}",
     /* Under the top link, clear of both the header and refresh.js's button. */
-    ".swbug{position:fixed;z-index:9001;right:12px;",
-    "  top:calc(56px + env(safe-area-inset-top));width:38px;height:38px;",
+    ".swbug{width:38px;height:38px;",
     "  border-radius:50%;border:1px solid #2a3547;background:#141c28ee;",
     "  color:#cfe3f5;font-size:17px;line-height:1;cursor:pointer;",
     "  -webkit-tap-highlight-color:transparent}",
@@ -202,6 +205,28 @@
    * should not show a permanent Sign in button to a passer-by with nothing to
    * sign in to. Same slot, honest label either way.
    */
+  /* Where the floating column goes: under the page's own header if it has
+   * one, otherwise at the top. Measured, because the headers on these pages
+   * range from nothing at all to the map's two-row bar on a phone - and that
+   * bar changes height when the search field wraps, which no constant can
+   * follow. Re-measured on resize and rotation for the same reason. */
+  function placeTools() {
+    var col = document.querySelector(".swtools");
+    if (!col) return;
+    var hdr = document.querySelector("header");
+    var top = 10;
+    if (hdr) {
+      var r = hdr.getBoundingClientRect();
+      // Only clear it if it is actually pinned at the top of the screen; a
+      // header that scrolls away should not push these buttons down the page.
+      var fixed = getComputedStyle(hdr).position;
+      if ((fixed === "fixed" || fixed === "sticky" || r.top <= 1) && r.height > 0) {
+        top = Math.round(r.bottom) + 10;
+      }
+    }
+    col.style.top = "calc(" + top + "px + env(safe-area-inset-top))";
+  }
+
   function topLink() {
     if (document.querySelector(".swtoplink")) return;
     var here = location.pathname.replace(/\/+$/, "") || "/";
@@ -218,15 +243,22 @@
     a.title = has ? "Open your camera"
                   : "Already set up a camera? Sign in with your key";
 
-    // Prefer a real slot in a real header. A link that sits INSIDE the page's
-    // own header scrolls and reflows with it, which a fixed pill cannot.
-    var hdr = document.querySelector("header nav") || document.querySelector("header");
-    if (hdr) { a.classList.add("inhdr"); hdr.appendChild(a); return; }
-    // No header on this page: float it, top-right. Deliberately above where
-    // refresh.js puts its button (header height + 10px) so the two never
-    // overlap on a desktop.
-    a.classList.add("swfloat");
-    document.body.appendChild(a);
+    // ⚠️ IT NO LONGER GOES INSIDE THE HEADER. Injecting it there put it in the
+    // same row as the wordmark and the live indicator, and on a phone it sat
+    // on top of them. It also meant fighting style.css's deliberate
+    // `header nav a{display:none}` declutter. A column of its own, placed
+    // under whatever header exists, is right on every page instead of on one.
+    toolCol().appendChild(a);
+  }
+
+  function toolCol() {
+    var col = document.querySelector(".swtools");
+    if (!col) {
+      col = document.createElement("div");
+      col.className = "swtools";
+      document.body.appendChild(col);
+    }
+    return col;
   }
 
   /* 🐞 REPORT A BUG, BESIDE THE WAY BACK IN.
@@ -250,7 +282,7 @@
     b.title = "Report a problem";
     b.setAttribute("aria-label", "report a problem");
     b.addEventListener("click", openBugSheet);
-    document.body.appendChild(b);
+    toolCol().appendChild(b);
   }
 
   function openBugSheet() {
@@ -376,6 +408,12 @@
     fit(Math.ceil(nav.getBoundingClientRect().height));
     topLink();
     bugButton();
+    placeTools();
+    // The map's header grows a row when the search field wraps, so the
+    // measurement has to survive a rotation rather than be taken once.
+    window.addEventListener("resize", placeTools);
+    window.addEventListener("orientationchange", placeTools);
+    setTimeout(placeTools, 400);
   }
 
   // 🚨 IMMEDIATELY IF THE BODY EXISTS, NOT ON DOMContentLoaded.
