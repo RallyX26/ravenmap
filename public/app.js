@@ -723,26 +723,115 @@ map.on('dragstart zoomstart', () => { _userMovedMap = true; });
 // the cameras load, whichever is last, and never fights a visitor who has
 // already panned. Deliberately NO IP lookup - SparrowMap does not send anyone's
 // location to a geo service to guess where they are; the browser asks, once.
+/* 🚨 A FLORIDA VOLUNTEER OPENED THE MAP AND GOT LANSING, MICHIGAN.
+ *
+ * Reported, and it is exactly what the code did. The map is created at
+ * [42.7, -84.5] - a hardcoded start that is this operator's own state - and
+ * chooseView() was the only thing that ever moved it. It could not:
+ *
+ *   - `_spanBounds` needs PUBLISHED spans, and publishing a span is opt-in
+ *     (publish_span defaults off). Measured live: 10 of 255 nodes have one.
+ *   - the geolocation callback discarded its own failure - `() => {}` - so a
+ *     refused or slow fix left `_geoLoc` null for ever.
+ *
+ * With neither, chooseView() fell through both branches and did nothing at all,
+ * leaving the hardcoded view on screen. Nothing was broken enough to notice:
+ * the map worked, it was simply looking at the wrong state, for everybody who
+ * does not live near this operator.
+ *
+ * Their location comes FIRST now when it is available, and the initial fit
+ * waits a moment for it rather than committing to somebody else's cameras.
+ */
+let _geoDone = false;
+let _geoDeadline = 0;
+
 function chooseView() {
   if (_userMovedMap) return;
+
+  // A fix may still be seconds away. Committing to a view now and moving the
+  // map under someone a moment later is worse than a short wait, so hold the
+  // decision until geolocation has answered one way or the other.
+  if (!_geoDone && !_geoLoc && Date.now() < _geoDeadline) {
+    setTimeout(chooseView, 200);
+    return;
+  }
+
+  // 🎯 WHERE THEY ARE, WHENEVER WE KNOW IT. This used to be the last resort;
+  // it is the first choice. A volunteer opening the map wants their own
+  // street, not the centre of everybody else's.
+  if (_geoLoc) {
+    fittedOnce = true;
+    if (_spanBounds &&
+        _spanBounds.getCenter().distanceTo(L.latLng(_geoLoc)) < 60000) {
+      // Their own area IS the covered area - frame the roads being watched.
+      map.fitBounds(_spanBounds.pad(0.35), { maxZoom: 17 });
+    } else {
+      map.setView(_geoLoc, 12);
+    }
+    return;
+  }
+
+  // No location. Show the whole network rather than one hardcoded town: it is
+  // honestly "here is where this project has cameras", and it is the same view
+  // wherever the visitor happens to be.
   if (_spanBounds) {
-    const near = !_geoLoc ||
-      _spanBounds.getCenter().distanceTo(L.latLng(_geoLoc)) < 60000;
     fittedOnce = true;
-    if (near) map.fitBounds(_spanBounds.pad(0.35), { maxZoom: 17 });
-    else map.setView(_geoLoc, 11);
-  } else if (_geoLoc) {
-    fittedOnce = true;
-    map.setView(_geoLoc, 12);
+    map.fitBounds(_spanBounds.pad(0.25), { maxZoom: 13 });
   }
 }
+
 if (navigator.geolocation) {
+  _geoDeadline = Date.now() + 4000;
   navigator.geolocation.getCurrentPosition(
-    (pos) => { _geoLoc = [pos.coords.latitude, pos.coords.longitude]; chooseView(); },
-    () => {},
+    (pos) => {
+      _geoLoc = [pos.coords.latitude, pos.coords.longitude];
+      _geoDone = true;
+      chooseView();
+    },
+    // ⚠️ NOT `() => {}`. Swallowing the failure is what left the view pinned:
+    // nothing else ever learned that no fix was coming, so the wait above
+    // would have run to its deadline every time and the fallback never got to
+    // say why.
+    () => { _geoDone = true; chooseView(); },
     { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 },
   );
+} else {
+  _geoDone = true;
 }
+
+/* A way to get back to yourself, because the automatic choice is made once and
+ * a map you have panned is a map that will not re-centre (_userMovedMap). */
+const MeControl = L.Control.extend({
+  options: { position: 'topleft' },
+  onAdd() {
+    const d = L.DomUtil.create('button', '');
+    d.type = 'button';
+    d.title = 'Show my area';
+    d.textContent = '◎';
+    Object.assign(d.style, {
+      width: '40px', height: '40px', borderRadius: '10px',
+      border: '1px solid var(--line2)', background: '#0d1219cc',
+      color: '#fff', fontSize: '18px', cursor: 'pointer', lineHeight: '1' });
+    L.DomEvent.disableClickPropagation(d);
+    L.DomEvent.on(d, 'click', (e) => {
+      L.DomEvent.stop(e);
+      if (_geoLoc) { map.setView(_geoLoc, 13); return; }
+      if (!navigator.geolocation) return;
+      d.textContent = '…';
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          _geoLoc = [pos.coords.latitude, pos.coords.longitude];
+          _geoDone = true;
+          d.textContent = '◎';
+          map.setView(_geoLoc, 13);
+        },
+        () => { d.textContent = '◎'; },
+        { enableHighAccuracy: true, timeout: 10000 });
+    });
+    return d;
+  },
+});
+map.addControl(new MeControl());
 
 /* A camera is drawn as ONE thing: the stretch of road it watches.
  *

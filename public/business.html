@@ -226,11 +226,34 @@
   var KEY = "sparrow.node";           // shared with /aim and /rv, same device
   var map, marker, node = null;
 
-  // A sensible starting view; the marker is what matters and they will move it.
+  /* 🚨 START WHERE THEY ARE, NOT WHERE THIS OPERATOR IS.
+   *
+   * `map_center` is a deployment default in the middle of Michigan, and it was
+   * used for everybody - so a business in Florida opened this page, saw a
+   * Michigan street, and had to search or drag across the country before it
+   * meant anything. Reported for the main map and it is the same mistake here.
+   *
+   * The address search still exists and is still the precise way to do it. But
+   * a shop setting up its own camera is, almost by definition, standing in the
+   * shop - so their own position is the best first guess anyone can make, and
+   * the marker is theirs to move regardless. */
+  var started = false;
+  function startOnce(c, z){ if (started) return; started = true; start(c, z); }
+
   fetch("/api/policy").then(function(r){ return r.json(); }).then(function(p){
     var c = (p && p.map_center) || [42.53, -83.78];
-    start(c, p && p.map_zoom || 15);
-  }).catch(function(){ start([42.53, -83.78], 15); });
+    var z = (p && p.map_zoom) || 15;
+    if (!navigator.geolocation) { startOnce(c, z); return; }
+    // Give the fix a moment, then fall back rather than leaving a blank panel.
+    var t = setTimeout(function(){ startOnce(c, z); }, 4000);
+    navigator.geolocation.getCurrentPosition(
+      function(g){
+        clearTimeout(t);
+        startOnce([g.coords.latitude, g.coords.longitude], 17);
+      },
+      function(){ clearTimeout(t); startOnce(c, z); },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 });
+  }).catch(function(){ startOnce([42.53, -83.78], 15); });
 
   function start(c, z){
     map = L.map("map").setView(c, z);
