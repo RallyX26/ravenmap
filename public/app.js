@@ -1661,7 +1661,16 @@ window.sparrowRefresh = async () => {
   if (modal && opener) {
     const openModal = () => {
       modal.hidden = false;
-      requestAnimationFrame(() => { if (input) { input.focus(); input.select(); } });
+      /* 🚨 FOCUS IN THE SAME TASK AS THE TAP, NOT IN A FRAME CALLBACK.
+       * This used requestAnimationFrame to focus "after the unhide", which
+       * works on a desktop and fails on a phone: iOS only opens the keyboard
+       * for a focus() that happens inside the user gesture, and a rAF callback
+       * is a new task, so the box appeared and the keyboard did not. Measured
+       * as document.activeElement staying on <body> after the click.
+       * Setting hidden=false takes effect immediately, so the element is
+       * already focusable on the very next line - the frame wait bought
+       * nothing and cost the keyboard. */
+      if (input) { try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); } input.select(); }
     };
     const closeModal = () => {
       modal.hidden = true;
