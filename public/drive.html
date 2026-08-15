@@ -362,6 +362,39 @@
    * permission and reports a true-north heading of its own; Android exposes an
    * absolute orientation whose alpha counts the other way round. */
   var compassHeading=null, lastCompassDraw=0;
+
+  /* 🚨 THE COMPASS IS MEASURED FROM THE PHONE'S TOP EDGE, NOT FROM THE SCREEN.
+   *
+   * Reported twice from the road, and the second report had the detail that
+   * solves it: "if phone is upright its correct", horizontal or upside down is
+   * wrong, and going north EAST it reads north WEST.
+   *
+   * NE is 45 and NW is 315, so the error is exactly -90 - a quarter turn, not
+   * a mirror. Both webkitCompassHeading and alpha are referenced to the
+   * physical TOP of the device and know nothing about which way the content
+   * has been rotated to stay upright. Hold the phone in landscape and the top
+   * edge is now pointing 90 degrees away from where the driver is looking, so
+   * every reading is out by that much. Upside down it is out by 180. Held
+   * normally the rotation is zero, which is why upright was always right and
+   * the bug looked intermittent.
+   *
+   * ⚠️ NOT THE SAME THING AS calOffset. That measures how the phone sits in a
+   * CRADLE - a fixed mount angle that has to be calibrated once. This is how
+   * the phone is rotated relative to its own screen, which the browser already
+   * knows exactly and changes the moment somebody turns the handset. Correcting
+   * one with the other would mean re-calibrating every time the phone moved in
+   * the mount.
+   */
+  function screenAngle(){
+    var a = 0;
+    if (screen && screen.orientation && typeof screen.orientation.angle === 'number') {
+      a = screen.orientation.angle;
+    } else if (typeof window.orientation === 'number') {
+      a = window.orientation;          // older iOS: -90 for one landscape
+    }
+    return ((a % 360) + 360) % 360;
+  }
+
   function applyCompass(e){
     var h=null;
     if(typeof e.webkitCompassHeading==='number' && !isNaN(e.webkitCompassHeading)){
@@ -370,6 +403,9 @@
       h=(360-e.alpha)%360;                            // Android: alpha is CCW
     }
     if(h==null || isNaN(h)) return;
+    // Rotate the device-referenced reading into the frame the driver is
+    // actually looking at.
+    h=(h+screenAngle())%360;
     compassHeading=h;
     // At rest the compass is the only answer, but it says where the PHONE
     // faces - so it has to have the mount offset taken out of it, exactly as
@@ -435,6 +471,18 @@
   function bindCompass(){
     window.addEventListener('deviceorientationabsolute',applyCompass,true);
     window.addEventListener('deviceorientation',applyCompass,true);
+    // Turning the handset changes the correction above, and the sensor may not
+    // fire again for a moment - so redraw from the last reading immediately
+    // rather than leaving a visibly wrong bearing on screen.
+    var reorient=function(){
+      if(compassHeading==null) return;
+      if(speedMph<=3) heading=aimFromCompass((compassHeading+screenAngle())%360);
+      drawHdg(); if(me) drawMe();
+    };
+    window.addEventListener('orientationchange',reorient);
+    if(screen && screen.orientation && screen.orientation.addEventListener){
+      screen.orientation.addEventListener('change',reorient);
+    }
   }
   var soundOn=true, trailOn=false, audioCtx=null;
   var trail=[];                     // on-device only, never sent
