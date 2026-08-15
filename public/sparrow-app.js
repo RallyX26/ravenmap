@@ -875,7 +875,37 @@ refreshChrome();
 batteryWatch();
 ensureReviewToken();
 listCameras();
+/* Offer the way back BEFORE offering a second camera. See #already-have in
+   app.html for why this is the sentence that matters most on that screen. */
+if (!(node && node.token)) {
+  const back = document.getElementById('already-have');
+  if (back) back.classList.remove('hidden');
+}
 go(node && node.token ? 'watch' : 'setup');
+
+/* 🚨 ASK THE BROWSER TO KEEP THE KEY, BECAUSE LOSING IT IS THE #1 REPORTED BUG.
+ *
+ * "My camera got deleted" and "I am not signed in" are the same event, and
+ * nothing was ever deleted: this file keeps the only credential in
+ * localStorage, and localStorage is evictable. Safari clears script-writable
+ * storage after 7 DAYS for a site that is not installed to the home screen, so
+ * a volunteer who sets up a camera and comes back next week is logged out by
+ * design - and the line above then drops them into SETUP, which enrols a
+ * SECOND camera and orphans the first. Measured on the live box: 160 of 262
+ * nodes have zero sightings and zero heartbeats, and one street is enrolled six
+ * times.
+ *
+ * persist() marks the origin as one the browser must not evict. It is not
+ * granted everywhere - Chrome weighs engagement and installation, Safari ties
+ * it to being added to the home screen - so it is an improvement to the odds
+ * and not a guarantee, which is why /signin exists as the way back regardless.
+ * Requested only once a real key is held: asking a passer-by to be remembered
+ * for ever is a permission prompt for nothing. */
+if (node && node.token && navigator.storage && navigator.storage.persist) {
+  navigator.storage.persisted().then((already) => {
+    if (!already) navigator.storage.persist().catch(() => {});
+  }).catch(() => {});
+}
 
 /* Register the service worker: it makes this page INSTALLABLE (a browser offers
    "Install" only for a page backed by a worker, over HTTPS) and lets a node run

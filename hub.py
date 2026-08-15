@@ -1199,6 +1199,10 @@ class Handler(BaseHTTPRequestHandler):
             # the app rather than 404ing a printed link.
             if p in ("/app", "/node", "/key", "/contribute"):
                 return self._file(PUBLIC / "app.html")
+            # The way back in for a camera whose browser lost its key. See
+            # /api/node/whoami for what was actually happening to these people.
+            if p in ("/signin", "/login/camera"):
+                return self._file(PUBLIC / "signin.html")
             if p.startswith("/vendor/"):
                 # 🚨 `.name` FLATTENS THE PATH, WHICH IS THE TRAVERSAL GUARD AND
                 # ALSO WHY /vendor/images/* 404d. Leaflet asks for
@@ -2331,6 +2335,49 @@ class Handler(BaseHTTPRequestHandler):
                              actor=f"camera {nd['id']}",
                              ip=privacy.audit_ip(self.client_ip))
                 return self._json(out)
+
+            if p == "/api/node/whoami":
+                # 🚨 "MY CAMERA GOT DELETED." NOTHING WAS EVER DELETED.
+                #
+                # The camera app keeps its key in localStorage, and the boot
+                # line was `go(node && node.token ? 'watch' : 'setup')` - so a
+                # browser that lost that entry dropped the owner straight into
+                # SETUP, which enrols a BRAND NEW camera. Their real node still
+                # existed, still held its history and its watched road, and was
+                # now unreachable. Measured on the live box: 160 of 262 nodes
+                # have zero sightings AND zero heartbeats, and one street in
+                # Somerville is enrolled six times.
+                #
+                # Storage is lost routinely and through no fault of theirs:
+                # Safari evicts script-writable storage after 7 days for a site
+                # that is not installed to the home screen, in-app browsers keep
+                # their own throwaway copy, and clearing site data does it too.
+                #
+                # So there has to be a way back IN, and this is what a pasted
+                # key is checked against before the app adopts it. Telling
+                # somebody "that key is not valid" is only possible if something
+                # can say so; without it a mistyped key fails silently later,
+                # somewhere confusing.
+                #
+                # ⚠️ NOT AN ORACLE. It answers only to the node's OWN token, so
+                # it discloses nothing that the holder of the key does not
+                # already have, and it returns the node's own public-facing
+                # details rather than anything new.
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "no camera with that id")
+                if not nd.get("token"):
+                    return self._err(401, "this node has no token; re-enroll it")
+                if not self._token_ok(nd):
+                    return self._err(401, "that key does not match this camera")
+                return self._json({
+                    "id": nd["id"], "name": nd.get("name") or nd["id"],
+                    "status": nd.get("status"),
+                    "kind": nd.get("kind"),
+                    "sightings": nd.get("sightings") or 0,
+                    "last_seen": nd.get("last_seen"),
+                })
 
             if p == "/api/node/parked":
                 # 🚨 THE DRIVE CLIENT CANNOT LEARN THIS ANY OTHER WAY.

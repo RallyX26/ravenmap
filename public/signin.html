@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>SparrowMap — sign in to your camera</title>
+<link rel="icon" href="/static/favicon.ico">
+<link rel="stylesheet" href="/static/style.css?v=27">
+<style>
+:root{--bg:#0B0E13;--panel:#11151d;--line:#2a3244;--ink:#e8edf5;--dim:#9aa7b8;
+ --blue:#3d8cff;--bad:#ff6b74;--ok:#39d98a}
+body{margin:0;background:var(--bg);color:var(--ink);
+ font:15px/1.6 system-ui,-apple-system,sans-serif;
+ display:flex;min-height:100vh;align-items:center;justify-content:center;padding:18px}
+.card{width:min(94vw,470px);background:var(--panel);border:1px solid var(--line);
+ border-radius:14px;padding:24px 22px calc(24px + env(safe-area-inset-bottom))}
+h1{font-size:19px;margin:0 0 6px}
+p{color:var(--dim);font-size:13.5px;margin:0 0 16px}
+textarea{width:100%;min-height:74px;background:#080b11;border:1px solid var(--line);
+ border-radius:9px;color:var(--ink);font:13px ui-monospace,Menlo,Consolas,monospace;
+ padding:11px 12px;resize:vertical}
+textarea:focus{outline:0;border-color:var(--blue)}
+button.go{width:100%;margin-top:12px;background:var(--blue);color:#04101f;border:0;
+ border-radius:10px;font:700 15px system-ui;padding:14px;cursor:pointer;
+ -webkit-tap-highlight-color:transparent}
+button.go:disabled{opacity:.55;cursor:default}
+.msg{font-size:13.5px;margin-top:13px;min-height:20px}
+.msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
+.hint{color:#63718a;font-size:12.5px;margin-top:18px;line-height:1.6;
+ border-top:1px solid var(--line);padding-top:14px}
+.hint b{color:#8ea3bd}
+a{color:var(--blue)}
+</style></head><body>
+<div class="card">
+  <h1>Sign in to your camera</h1>
+  <!-- 🚨 THE FIRST LINE HAS TO KILL THE FEAR. Somebody arrives here because
+       their camera "got deleted", and it was not - the phone lost the key. If
+       the page does not say so immediately they will set up a second camera,
+       which is the thing that actually caused the mess. -->
+  <p><b>Nothing was deleted.</b> Your camera, its history and its watched road
+     are all still here — this browser just lost the key that opens it. Paste
+     the key and you are back in.</p>
+
+  <textarea id="k" spellcheck="false" autocapitalize="off" autocomplete="off"
+    placeholder="Paste your key link, or n_1a2b3c4d.YourKeyHere"></textarea>
+  <button class="go" id="go">Sign in</button>
+  <div class="msg" id="msg"></div>
+
+  <div class="hint">
+    <b>Where is my key?</b> It is the link you copied from the camera page
+    (<b>Copy the key link</b>), the QR you saved, or the key file on a USB
+    stick. Anyone who has it has the camera, so keep it somewhere only you can
+    reach.<br><br>
+    <b>Really lost it?</b> There is no reset — the key is the only credential
+    and we hold no email or account to prove it was yours. Set the camera up
+    again from <a href="/app">the camera page</a> and it will start a fresh
+    node. Its old sightings stay on the map under the old camera.<br><br>
+    Looking for the <a href="/rv">review page</a> instead? That takes a reviewer
+    token, not this key.
+  </div>
+</div>
+<script src="/static/copy.js?v=1"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (s) { return document.querySelector(s); };
+  var msg = $("#msg"), btn = $("#go");
+
+  function say(t, ok) {
+    msg.textContent = t;
+    msg.className = "msg" + (ok === true ? " ok" : ok === false ? " err" : "");
+  }
+
+  /* 🔑 TAKE THE KEY IN EVERY SHAPE IT ACTUALLY ARRIVES IN.
+   * A person pastes what they have, and what they have is whichever of these
+   * they saved months ago: the whole link from the key page, the app link, the
+   * bare id.token, or the two halves on separate lines because a mail client
+   * wrapped it. Rejecting all but one blessed format is how a page that
+   * "works" still fails the person holding a perfectly good key. */
+  function parse(raw) {
+    var s = String(raw || "").trim();
+    if (!s) return null;
+    // A link of any shape: pull the fragment out and use that.
+    var frag = /[#&]k=([A-Za-z0-9_]+)\.([A-Za-z0-9_\-]+)/.exec(s);
+    if (frag) return { id: frag[1], token: frag[2] };
+    // Bare id.token, possibly with whitespace or a stray newline through it.
+    var flat = s.replace(/\s+/g, "");
+    var m = /^(n_[A-Za-z0-9_]+)\.([A-Za-z0-9_\-]+)$/.exec(flat);
+    if (m) return { id: m[1], token: m[2] };
+    return null;
+  }
+
+  function signIn() {
+    var k = parse($("#k").value);
+    if (!k) {
+      say("That does not look like a key. It should contain something like "
+        + "n_1a2b3c4d.…  — paste the whole link if you have it.", false);
+      return;
+    }
+    btn.disabled = true;
+    say("Checking…");
+    // 🚨 VERIFIED WITH THE SERVER BEFORE IT IS STORED. Writing an unchecked key
+    // into localStorage and redirecting would look like success and fail later
+    // on the first upload, somewhere with no explanation - and by then they are
+    // back to believing the camera is gone.
+    fetch("/api/node/whoami", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ node_id: k.id, token: k.token })
+    }).then(function (r) {
+      return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+    }).then(function (res) {
+      if (!res.ok) {
+        btn.disabled = false;
+        say(res.d.error || "That key was not accepted.", false);
+        return;
+      }
+      try {
+        localStorage.setItem("sparrow.node", JSON.stringify(
+          { id: k.id, token: k.token, name: res.d.name }));
+      } catch (e) {
+        btn.disabled = false;
+        say("This browser will not let the page remember anything — private "
+          + "browsing blocks it. Open the site in a normal window.", false);
+        return;
+      }
+      // 🚨 ASK TO BE REMEMBERED FOR GOOD, WHILE WE HAVE A USER GESTURE.
+      // This is the whole point of the page: signing in once. Safari evicts
+      // script-writable storage after 7 days for a site that is not installed,
+      // which is exactly how the key was lost in the first place - so signing
+      // in without asking for persistence would just start the same 7-day
+      // clock again.
+      var done = function () {
+        say("Signed in as “" + (res.d.name || k.id) + "”. Taking you there…", true);
+        setTimeout(function () { location.href = "/app"; }, 900);
+      };
+      if (navigator.storage && navigator.storage.persist) {
+        navigator.storage.persist().then(done, done);
+      } else { done(); }
+    }).catch(function () {
+      btn.disabled = false;
+      say("Could not reach SparrowMap. Check your connection and try again.", false);
+    });
+  }
+
+  btn.addEventListener("click", signIn);
+  $("#k").addEventListener("keydown", function (e) {
+    // Enter submits; Shift+Enter still makes a newline, because a pasted key
+    // that wrapped across lines is a case this page deliberately accepts.
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); signIn(); }
+  });
+
+  // Arriving with the key already in the URL (a saved key link) - fill it in
+  // and go, rather than showing an empty box to somebody who just supplied it.
+  if (/[#&]k=/.test(location.hash || "")) {
+    $("#k").value = location.hash;
+    try { history.replaceState(null, "", location.pathname); } catch (e) {}
+    signIn();
+  }
+})();
+</script>
+<script src="/static/sitenav.js?v=1"></script>
+</body></html>

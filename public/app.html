@@ -174,6 +174,25 @@ a{color:var(--blue)}
     <!-- ============ SETUP ============ -->
     <section id="m-setup">
       <h1>Set up this camera</h1>
+      <!-- 🚨 THE MOST IMPORTANT SENTENCE ON THIS PAGE, AND IT WAS NOT HERE.
+           Landing on "Set up this camera" is what happens when the browser has
+           lost its key, and it reads as "your camera is gone" - so the owner
+           does the only thing offered and sets up a SECOND one. Their real node
+           keeps its history and its watched road and is never seen again. That
+           is how one street in Somerville came to be enrolled six times, and a
+           large part of why most nodes never produce anything.
+           Shown only when there is no key on this device: an owner who is
+           simply adding a second camera does not need talking out of it.
+           `setupReturn` in sparrow-app.js does the showing. -->
+      <p class="note hidden" id="already-have"
+         style="border-left-color:#ffb547;background:#1c1710">
+        <b>Set this camera up before?</b> Nothing has been deleted &mdash; your
+        camera, its sightings and its watched road are all still there. This
+        browser has just lost the key that opens it (phones clear it after a
+        while, and a link opened inside another app never had it).
+        <a href="/signin" style="color:#ffb547">Sign in with your key &rarr;</a>
+        <br><span style="opacity:.75">Setting up again below makes a
+        <i>second</i> camera rather than recovering the first.</span></p>
       <p class="note">Any device with a camera and a browser &mdash; a phone in
         a window, a laptop, a USB webcam. <b>Nothing to install, no account.</b>
         Detection runs here; <b>no video is ever uploaded</b>.</p>
@@ -345,7 +364,7 @@ a{color:var(--blue)}
      banner - the one shown the moment a camera is enrolled, which is exactly
      when someone needs to move their token - no copy buttons at all. -->
 <script src="/static/copy.js?v=1"></script>
-<script src="/static/sparrow-app.js?v=30"></script>
+<script src="/static/sparrow-app.js?v=31"></script>
 <!-- The camera app is where owners live, so this is where an 'owner' update
      actually reaches someone who can act on it. -->
 <script src="/static/updates.js?v=2"></script>
