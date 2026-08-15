@@ -121,3 +121,4 @@ desktop/*.spec
 # The CPU-only virtualenv used to build the desktop app. Third-party
 # site-packages, not this project's code.
 desktop/.buildenv/
+tools/measure_public_cams.py
