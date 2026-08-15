@@ -23,7 +23,9 @@ that a human already had to make anyway.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import http.cookies
+import re
 import secrets
 from typing import Optional
 
@@ -31,6 +33,9 @@ import db
 from core import CONFIG
 
 COOKIE = "sparrow_rv"
+# Shapes, checked before any lookup. See _node_for_key.
+_ID_OK = re.compile(r"^n_[A-Za-z0-9_]{1,48}$")
+_SECRET_OK = re.compile(r"^[A-Za-z0-9_\-]{16,128}$")
 MAX_AGE = 30 * 24 * 3600
 
 
@@ -96,6 +101,37 @@ def _presented(headers) -> Optional[str]:
     return None
 
 
+def _node_for_key(tok: str) -> Optional[dict]:
+    """The camera a `n_id.token` key belongs to, or None.
+
+    Deliberately strict about shape before touching the database: this runs on
+    every request that presents an unrecognised token, and an unbounded lookup
+    driven by a stranger's string is how a login endpoint becomes a way to
+    enumerate node ids.
+    """
+    if not tok or "." not in tok:
+        return None
+    node_id, _, secret = tok.partition(".")
+    if not node_id.startswith("n_") or not secret:
+        return None
+    if len(node_id) > 64 or len(secret) > 128:
+        return None
+    if not _ID_OK.match(node_id) or not _SECRET_OK.match(secret):
+        return None
+    try:
+        nd = db.node(node_id)
+    except Exception:
+        return None
+    # A node with no token accepts nobody HERE. hub's _token_ok treats a
+    # tokenless node as open because it predates node tokens and must keep
+    # ingesting; that leniency must not become a way to read a queue.
+    if not nd or not nd.get("token"):
+        return None
+    if not hmac.compare_digest(secret, nd["token"]):
+        return None
+    return nd
+
+
 def identify(headers) -> Optional[dict]:
     """The reviewer this request is authenticated as, or None.
 
@@ -108,7 +144,34 @@ def identify(headers) -> Optional[dict]:
         return None
     rec = db.review_token_by_hash(_hash(tok))
     if not rec:
-        return None
+        # 🚨 ONE CREDENTIAL. A CAMERA KEY IS A REVIEWER TOKEN FOR ITS OWN QUEUE.
+        #
+        # HIS CALL, and it removes a whole class of support problem. A volunteer
+        # was handed two secrets a minute apart - a camera key (n_id.token) and
+        # a reviewer token - which look like credentials for the same thing
+        # because from where they stand they ARE. Pasting the wrong one got a
+        # flat "not accepted", and the fix for that was briefly a client-side
+        # exchange: three round trips, a regenerate that silently revoked the
+        # token on their other device, and a second secret to lose again.
+        #
+        # This is the version with no exchange. The node token in the key is the
+        # same secret that lets that camera PUBLISH sightings; letting it read
+        # the queue of its own pending calls grants nothing it did not already
+        # have. So it is simply accepted, and there is one thing to keep.
+        #
+        # ⚠️ `own` SCOPE ONLY, NEVER pool. Pool is every other volunteer's
+        # pending government calls, and it stays a deliberate opt-in through
+        # /api/rv/my-token. Owning a camera must not silently become the right
+        # to label the whole network's evidence.
+        # ⚠️ And created_by is "camera", never "operator" - is_trusted follows
+        # who minted a token, and the retracted-photo shelf hangs off it.
+        nd = _node_for_key(tok)
+        if not nd:
+            return None
+        return {
+            "id": "key:" + nd["id"], "label": nd.get("name") or "your camera",
+            "scope": "own", "nodes": {nd["id"]}, "created_by": "camera",
+        }
     db.touch_review_token(rec["id"])
     nodes = [n for n in (rec.get("nodes") or "").split(",") if n]
     return {

@@ -369,7 +369,7 @@
 
 <div id="toasts"></div>
 
-<script src="/static/keyimport.js?v=2"></script>
+<script src="/static/keyimport.js?v=3"></script>
 <script>
 (function(){
   "use strict";
@@ -486,55 +486,19 @@
    * `pool` are revocable independently, so a camera that starts publishing
    * rubbish into the pool loses the pool and keeps its own queue. This is a
    * convenience at the front door, not a merge of the model behind it. */
-  var CAMKEY = /^(n_[A-Za-z0-9_]+)\.([A-Za-z0-9_\-]+)$/;
-
-  function cameraKeyToReviewToken(id, nodeTok, onOk, onErr){
-    withTimeout("/api/rv/my-token", {
-      method: "POST",
-      headers: {"Content-Type":"application/json",
-                "Authorization": "Bearer " + nodeTok},
-      body: JSON.stringify({node_id: id, scope: "own"})
-    }).then(function(r){
-      if(r.status === 401 || r.status === 404){
-        if(onErr) onErr("That camera key was not recognised by this server.");
-        return null;
-      }
-      return r.json().catch(function(){ return null; });
-    }).then(function(d){
-      if(!d) return;
-      if(d.review_token){ addToken(d.review_token, onOk, onErr); return; }
-      /* Already issued, and it is stored as a hash so it can never be shown
-       * again. The camera key in hand is entitled to replace it - the old one
-       * is revoked server-side, because a token that was lost to somebody else
-       * must not stay live. */
-      withTimeout("/api/rv/my-token", {
-        method: "POST",
-        headers: {"Content-Type":"application/json",
-                  "Authorization": "Bearer " + nodeTok},
-        body: JSON.stringify({node_id: id, scope: "own", regenerate: true})
-      }).then(function(r){ return r.ok ? r.json() : null; })
-        .then(function(d2){
-          if(d2 && d2.review_token) addToken(d2.review_token, onOk, onErr);
-          else if(onErr) onErr("Could not get this camera's review token.");
-        }).catch(function(){ if(onErr) onErr("Network error — try again."); });
-    }).catch(function(){ if(onErr) onErr("Network error — try again."); });
-  }
-
-  /* The gate's button is the only thing on screen that can show progress, and
-   * pasting a camera key costs THREE round trips (ask, regenerate, verify).
-   * Three seconds of an unchanged button is indistinguishable from a dead one -
-   * which is what "stuck" means. */
-  function working(on){
-    var b = document.getElementById("first-add");
-    if(!b) return;
-    if(on){
-      if(!b.dataset.label) b.dataset.label = b.textContent;
-      b.textContent = "checking…"; b.disabled = true;
-    } else {
-      b.textContent = b.dataset.label || "Add token"; b.disabled = false;
-    }
-  }
-
+  /* 🔑 ONE CREDENTIAL, AND NOTHING HERE HAS TO KNOW WHICH ONE IT IS.
+   *
+   * This briefly did a client-side exchange: spot a camera key, call
+   * /api/rv/my-token, fall back to regenerate, then sign in with the result.
+   * It worked and it was the wrong shape - three round trips, a regenerate
+   * that silently revoked the token on the owner's other device, and a second
+   * secret for them to lose again.
+   *
+   * The server accepts a camera key as a reviewer credential for that camera's
+   * own queue now (review_auth.identify), so whatever was pasted goes straight
+   * to /api/rv/me and the server decides. One request, one secret, and this
+   * page stops caring about the difference.
+   */
   function addToken(tok, onOk, onErr){
     tok = (tok||"").trim();
     if(!tok){ if(onErr) onErr("Paste a token first."); return; }
@@ -543,13 +507,16 @@
     onOk  = function(d){ working(false); if(_ok) _ok(d); };
     onErr = function(m){ working(false); if(_err) _err(m); };
 
-    // A whole sign-in link, or a key that wrapped across lines, is still a key.
-    var frag = /[#&]k=(n_[A-Za-z0-9_]+)\.([A-Za-z0-9_\-]+)/.exec(tok);
-    var km = frag ? [null, frag[1], frag[2]] : CAMKEY.exec(tok.replace(/\s+/g, ""));
-    if(km){
-      cameraKeyToReviewToken(km[1], km[2], onOk, onErr);
-      return;
+    /* A whole sign-in link, or a key that wrapped across lines, is still a key -
+     * unwrap it to the bare credential and let the server judge it. This is the
+     * only shape work left here: the server no longer cares WHICH kind of
+     * credential this is, so neither does the page. */
+    var frag = /[#&]k=(n_[A-Za-z0-9_]+\.[A-Za-z0-9_\-]+)/.exec(tok);
+    if(frag) tok = frag[1];
+    else if(/^\s*n_[A-Za-z0-9_]+\s*\.\s*[A-Za-z0-9_\-]+\s*$/.test(tok)) {
+      tok = tok.replace(/\s+/g, "");
     }
+
     if(wallet.some(function(e){ return e.token === tok; })){
       if(onOk) onOk(true); return;   // already have it
     }
