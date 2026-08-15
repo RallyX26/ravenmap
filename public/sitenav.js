@@ -111,6 +111,12 @@
        is for. This row is for the controls that belong to the SITE. */
     ".swbar{display:flex;align-items:center;justify-content:flex-end;gap:8px;",
     "  flex:1 0 100%;order:99;padding:2px 0 2px}",
+    /* The strip a header-less page gets. Deliberately plain: it is furniture,
+       not a second brand bar, and it must not compete with the page's own
+       first heading. */
+    ".swstrip{display:flex;justify-content:flex-end;padding:8px 12px 0;",
+    "  width:100%;box-sizing:border-box}",
+    ".swstrip .swbar{padding:0}",
     "#swTR,#swBR{position:fixed;display:flex;flex-direction:column;",
     "  align-items:flex-end;gap:8px;pointer-events:none}",
     "#swTR{z-index:9001}#swBR{z-index:1250;right:12px}",
@@ -401,8 +407,30 @@
     /* The header row, where it exists. Every page that has a header gets one;
      * a page without one falls back to the corner stack below, which is still
      * better than each control choosing for itself. */
+    /* 🚨 AND WHEN THERE IS NO HEADER, MAKE ONE. DO NOT FALL BACK TO FLOATING.
+     *
+     * Seven pages here have no <header> at all - transparency, status, about,
+     * guide, hardware, bugs, business - and they were the pages the corner
+     * stack was still floating over. On a phone that is a 44px button sitting
+     * on the body text of a page whose entire job is to be read, which is the
+     * screenshot that started this: the bug button on the Transparency
+     * paragraph, the Sign in pill across the heading.
+     *
+     * Moving the tools into a header only helped the pages that had one. So a
+     * page without one gets a strip of its own at the top, in flow, and the
+     * floating corner stops being used anywhere. "Position it more carefully"
+     * has now been tried six times; reserving the space is the version that
+     * cannot come back. */
     var head = document.querySelector("header.bar, header");
     var bar = null;
+    if (!head) {
+      head = document.querySelector(".swstrip");
+      if (!head && document.body) {
+        head = document.createElement("div");
+        head.className = "swstrip";
+        document.body.insertBefore(head, document.body.firstChild);
+      }
+    }
     if (head) {
       bar = head.querySelector(".swbar");
       if (!bar) {
