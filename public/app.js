@@ -121,7 +121,27 @@ const state = {
  * It is rounded and region-level because a hardcoded street-level centre in
  * published source is a real camera's neighbourhood, and this file is public.
  * The deployment's actual centre is CONFIG - served, not compiled in. */
-const map = L.map('map', { zoomControl: false, attributionControl: true })
+/* 🚨 CANVAS, NOT SVG, FOR THE VECTOR LAYERS.
+ *
+ * Reported: the map goes laggy zooming in and out over Linden, ON A PHONE
+ * ONLY. That last part is the diagnosis. Every sighting is an L.circleMarker,
+ * and Leaflet's default renderer gives each one its own SVG element - so a
+ * zoom is not "redraw some dots", it is a style recalculation and reflow over
+ * hundreds of DOM nodes, which a desktop absorbs and a phone does not.
+ *
+ * preferCanvas draws all of them into one canvas instead. Identical positions,
+ * identical colours, no clustering - clustering would have been the other
+ * obvious fix and it is the wrong one here, because merging two sightings into
+ * "2" invents a claim the map cannot support. Every dot is still exactly where
+ * it was; only the machinery underneath changed.
+ *
+ * ⚠️ Canvas ignores per-path CSS classes, so the ONE vector that depends on a
+ * stylesheet - the dashed trail (.trail{stroke-dasharray}) - is pinned back to
+ * SVG explicitly where it is created. Icons and labels are DOM markers and are
+ * unaffected either way.
+ */
+const map = L.map('map', { zoomControl: false, attributionControl: true,
+                           preferCanvas: true })
   .setView([42.7, -84.5], 8);
 // No zoom buttons at all: pinch and scroll zoom the map, and the buttons only
 // got in the way - on a phone they sat over the SparrowMap logo. `zoomControl:
@@ -691,7 +711,10 @@ async function showTrail(hash) {
   const pts = rows.map((r) => [r.lat, r.lon]);
   const col = COLOR[rows[0].vclass] || COLOR.unknown;
 
-  L.polyline(pts, { color: col, weight: 2, opacity: 0.75, className: 'trail' })
+  // Pinned to SVG: its dashes come from .trail in the stylesheet, and a
+  // canvas path has no class for CSS to reach.
+  L.polyline(pts, { color: col, weight: 2, opacity: 0.75, className: 'trail',
+                    renderer: L.svg() })
     .addTo(state.trailLayer);
   rows.forEach((r, i) => {
     L.circleMarker([r.lat, r.lon], {
