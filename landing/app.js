@@ -70,14 +70,43 @@ const CONTACT_EMAIL = "sparrowmap@icloud.com";
   const add = mk("a", "Add a camera", "display:block;padding:14px;border-radius:11px;"
     + "background:#3b82f6;color:#fff;font-weight:600;text-decoration:none;margin-bottom:10px");
   add.href = APP_URL || "https://map.sparrowmap.com/app"; add.rel = "noopener";
+
+  /* 🚨 THE SAME THREE ROUTES AS THE MAP'S CARD, AND FOR THE SAME REASON.
+   * This card and public/app.js's showIntro() are two copies of one decision -
+   * the comment above already says they must be kept in step, and they had
+   * drifted: the map's now offers Driving mode and Sign in, and this one still
+   * offered a single "Add a camera".
+   *
+   * Sign in matters MORE here, not less. A volunteer whose phone lost its
+   * camera key often starts at the front door rather than the map, and this
+   * page is on a different ORIGIN - so it cannot read their key, cannot tell
+   * whether they have one, and cannot quietly put them right. All it can do is
+   * offer the way back and say that nothing was deleted. */
+  const row = mk("div", "", "display:flex;gap:8px;margin-bottom:10px");
+  const SEC = "flex:1;display:block;padding:12px 8px;border-radius:11px;"
+    + "background:#131c27;border:1px solid #22303c;color:#c7d2dc;font-weight:600;"
+    + "font-size:13.5px;text-decoration:none;text-align:center;cursor:pointer";
+  const drive = mk("a", "🚗 Driving mode", SEC);
+  drive.href = "https://map.sparrowmap.com/drive"; drive.rel = "noopener";
+  const signin = mk("a", "🔑 Sign in", SEC);
+  signin.href = "https://map.sparrowmap.com/signin"; signin.rel = "noopener";
+  row.append(drive, signin);
+
+  const backNote = mk("div",
+    "Set up a camera before? Nothing is deleted — sign in with your key rather "
+    + "than adding it again.",
+    "color:#6f8296;font-size:12px;line-height:1.5;margin-bottom:14px");
+
   const skip = mk("button", "Just browsing", "display:block;width:100%;padding:12px;"
     + "border-radius:11px;background:transparent;border:1px solid #22303c;color:#7f93a6;"
     + "cursor:pointer;font:inherit");
   const done = () => { try { localStorage.setItem("sparrow.introSeen", "1"); } catch (e) {} ov.remove(); };
   skip.addEventListener("click", done);
-  add.addEventListener("click", done);
+  // Every way out marks it seen, or the card returns on the next visit and
+  // reads as the site having forgotten what was just chosen.
+  [add, drive, signin].forEach((el) => el.addEventListener("click", done));
   ov.addEventListener("click", (e) => { if (e.target === ov) done(); });
-  card.append(h, p, add, skip);
+  card.append(h, p, add, row, backNote, skip);
   ov.appendChild(card);
   document.body.appendChild(ov);
 })();
