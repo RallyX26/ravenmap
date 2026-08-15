@@ -186,11 +186,81 @@ $('#btnEnroll').onclick = async () => {
   node = { id: r.id, token: r.token, name };
   if (r.review_token) node.review_token = r.review_token;
   localStorage.setItem(KEY, JSON.stringify(node));
-  say($('#setupMsg'), `Registered as ${r.id}. Watch and Key are open now.`, true);
+  say($('#setupMsg'), `Registered as ${r.id}.`, true);
   stage('registered');
+  showKeyNow(node);
   showReviewBanner(node.review_token);
   refreshChrome();
 };
+
+/* 🔑 SHOW THE KEY THE MOMENT IT EXISTS, NOT ONE TAB AWAY.
+ *
+ * HIS REPORT: "you didnt show the token where the popup tells you to copy it
+ * now - had to go to key page - two clicks - show token first."
+ *
+ * Registering said "Watch and Key are open now", which is a signpost, not a
+ * key. The one moment a person is guaranteed to be paying attention to their
+ * credential is the second after they create it - and that was the moment we
+ * used to point at a tab. Every extra tap between "here is your key" and "it is
+ * saved somewhere" is a chance to lose it, and losing it is already the single
+ * biggest cause of dead cameras on this map: a browser that forgets its key
+ * enrols a SECOND camera and orphans the first.
+ *
+ * So the key is printed here, once, with a copy button and the same link the
+ * Key page offers. The Key page still exists and is still correct - this is not
+ * a second implementation of it, it is the same two strings shown at the moment
+ * they matter.
+ *
+ * ⚠️ Built with DOM calls, no innerHTML: the strict CSP on this deployment
+ * refuses inline script/style, and this block carries a live credential.
+ */
+function showKeyNow(n) {
+  if (!(n && n.id && n.token)) return;
+  const key = n.id + '.' + n.token;
+  let el = document.getElementById('keyNow');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'keyNow';
+    Object.assign(el.style, {
+      margin: '10px 0', padding: '12px 14px', borderRadius: '12px',
+      border: '1px solid #3a5', background: '#0e1a14', color: '#d8f3e4',
+      font: '13px/1.6 system-ui, sans-serif' });
+    const host = document.querySelector('main') || document.body;
+    host.insertBefore(el, host.firstChild);
+  }
+  el.textContent = '';
+
+  const h = document.createElement('div');
+  h.textContent = '🔑 This is your camera key. Save it now.';
+  Object.assign(h.style, { fontWeight: '700', marginBottom: '2px' });
+  el.appendChild(h);
+
+  const why = document.createElement('div');
+  why.textContent = 'It is the only way back into this camera if this browser '
+                  + 'forgets it. Nothing else can recover it.';
+  Object.assign(why.style, { color: '#9dc7b2', fontSize: '12.5px' });
+  el.appendChild(why);
+
+  const box = document.createElement('div');
+  box.textContent = key;
+  Object.assign(box.style, {
+    margin: '9px 0', padding: '9px 10px', borderRadius: '8px',
+    background: '#06100b', border: '1px solid #24402f',
+    font: '12.5px ui-monospace, Consolas, monospace', wordBreak: 'break-all',
+    userSelect: 'all' });
+  el.appendChild(box);
+
+  const row = document.createElement('div');
+  Object.assign(row.style, { display: 'flex', gap: '8px', flexWrap: 'wrap' });
+  if (window.sparrowCopyButton) {
+    row.appendChild(window.sparrowCopyButton(key,
+      { label: '📋 Copy key', aria: 'copy your camera key' }));
+    row.appendChild(window.sparrowCopyButton(
+      location.origin + '/signin#k=' + encodeURIComponent(key),
+      { label: '🔗 Copy sign-in link', aria: 'copy a sign-in link' }));
+  }
+  el.appendChild(row);
+}
 
 /* Show the owner where to review their OWN camera's catches. The token is
  * captured at enrollment; a camera enrolled before tokens existed fetches it
