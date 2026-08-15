@@ -446,11 +446,42 @@
     if(wallet.some(function(e){ return e.token === tok; })){
       if(onOk) onOk(true); return;   // already have it
     }
+    /* 🚨 EVERY WAY THIS CAN FAIL HAS TO SAY SO.
+     *
+     * This reported 401 and nothing else. A 429, a 500, a proxy error page, or
+     * a 200 carrying ok:false all fell through `if(!d || !d.ok) return;` and
+     * left the screen exactly as it was - the button appeared to do nothing,
+     * and the only text on screen stayed "Paste a token first." even though a
+     * token had just been pasted. Reported as "its not accepting my tokens",
+     * which is a description of silence, not of a rejection.
+     *
+     * The person holding the token cannot tell us what went wrong if the page
+     * refuses to tell THEM. Naming the status costs nothing and turns the next
+     * report into a diagnosis. */
     api("/api/rv/me", tok).then(function(r){
-      if(r.status === 401){ if(onErr) onErr("That token was not accepted."); return null; }
-      return r.json();
+      if(r.status === 401){
+        if(onErr) onErr("That token was not accepted. If you just made a new "
+                      + "one, make sure you copied the NEW token - making one "
+                      + "cancels the old.");
+        return null;
+      }
+      if(r.status === 429){
+        if(onErr) onErr("Too many tries just now. Wait a minute and tap again.");
+        return null;
+      }
+      if(!r.ok){
+        if(onErr) onErr("The server answered " + r.status + ". Nothing is wrong "
+                      + "with your token - try again in a moment.");
+        return null;
+      }
+      return r.json().catch(function(){ return null; });
     }).then(function(d){
-      if(!d || !d.ok){ return; }
+      if(d === null) return;                       // already reported above
+      if(!d || !d.ok){
+        if(onErr) onErr("That token was not recognised"
+                      + (d && d.error ? " (" + d.error + ")" : "") + ".");
+        return;
+      }
       wallet.push({ token:tok, label:d.label || "camera", scope:d.scope || "own", nodes:d.nodes || [] });
       saveWallet();
       if(onOk) onOk(false);
@@ -1070,7 +1101,15 @@
             got++;
             // Validated like any other token rather than trusted because we
             // asked for it - addToken is the only path that writes the wallet.
-            addToken(d.review_token, function(){}, function(){});
+            /* 🚨 AND THE FAILURE IS REPORTED. This passed an empty error
+             * handler, so a token the server had just minted and then refused
+             * produced no message anywhere: the button finished, nothing was
+             * added, and the screen looked identical to not having pressed it.
+             * Reported as "its not accepting my tokens and i just made a new
+             * one" - which is exactly what this looks like from the outside,
+             * and there was no way for him to see why. */
+            addToken(d.review_token, function(){},
+                     function(m){ err.textContent = m; });
           } else if(d){ already++; }
         })
         .catch(function(){})
