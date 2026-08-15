@@ -759,14 +759,22 @@ function chooseView() {
   // 🎯 WHERE THEY ARE, WHENEVER WE KNOW IT. This used to be the last resort;
   // it is the first choice. A volunteer opening the map wants their own
   // street, not the centre of everybody else's.
+  //
+  // ⚠️ `animate: false`, AND THAT IS NOT A PREFERENCE.
+  // An animated setView across four zoom levels fires zoomstart and then flies.
+  // Measured on the live page: the flight from the hardcoded start to a real
+  // fix emitted zoomstart and never landed - the map sat on the start view with
+  // an animation in limbo, so the correct branch ran, called setView, and
+  // changed nothing anybody could see. Which is the worst shape a bug can take,
+  // because every variable reads correct. A hard jump has no flight to lose.
   if (_geoLoc) {
     fittedOnce = true;
     if (_spanBounds &&
         _spanBounds.getCenter().distanceTo(L.latLng(_geoLoc)) < 60000) {
       // Their own area IS the covered area - frame the roads being watched.
-      map.fitBounds(_spanBounds.pad(0.35), { maxZoom: 17 });
+      map.fitBounds(_spanBounds.pad(0.35), { maxZoom: 17, animate: false });
     } else {
-      map.setView(_geoLoc, 12);
+      map.setView(_geoLoc, 12, { animate: false });
     }
     return;
   }
@@ -776,7 +784,7 @@ function chooseView() {
   // wherever the visitor happens to be.
   if (_spanBounds) {
     fittedOnce = true;
-    map.fitBounds(_spanBounds.pad(0.25), { maxZoom: 13 });
+    map.fitBounds(_spanBounds.pad(0.25), { maxZoom: 13, animate: false });
   }
 }
 
@@ -815,7 +823,7 @@ const MeControl = L.Control.extend({
     L.DomEvent.disableClickPropagation(d);
     L.DomEvent.on(d, 'click', (e) => {
       L.DomEvent.stop(e);
-      if (_geoLoc) { map.setView(_geoLoc, 13); return; }
+      if (_geoLoc) { map.setView(_geoLoc, 13, { animate: false }); return; }
       if (!navigator.geolocation) return;
       d.textContent = '…';
       navigator.geolocation.getCurrentPosition(
@@ -823,7 +831,7 @@ const MeControl = L.Control.extend({
           _geoLoc = [pos.coords.latitude, pos.coords.longitude];
           _geoDone = true;
           d.textContent = '◎';
-          map.setView(_geoLoc, 13);
+          map.setView(_geoLoc, 13, { animate: false });
         },
         () => { d.textContent = '◎'; },
         { enableHighAccuracy: true, timeout: 10000 });
@@ -1158,10 +1166,21 @@ function emptyState(stats) {
 async function applyConfiguredView() {
   let p;
   try { p = await (await fetch('/api/policy')).json(); } catch { return; }
-  if (fittedOnce) return;
+  // 🚨 THREE FUNCTIONS WANTED TO SET THE OPENING VIEW AND `fittedOnce` WAS THE
+  // ONLY THING KEEPING THEM APART - a flag read AFTER an await, so which one
+  // won depended on which network call returned first. That is how a Florida
+  // volunteer ended up looking at Lansing: the configured centre is this
+  // deployment's own town, and it only had to arrive at the right moment.
+  //
+  // It is now the LAST resort rather than a competitor. If a location fix is
+  // still plausibly coming, this stays out of the way entirely - chooseView
+  // owns the decision and has its own fallback for having no fix at all.
+  if (fittedOnce || _userMovedMap) return;
+  if (!_geoDone && Date.now() < _geoDeadline) return;
+  if (_geoLoc || _spanBounds) return;      // chooseView has something better
   const c = p.map_center;
   if (Array.isArray(c) && c.length === 2 && c.every(Number.isFinite)) {
-    map.setView(c, p.map_zoom || 13);
+    map.setView(c, p.map_zoom || 13, { animate: false });
   }
 }
 
