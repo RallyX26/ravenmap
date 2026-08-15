@@ -39,6 +39,40 @@
         || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);  // iPadOS
   }
 
+  function isAndroid() { return /Android/.test(navigator.userAgent || ""); }
+
+  /* 🚨 THE BROWSER SOMEBODY IS IN WHEN THEY TAP A LINK IN AN APP.
+   *
+   * A volunteer trying to install reported no download button, and sent a
+   * screenshot of the menu they were searching: Search this screen, Copy URL,
+   * Find on page, Refresh, Auto Dark mode, Resize text, Translate page. No
+   * "Add to Home screen", because that is not a browser - it is the Google
+   * app's in-app browser. It was reached from a link, which is how most people
+   * arrive at a site that is going round social media, so this is the COMMON
+   * case and not an edge one.
+   *
+   * An in-app browser cannot install a web app. It has no home-screen menu, and
+   * its storage is its own - so even the parts that do work are thrown away
+   * when it closes. Nothing this page does can change that. The only useful
+   * move is to get them out of it, and the only honest thing to show is how.
+   *
+   * `GSA/` is the Google app. `; wv)` is any Android WebView, which covers
+   * Facebook, Instagram, Messenger, Line, TikTok and the rest - all of which
+   * open links the same way. Chrome's own UA never contains either.
+   */
+  function inAppBrowser() {
+    var ua = navigator.userAgent || "";
+    return /\bGSA\/|; wv\)|FBAN|FBAV|FB_IAB|Instagram|Line\/|MicroMessenger|TikTok|Snapchat/.test(ua);
+  }
+
+  // Hands the URL to Chrome. Android resolves an intent: URL to the named
+  // package, so this is one tap rather than "copy the address, open Chrome,
+  // paste it" - which is where people give up.
+  function chromeIntent() {
+    return "intent://" + location.host + location.pathname
+         + "#Intent;scheme=https;package=com.android.chrome;end";
+  }
+
   var DISMISS = "sparrow.install.dismissed";
   function dismissed() {
     try { return localStorage.getItem(DISMISS) === "1"; } catch (e) { return false; }
@@ -138,14 +172,69 @@
     hide();
   });
 
+  /* Two different problems, so two different sets of words. Telling somebody in
+   * Chrome that they are in an app's built-in browser is worse than saying
+   * nothing: it is confidently wrong, and they will go looking for a browser
+   * they are already using. */
+  function howToAndroid(inApp) {
+    var body = inApp
+      ? 'You are in an app\'s built-in browser (this page opened from a link). ' +
+        'It cannot install apps, which is why there is no "Add to Home screen" ' +
+        'anywhere in its menu.' +
+        '<ol><li>Tap <b>Open in Chrome</b> below.</li>' +
+        '<li>In Chrome, tap <b>⬇ Add to home screen</b> at the bottom of the ' +
+        'map — or use Chrome\'s ⋮ menu → <b>Add to Home screen</b>.</li></ol>'
+      : 'Your browser has not offered to install it. Chrome, Edge, Samsung ' +
+        'Internet and Brave can all do it:' +
+        '<ol><li>Open the browser\'s menu (⋮ or ≡).</li>' +
+        '<li>Tap <b>Add to Home screen</b>, or <b>Install app</b>.</li></ol>' +
+        'If it is not there, tap <b>Open in Chrome</b> below.';
+    var back = document.createElement("div");
+    back.className = "insthow";
+    back.innerHTML =
+      '<div class="card"><b>' +
+      (inApp ? "Open it in Chrome first" : "Adding SparrowMap to your phone") +
+      '</b>' + body +
+      '<a class="close" style="display:block;text-align:center;text-decoration:none;' +
+      'background:#1c7a45;border-color:#2a9c5b;color:#fff" href="' + chromeIntent() +
+      '">Open in Chrome →</a>' +
+      '<button class="close">Not now</button></div>';
+    back.addEventListener("click", function (e) {
+      // The anchor must NOT be caught here - it has to navigate.
+      if (e.target === back || e.target.tagName === "BUTTON") back.remove();
+    });
+    document.body.appendChild(back);
+  }
+
   function boot() {
     if (installed() || dismissed()) return;
     // iOS never fires beforeinstallprompt, so its button is shown on its own
     // terms rather than waiting for an event that cannot arrive.
-    if (isIOS()) show("⬇ Add to home screen", howToIOS);
-    // Everyone else waits for the event above. Chrome fires it within a moment
-    // of load when the criteria are met; if it never fires, no button appears,
-    // which is correct - there is nothing to install into.
+    if (isIOS()) { show("⬇ Add to home screen", howToIOS); return; }
+
+    // 🚨 AN ANDROID USER WHO CANNOT INSTALL MUST BE TOLD WHY, NOT SHOWN NOTHING.
+    // The old comment here said a missing button "is correct - there is nothing
+    // to install into". That is true of the code and useless to the person: on
+    // a phone the page IS installable, they are simply in a browser that cannot
+    // do it, and silence reads as "this site has no app". Say which browser to
+    // use instead.
+    if (isAndroid() && inAppBrowser()) {
+      show("⬇ Add to home screen", function () { howToAndroid(true); });
+      return;
+    }
+
+    // A real Android browser that has not fired the event yet: wait, then offer
+    // the instructions rather than nothing. Chrome fires within a moment of
+    // load when the criteria are met, so anything still silent after this is
+    // either already installed or a browser that will not offer it.
+    if (isAndroid()) {
+      setTimeout(function () {
+        if (deferred || installed() || dismissed() || wrap) return;
+        show("⬇ Add to home screen", function () { howToAndroid(false); });
+      }, 4000);
+    }
+    // Desktop waits for the event above and shows nothing without it, which is
+    // right - there is no home screen to add to.
   }
 
   if (document.body) boot();
