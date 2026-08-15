@@ -137,6 +137,14 @@
     font:inherit;font-weight:600;font-size:15px;padding:12px 22px;cursor:pointer
   }
   .primary:hover{background:var(--accent2)}
+  /* The second way in, deliberately quieter than Add token: pasting is still
+     the fast path for anyone who has the token on their clipboard. */
+  .ghost{
+    appearance:none;border:1px solid var(--line);border-radius:12px;
+    background:transparent;color:var(--dim);font:inherit;font-size:13.5px;
+    padding:11px 14px;cursor:pointer;width:100%;margin-top:8px
+  }
+  .ghost:hover{color:var(--ink);border-color:var(--accent)}
 
   /* ---- add screen / modal ---- */
   .wrap{height:100%;display:flex;align-items:center;justify-content:center;padding:24px}
@@ -204,6 +212,15 @@
     <p>Paste the reviewer token you were given. You can add more than one to review all your cameras in one place.</p>
     <input id="first-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="reviewer token">
     <button class="primary" id="first-add">Add token</button>
+    <!-- 🚨 THE PASTE BOX WAS THE ONLY WAY IN, AND FOR SOME PEOPLE IT IS NO WAY
+         IN AT ALL. The token is 32 characters of random case-sensitive text.
+         We hand it over as a file and as a QR code precisely so nobody has to
+         type it, then offered a gate that accepted neither - so somebody
+         holding the file we gave them was stuck on "Paste a token first."
+         Same importer as the camera sign-in, not a second copy of it. -->
+    <button class="ghost" id="first-file">📄 Load from a file or QR photo</button>
+    <input id="first-fileinput" type="file"
+           accept=".html,.htm,.txt,text/plain,text/html,image/*" hidden>
     <div class="err" id="first-err"></div>
   </div>
 </div>
@@ -352,6 +369,7 @@
 
 <div id="toasts"></div>
 
+<script src="/static/keyimport.js?v=1"></script>
 <script>
 (function(){
   "use strict";
@@ -853,6 +871,39 @@
     addToken($("#first-token").value, function(){ start(); }, function(m){ $("#first-err").textContent = m; });
   });
   $("#first-token").addEventListener("keydown", function(e){ if(e.key==="Enter") $("#first-add").click(); });
+
+  /* File / QR import for the reviewer token.
+   *
+   * The shape is deliberately permissive: a reviewer token is 32 characters of
+   * token_urlsafe with no prefix to key off, so anything of the right shape is
+   * offered to the server and /api/rv/me is what actually decides. Guessing
+   * harder here could only ever reject a real token - the server cannot be
+   * fooled by a wrong one. */
+  (function(){
+    var fi = $("#first-fileinput"), fb = $("#first-file");
+    if(!fi || !fb || !window.sparrowKeyImport) return;
+    var imp = window.sparrowKeyImport({
+      file: fi,
+      parse: function(raw){
+        var s = String(raw||"").trim();
+        if(!s) return null;
+        var link = /[#&]t=([A-Za-z0-9_\-]{16,})/.exec(s);
+        if(link) return link[1];
+        var flat = s.replace(/\s+/g, "");
+        if(/^[A-Za-z0-9_\-]{20,64}$/.test(flat)) return flat;
+        // A token sitting inside a bigger file (the page we hand out).
+        var loose = /[A-Za-z0-9_\-]{28,48}/.exec(s);
+        return loose ? loose[0] : null;
+      },
+      onValue: function(tok){
+        $("#first-token").value = tok;
+        addToken(tok, function(){ start(); },
+                      function(m){ $("#first-err").textContent = m; });
+      },
+      say: function(msg){ $("#first-err").textContent = msg; }
+    });
+    fb.addEventListener("click", function(e){ e.preventDefault(); imp.pick(); });
+  })();
 
   $("#add-btn").addEventListener("click", function(){
     addToken($("#add-token").value, function(dup){
