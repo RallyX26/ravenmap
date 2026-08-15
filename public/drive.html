@@ -29,7 +29,15 @@
      Sized and placed for a phone in a windscreen mount: the buttons are the
      full width of a thumb and far apart, because the wrong one here publishes
      a stranger's car to a public map. */
-  #copask{position:absolute;inset:0;z-index:1400;display:none;
+  /* 🚨 ABOVE EVERYTHING, INCLUDING THE FULL-SCREEN CAMERA.
+     The expandable dashcam I added an hour ago sits at 1500 and its close
+     button at 1600, so a full-screen preview COVERED the one prompt this page
+     exists to show - a patrol car passes, the crop is parked, and the question
+     is asked behind the picture. Reported immediately: "the is it a cop pop up
+     should pop up when cam is fullscreen too, its hidden".
+     Nothing on this page may outrank the question. If a control ever needs to
+     sit on top of it, that control is wrong. */
+  #copask{position:absolute;inset:0;z-index:2200;display:none;
     align-items:center;justify-content:center;background:rgba(4,7,12,.72);
     backdrop-filter:blur(3px);padding:16px}
   #copask.show{display:flex;animation:pop .2s ease}
@@ -53,7 +61,7 @@
     background:none;border:0;color:#6b7a8d;font-size:.8rem;cursor:pointer}
 
   /* --- top banner (alert) --- */
-  #alert{position:absolute;top:0;left:0;right:0;z-index:1200;
+  #alert{position:absolute;top:0;left:0;right:0;z-index:2100;
     padding:calc(env(safe-area-inset-top) + 14px) 18px 14px;
     background:linear-gradient(180deg,rgba(239,68,68,.97),rgba(239,68,68,.82));
     color:#fff;font-weight:800;font-size:1.35rem;letter-spacing:.2px;
