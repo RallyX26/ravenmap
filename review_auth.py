@@ -168,9 +168,29 @@ def identify(headers) -> Optional[dict]:
         nd = _node_for_key(tok)
         if not nd:
             return None
+        # 🚨 POOL, HIS CALL - AND IT TAKES NOTHING AWAY.
+        #
+        # I had this at `own` scope on the reasoning that owning a camera must
+        # not silently become the right to label the whole network's evidence.
+        # That reasoning was wrong about the FACTS: a pool token is already
+        # self-service, and /api/rv/my-token hands one to anybody holding this
+        # exact camera key, in one request. The extra step was friction, not a
+        # boundary - it gated nothing, it just made people ask twice.
+        #
+        # ⚠️ created_by MUST stay "self". `is_trusted` is
+        #     nodes is None and scope == "pool" and created_by != "self"
+        # so calling this anything else - "camera" looked more honest - flips
+        # every camera owner to TRUSTED and hands them the retracted-photo
+        # shelf: the power to see and delete photographs the map has already
+        # withdrawn. This IS the self-service door, so it says so.
+        #
+        # own_nodes carries the camera this key belongs to, so "my queue" can
+        # still mean the owner's own cameras even though the scope is now the
+        # whole pool. `nodes` stays None because that is what grants the pool.
         return {
             "id": "key:" + nd["id"], "label": nd.get("name") or "your camera",
-            "scope": "own", "nodes": {nd["id"]}, "created_by": "camera",
+            "scope": "pool", "nodes": None, "own_nodes": {nd["id"]},
+            "created_by": "self",
         }
     db.touch_review_token(rec["id"])
     nodes = [n for n in (rec.get("nodes") or "").split(",") if n]

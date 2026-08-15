@@ -122,7 +122,13 @@ def queue(reviewer: dict, scope: str = "pool", limit: int = 60,
         # else's cameras is worse than no number.
         if allowed is not None and node_id not in allowed:
             continue
-        if scope == "mine" and allowed is not None and node_id not in allowed:
+        # ⚠️ "MINE" HAS TO KEEP MEANING MINE FOR A POOL-SCOPED REVIEWER.
+        # A camera key now grants the pool (see review_auth.identify), so
+        # `allowed` is None for it and this filter would pass everything -
+        # "my queue" would quietly become the whole network's queue. own_nodes
+        # is the camera the key belongs to, and it is what "mine" means.
+        mine_only = reviewer.get("own_nodes") or allowed
+        if scope == "mine" and mine_only is not None and node_id not in mine_only:
             continue
         was_rejected = head_rejected(meta)
         if was_rejected:
