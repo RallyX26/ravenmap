@@ -70,8 +70,12 @@
        the LIVE indicator and the bug button hidden behind the header
        completely. An offset guessed from one page cannot be right on all of
        them, so fit() measures the real header instead (see placeTools). */
+    /* A ROW, not a column. Stacked, the second item landed on the map panel's
+       "watched roads" checkbox - the corner is only one control tall before it
+       runs into the page. Side by side, both sit in the strip above the panel
+       and nothing below is covered. */
     ".swtools{position:fixed;z-index:9001;right:12px;display:flex;",
-    "  flex-direction:column;align-items:flex-end;gap:8px}",
+    "  flex-direction:row;align-items:center;gap:8px}",
     ".swtoplink{display:inline-flex !important;align-items:center;gap:6px;",
     "  white-space:nowrap;padding:7px 12px;border-radius:999px;",
     "  text-decoration:none;background:#141c28;border:1px solid #2a3547;",
