@@ -259,8 +259,22 @@ def enroll(name: str, lat: float, lon: float, pubkey: Optional[str] = None,
     # So everything gets a span EXCEPT kind='mobile', which is the one that is
     # genuinely carried: driving mode, whose sightings do carry their own GPS
     # and for which a fixed watched road is a false claim about a street.
+    # 🚨 A PUBLIC TRAFFIC CAMERA GETS NO SPAN EITHER, FOR THE OPPOSITE REASON.
+    #
+    # A span exists to publish the ROAD a camera watches while withholding the
+    # HOUSE it sits in. A government traffic camera has no house to protect:
+    # the transport authority publishes its exact coordinates, SparrowMap
+    # passes them straight through, and the transparency page says so. There is
+    # nothing left for a span to hide.
+    #
+    # It is also what makes scale possible. road.resolve() is an Overpass query
+    # per camera, and these arrive in thousands - Finland alone is 2,160. That
+    # is thousands of requests to somebody else's free service to compute a
+    # privacy screen for a camera whose position is already public. The
+    # sightings carry the camera's own published position, which is the honest
+    # thing to draw anyway.
     span = None
-    if kind != "mobile":
+    if kind not in ("mobile", "public_cam"):
         import road
         span = road.resolve(lat, lon, heading or 0.0, fov, reach_m,
                             online=snap_road)

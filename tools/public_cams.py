@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import base64
 import concurrent.futures as cf
+import gzip
 import io
 import json
 import sys
@@ -82,49 +83,64 @@ def nyc_index() -> list:
     return out
 
 
-def _get_json(url: str, timeout: int = 45):
-    req = urllib.request.Request(url, headers={"User-Agent": UA_SURVEY})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read())
+def _get_json(url: str, timeout: int = 60):
+    return json.loads(fetch(url, timeout=timeout))
 
 
 def finland_index() -> list:
-    """Fintraffic weathercams. CC BY 4.0, no key, and the ONE source that
-    publishes the resolution of every image in its own metadata.
+    """Fintraffic weathercams. CC BY 4.0, no key.
 
-    🚨 THIS IS WHY FINLAND GOES FIRST. Every other network has to be probed
-    image by image to find out which cameras clear the 120px-of-vehicle bar -
-    that is one HTTP fetch per camera per survey, thousands of them, against
-    somebody else's free service. Fintraffic states it, so the whole HD subset
-    can be selected without downloading a single frame.
+    🚨 THE ONE NETWORK THAT PUBLISHES ITS OWN RESOLUTIONS. Every other feed has
+    to be probed image by image to find out which cameras clear the 120px-of-
+    vehicle bar - thousands of downloads against somebody else's free service,
+    just to ask a question they could have answered. Fintraffic states it per
+    preset, so the HD subset is selected from metadata alone.
+
+    ⚠️ The resolution is in the per-station DETAIL, not the index, so this costs
+    809 small metadata requests once. That is still an order of magnitude
+    cheaper than fetching 2,272 images to measure them, and it happens at
+    survey time rather than on every poll.
     """
     idx = _get_json("https://tie.digitraffic.fi/api/weathercam/v1/stations")
+    ids = [(f.get("properties") or {}).get("id")
+           for f in (idx.get("features") or [])]
+    ids = [i for i in ids if i]
+
+    def one(sid):
+        try:
+            return _get_json(
+                f"https://tie.digitraffic.fi/api/weathercam/v1/stations/{sid}",
+                timeout=30)
+        except Exception:
+            return None
+
     out = []
-    for f in (idx.get("features") or []):
-        pr = f.get("properties") or {}
-        geo = (f.get("geometry") or {}).get("coordinates") or []
-        if len(geo) < 2:
-            continue
-        lon, lat = float(geo[0]), float(geo[1])
-        sid = pr.get("id") or f.get("id")
-        for pre in (pr.get("presets") or []):
-            if str(pre.get("inCollection")).lower() == "false":
+    with cf.ThreadPoolExecutor(max_workers=24) as pool:
+        for d in pool.map(one, ids):
+            if not d:
                 continue
-            res = str(pre.get("resolution") or "")
-            try:
-                w = int(res.split("x")[0])
-            except Exception:
-                w = 0
-            if w < MIN_HD_WIDTH:
+            pr = d.get("properties") or {}
+            geo = (d.get("geometry") or {}).get("coordinates") or []
+            if len(geo) < 2:
                 continue
-            pid = pre.get("id")
-            if not pid:
-                continue
-            out.append({"src": "fi", "ref": pid,
-                        "name": (pre.get("presentationName")
-                                 or pr.get("name") or str(sid))[:60],
-                        "lat": lat, "lon": lon,
-                        "url": f"https://weathercam.digitraffic.fi/{pid}.jpg"})
+            lon, lat = float(geo[0]), float(geo[1])
+            for pre in (pr.get("presets") or []):
+                if not pre.get("inCollection"):
+                    continue
+                try:
+                    w = int(str(pre.get("resolution") or "0").split("x")[0])
+                except Exception:
+                    w = 0
+                if w < MIN_HD_WIDTH:
+                    continue
+                url = pre.get("imageUrl")
+                pid = pre.get("id")
+                if not url or not pid:
+                    continue
+                out.append({"src": "fi", "ref": pid,
+                            "name": (pre.get("presentationName")
+                                     or pr.get("name") or pid)[:60],
+                            "lat": lat, "lon": lon, "url": url})
     return out
 
 
@@ -166,11 +182,16 @@ def iowa_index() -> list:
         geo = (f.get("geometry") or {}).get("coordinates") or []
         if len(geo) < 2:
             continue
-        img = pr.get("IMAGEURL") or pr.get("imageUrl") or pr.get("IMAGE_URL")
+        # ⚠️ THE FIELD NAMES ARE CASE-SENSITIVE AND NOT WHAT YOU WOULD GUESS.
+        # This asked for IMAGEURL/DESCRIPTION and got zero cameras from a
+        # feed that was returning 1,251 of them - a silent empty result, which
+        # is the failure mode this project keeps having to design against.
+        # The real names, read from the response: ImageURL, Desc_, device_id.
+        img = pr.get("ImageURL") or pr.get("IMAGEURL") or pr.get("imageUrl")
         if not img:
             continue
-        out.append({"src": "ia", "ref": str(pr.get("OBJECTID") or img)[-24:],
-                    "name": (pr.get("DESCRIPTION") or pr.get("NAME")
+        out.append({"src": "ia", "ref": str(pr.get("device_id") or img)[-24:],
+                    "name": (pr.get("Desc_") or pr.get("Route")
                              or "Iowa camera")[:60],
                     "lat": float(geo[1]), "lon": float(geo[0]), "url": img})
     return out
@@ -183,10 +204,64 @@ SOURCES = {"nyc": nyc_index, "fi": finland_index,
 # --------------------------------------------------------------------------
 # detection
 # --------------------------------------------------------------------------
-def fetch(url: str, ua: str = UA_SURVEY, timeout: int = 15) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": ua})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+class NotModified(Exception):
+    """The camera says the picture has not changed since we last looked."""
+
+
+# 🚨 THE WHOLE SCALING PROBLEM IS BANDWIDTH, NOT COMPUTE, AND THIS IS THE FIX.
+#
+# Measured before building anything: a camera costs 0.36s of NETWORK and 0.07s
+# of inference. So the ceiling was never the GPU - at ~14 frames a second on one
+# core, a 20s cycle covers ~280 cameras before compute matters at all. What does
+# not scale is DOWNLOADING: several thousand HD JPEGs at ~200 KB each is
+# hundreds of megabytes per sweep, every sweep, for ever, over a home
+# connection.
+#
+# But a traffic camera refreshes every 1-5 minutes and we poll faster than that,
+# so MOST FETCHES DOWNLOAD A PICTURE WE ALREADY HAVE. A conditional request
+# turns those into a 304 with no body: ~200 bytes instead of ~200 KB, a
+# thousandfold saving on the majority of requests, and no inference either
+# because there is nothing new to look at.
+#
+# It is also the polite thing to do. These are somebody else's public services,
+# several of them explicitly asking for it, and this is the difference between
+# being a good citizen of their infrastructure and being a problem for it.
+_COND: dict = {}          # url -> (etag, last_modified)
+_COND_MAX = 40_000
+
+
+def fetch(url: str, ua: str = UA_SURVEY, timeout: int = 15,
+          conditional: bool = False) -> bytes:
+    headers = {"User-Agent": ua,
+               # Finland (Fintraffic) REFUSES an uncompressed request outright:
+               # 406 "Use of gzip compression is required". Sending it always is
+               # correct anyway - it is their bandwidth too.
+               "Accept-Encoding": "gzip",
+               "Digitraffic-User": "SparrowMap/public-cameras"}
+    if conditional:
+        et, lm = _COND.get(url, (None, None))
+        if et:
+            headers["If-None-Match"] = et
+        if lm:
+            headers["If-Modified-Since"] = lm
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            body = r.read()
+            if r.headers.get("Content-Encoding") == "gzip":
+                body = gzip.decompress(body)
+            if conditional:
+                et = r.headers.get("ETag")
+                lm = r.headers.get("Last-Modified")
+                if et or lm:
+                    if len(_COND) > _COND_MAX:
+                        _COND.clear()
+                    _COND[url] = (et, lm)
+            return body
+    except urllib.error.HTTPError as e:
+        if e.code == 304:
+            raise NotModified()
+        raise
 
 
 def load_model():
@@ -380,16 +455,27 @@ def cmd_run(args) -> int:
     seen_last = {}
 
     def grab(c):
-        """Fetch one camera. Returns (cam, image or None, error)."""
+        """Fetch one camera. Returns (cam, image or None, error).
+
+        A camera whose picture has not changed returns (c, None, "304"), which
+        the loop skips without spending any inference on it - see fetch().
+        """
         try:
-            return c, Image.open(io.BytesIO(fetch(c["url"]))).convert("RGB"), None
+            raw = fetch(c["url"], conditional=True)
+            return c, Image.open(io.BytesIO(raw)).convert("RGB"), None
+        except NotModified:
+            return c, None, "304"
         except Exception as exc:
             return c, None, f"{type(exc).__name__}: {str(exc)[:40]}"
 
     try:
         while True:
             cycle_started = time.time()
+            unchanged = 0
             for c, img, err in pool.map(grab, cams):
+                if err == "304":
+                    unchanged += 1          # nothing new; costs ~200 bytes
+                    continue
                 if err:
                     print(f"  {c['name'][:34]:<36} unreachable ({err})")
                     continue
@@ -442,6 +528,8 @@ def cmd_run(args) -> int:
                 if args.once:
                     continue
             took = time.time() - cycle_started
+            if unchanged:
+                print(f"  -- {unchanged}/{len(cams)} unchanged (304, no download)")
             print(f"  -- cycle done in {took:.1f}s: {sent} sent, {skipped} too "
                   f"small --" + ("  ⚠ SLOWER THAN THE POLL INTERVAL"
                                  if took > POLL_S else ""), flush=True)
