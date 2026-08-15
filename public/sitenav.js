@@ -278,7 +278,7 @@
     var b = document.createElement("button");
     b.type = "button";
     b.className = "swbug";
-    b.textContent = "\U0001F41E";
+    b.textContent = "🐞";
     b.title = "Report a problem";
     b.setAttribute("aria-label", "report a problem");
     b.addEventListener("click", openBugSheet);
@@ -303,7 +303,7 @@
     ta.placeholder = "What were you doing, and what happened?";
     var pick = document.createElement("label");
     pick.className = "swbugpick";
-    pick.textContent = "\U0001F4F7 Attach a screenshot";
+    pick.textContent = "📷 Attach a screenshot";
     var input = document.createElement("input");
     input.type = "file"; input.accept = "image/*"; input.hidden = true;
     pick.appendChild(input);
