@@ -252,10 +252,17 @@
     col.style.top = "calc(" + top + "px + env(safe-area-inset-top))";
   }
 
+  /* ⚠️ NOT ON /drive. Driving mode already has its own control rail down the
+   * right-hand side and its own way out, and the screenshot showed these two
+   * landing on top of both. Two more floating buttons over a moving map, in a
+   * car, is clutter at best and a mis-tap at worst - the one page where the
+   * fewest controls is the right answer. */
+  var NO_TOOLS = { "/signin": 1, "/app": 1, "/login/camera": 1, "/drive": 1 };
+
   function topLink() {
     if (document.querySelector(".swtoplink")) return;
     var here = location.pathname.replace(/\/+$/, "") || "/";
-    if (here === "/signin" || here === "/app" || here === "/login/camera") return;
+    if (NO_TOOLS[here]) return;
 
     var has = false;
     try { has = !!JSON.parse(localStorage.getItem("sparrow.node") || "null"); }
@@ -300,6 +307,7 @@
    */
   function bugButton() {
     if (document.querySelector(".swbug")) return;
+    if (NO_TOOLS[location.pathname.replace(/\/+$/, "") || "/"]) return;
     var b = document.createElement("button");
     b.type = "button";
     b.className = "swbug";

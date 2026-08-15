@@ -92,9 +92,14 @@
   /* A promise that is cut off at both edges reads as a promise with something
      hidden in it, which is the opposite of the point. Wrap it instead of
      letting it overflow: bounded width, centred, two short lines on a phone. */
-  /* +150px, not +96px: the bottom bar took the strip this used to sit in. */
+  /* 🚨 BELOW THE DASHCAM, NOT ON IT. I moved this to 150px to clear the new
+     bottom bar and put it straight onto #camTile, which sits at 152px - so the
+     promise about privacy was covering the camera it describes. Reported with a
+     screenshot.
+     The strip now stacks cleanly from the bottom: nav (~53px), this chip, then
+     the dashcam tile at 152px. */
   #priv{position:absolute;z-index:1000;left:50%;transform:translateX(-50%);
-    bottom:calc(env(safe-area-inset-bottom) + 150px);font-size:.68rem;color:var(--dim);
+    bottom:calc(env(safe-area-inset-bottom) + 62px);font-size:.68rem;color:var(--dim);
     background:rgba(13,18,25,.82);border:1px solid var(--line);border-radius:14px;
     padding:6px 14px;backdrop-filter:blur(6px);
     max-width:min(92vw,420px);width:max-content;text-align:center;
@@ -161,6 +166,31 @@
     border-radius:12px;overflow:hidden;border:1px solid var(--line);background:#000;
     display:none;box-shadow:0 6px 18px rgba(0,0,0,.5);transition:box-shadow .2s,border-color .2s}
   #camTile.flash{border-color:var(--ok);box-shadow:0 0 0 3px rgba(34,197,94,.55)}
+  /* 🚨 TAP TO FILL THE SCREEN. A 116x88 preview is enough to confirm the camera
+     is pointed at the road and nowhere near enough to aim it, or to see why a
+     pass was missed. Mounting a phone in a windscreen is a fiddly job done once
+     and got wrong easily, so the one control that helps is being able to
+     actually SEE what the lens sees.
+     A class rather than the Fullscreen API: this is inside a standalone PWA
+     where requestFullscreen is unreliable on iOS, and a CSS state cannot leave
+     the app in a mode the page cannot exit. */
+  #camTile.big{left:0;right:0;bottom:0;top:0;width:auto;height:auto;
+    border-radius:0;border:0;z-index:1500;box-shadow:none}
+  #camTile.big #dashvid{object-fit:contain;background:#000}
+  #camTile.big #camTag{left:12px;top:calc(env(safe-area-inset-top) + 12px);
+    font-size:.7rem;padding:4px 10px}
+  /* An explicit way out, sized for a thumb, because a full-screen view with no
+     visible exit in a moving car is the wrong kind of surprise. */
+  #camClose{position:absolute;z-index:1600;display:none;
+    right:12px;top:calc(env(safe-area-inset-top) + 10px);
+    width:44px;height:44px;border-radius:14px;border:1px solid var(--line);
+    background:rgba(13,18,25,.86);color:var(--ink);font-size:1.2rem;
+    align-items:center;justify-content:center;backdrop-filter:blur(8px)}
+  #camTile.big #camClose{display:flex}
+  #camHint{position:absolute;right:6px;bottom:5px;font-size:.5rem;
+    letter-spacing:.08em;text-transform:uppercase;color:#9fb4cc;
+    background:rgba(0,0,0,.45);padding:1px 5px;border-radius:5px}
+  #camTile.big #camHint{display:none}
   #dashvid{width:100%;height:100%;object-fit:cover;display:block}
   #dashov{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   #camTag{position:absolute;left:5px;top:4px;font-size:.55rem;letter-spacing:.1em;
@@ -210,6 +240,8 @@
   <video id="dashvid" playsinline muted autoplay></video>
   <canvas id="dashov"></canvas>
   <div id="camTag">dashcam</div>
+  <div id="camHint">tap to expand</div>
+  <button id="camClose" title="Shrink the camera view" aria-label="shrink the camera view">&#10005;</button>
 </div>
 
 <div id="side">
@@ -271,7 +303,7 @@
      and the least able to go hunting - did not.
      Loaded here rather than at the end of the body so the bar exists before the
      driving script measures anything against the viewport. -->
-<script src="/static/sitenav.js?v=8"></script>
+<script src="/static/sitenav.js?v=9"></script>
 <script src="/vendor/leaflet.js"></script>
 <script>
 (function(){
@@ -868,6 +900,23 @@
     for(var i=0;i<hits.length;i++){var b=hits[i].box;
       g.strokeRect(b[0]*s+ox,b[1]*s+oy,(b[2]-b[0])*s,(b[3]-b[1])*s);}
   }
+  /* Expand / shrink. Bound on the TILE, so anywhere on the picture works - a
+   * small target on a screen being used in a car is a target that gets missed
+   * or mis-tapped. The close button stops propagation so it does not re-toggle.
+   * drawDashOverlay reads the canvas' client size each frame, so the boxes
+   * follow the new size with nothing else to update. */
+  function toggleCam(){
+    var t=$('#camTile');
+    t.classList.toggle('big');
+    // The overlay canvas is sized from clientWidth on the next frame; nudge it
+    // so the boxes do not stay at the old scale until the next detection.
+    var cv=$('#dashov'); if(cv){ cv.width=cv.clientWidth; cv.height=cv.clientHeight; }
+  }
+  $('#camTile').addEventListener('click', toggleCam);
+  $('#camClose').addEventListener('click', function(e){
+    e.stopPropagation(); $('#camTile').classList.remove('big');
+  });
+
   function flashTile(){ var t=$('#camTile'); t.classList.add('flash');
     setTimeout(function(){t.classList.remove('flash');},450); }
   /* Pinpoint the vehicle itself, not just the phone. From the driver's fix and
