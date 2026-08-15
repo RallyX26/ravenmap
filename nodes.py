@@ -402,12 +402,30 @@ def sighting_position(nd: dict, lat: Optional[float] = None,
     # place the sighting - a dot in roughly the right place beats no dot.
     base_lat = nd.get("pub_lat") if nd.get("pub_lat") is not None else nd["lat"]
     base_lon = nd.get("pub_lon") if nd.get("pub_lon") is not None else nd["lon"]
-    reach = float(nd.get("reach_m") or 40) * 0.6
-    hdg = math.radians(float(nd.get("heading") or 0))
-    dlat = (reach * math.cos(hdg)) / 111_320.0
-    dlon = (reach * math.sin(hdg)) / (111_320.0 *
-                                      max(math.cos(math.radians(base_lat)), 1e-6))
-    fb_lat, fb_lon = round(base_lat + dlat, 6), round(base_lon + dlon, 6)
+    # 🚨 NO HEADING MEANS NO PUSH, NOT A PUSH DUE NORTH.
+    #
+    # `nd.get("heading") or 0` collapsed "this camera never reported an aim"
+    # into "this camera points north", and then moved the dot 0.6 x reach in
+    # that invented direction. A browser enrolment reports no heading at all, so
+    # for most nodes this was pure fabrication: a real displacement, in a
+    # direction nobody supplied, on top of a base already jittered by up to 60 m.
+    # Reported as sightings appearing about 80 m north of the camera - which is
+    # exactly 0.6 x an 80 m reach plus the jitter.
+    #
+    # A camera that genuinely points north has heading 0.0 STORED, which is not
+    # the same value as None, and it still gets its push. The distinction is the
+    # whole fix: guessing a direction adds error without adding information, and
+    # the snap below can only work with what it is given.
+    hdg_raw = nd.get("heading")
+    if hdg_raw is None:
+        fb_lat, fb_lon = round(base_lat, 6), round(base_lon, 6)
+    else:
+        reach = float(nd.get("reach_m") or 40) * 0.6
+        hdg = math.radians(float(hdg_raw))
+        dlat = (reach * math.cos(hdg)) / 111_320.0
+        dlon = (reach * math.sin(hdg)) / (111_320.0 *
+                                          max(math.cos(math.radians(base_lat)), 1e-6))
+        fb_lat, fb_lon = round(base_lat + dlat, 6), round(base_lon + dlon, 6)
 
     # 🚨 THIS BRANCH IS WHERE THE OFF-ROAD DOTS ACTUALLY CAME FROM, and it is
     # worse than it looks. A browser enrolment reports NO heading, so `hdg` is
