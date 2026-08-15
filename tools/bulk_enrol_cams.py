@@ -61,25 +61,17 @@ def main() -> int:
         if nm.startswith(PREFIX):
             have.add(nm)
 
-    # 🚨 THE NAME ALONE IS NOT UNIQUE, AND THAT WOULD HAVE LOST THOUSANDS.
+    # 🚨 THE NAME IS THE DURABLE LINK AND IT IS BUILT IN EXACTLY ONE PLACE.
     #
-    # Fintraffic reuses preset names across stations - "Tienpinta" (road
-    # surface) appears at almost every site, at different coordinates. Keyed on
-    # the name, the first one would register and every later camera with the
-    # same name would be silently skipped as "already registered". Silent, and
-    # therefore invisible: the run would report success having dropped most of
-    # the network.
-    #
-    # The source's own reference is the only thing guaranteed unique, so it
-    # goes in the name and the name stays the durable link. Truncation puts the
-    # ref FIRST-CLASS at the end where it cannot be cut off, and the human part
-    # is what gets shortened.
+    # Neither half of it is unique alone. Fintraffic reuses preset names across
+    # stations ("Tienpinta" at almost every site), so the human part cannot be
+    # the key; Iowa publishes several directional views per device_id, so the
+    # source ref cannot be either. Together they are unique, and the poller has
+    # to rebuild the identical string to find these credentials again - so
+    # pc.node_name_for is the one definition and nobody writes a second.
     todo = []
     for c in cams:
-        ref = str(c.get("ref") or "")
-        tail = f" [{c['src']}:{ref}]"
-        human = c["name"][:max(8, 80 - len(PREFIX) - len(tail))]
-        name = PREFIX + human + tail
+        name = pc.node_name_for(c)
         if name in have:
             continue
         todo.append((name, c))

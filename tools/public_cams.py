@@ -394,8 +394,38 @@ def save_state(st: dict) -> None:
 NAME_PREFIX = "Public traffic camera - "
 
 
+def node_name_for(c: dict) -> str:
+    """The node name a camera gets. THE SINGLE DEFINITION - do not re-derive.
+
+    🚨 THIS IS THE JOIN KEY BETWEEN A SOURCE'S CAMERA AND OUR DATABASE ROW, and
+    two separate programs have to agree on it exactly: bulk_enrol_cams.py to
+    decide what is already registered, and cmd_tokens/cams_from_tokens to find
+    the credentials again. Written out twice it would drift, and the failure
+    would be silent both ways - cameras registered twice, or a fleet that never
+    polls.
+
+    ⚠️ AND THE SOURCE REF ALONE IS NOT ENOUGH, which cost 400 cameras.
+    The obvious key is `src:ref`, and it is wrong: Iowa publishes several
+    DIRECTIONAL VIEWS per `device_id`, each its own image URL and its own
+    description. Keyed on the ref, 103 devices collapsed to one entry and 400
+    perfectly good views were dropped without a word. The full name carries the
+    view's description as well, so it is unique where the ref is not.
+
+    The ref still goes in, last, where truncation cannot reach it: camera names
+    are not unique either (Fintraffic has a "Tienpinta" at almost every site).
+    """
+    ref = str(c.get("ref") or "")
+    tail = f" [{c['src']}:{ref}]"
+    human = c["name"][:max(8, 80 - len(NAME_PREFIX) - len(tail))]
+    return NAME_PREFIX + human + tail
+
+
 def ref_of(node_name: str) -> str:
-    """`...Tienpinta [fi:C0150301]` -> `fi:C0150301`, or "" if not one of ours."""
+    """`...Tienpinta [fi:C0150301]` -> `fi:C0150301`, or "" if not one of ours.
+
+    Only used to tell OUR public-camera nodes from anything else. It is not the
+    join key - see node_name_for.
+    """
     name = node_name or ""
     if not name.endswith("]"):
         return ""
@@ -414,37 +444,47 @@ def cmd_tokens(args) -> int:
     # active_only=False deliberately: if enrolment left cameras pending, the
     # honest answer is a status breakdown, not a silently short file.
     rows = db.nodes(active_only=False)
-    out, status, unkeyed = {}, {}, 0
+    out, status, unkeyed, tokenless = {}, {}, 0, 0
     for n in rows:
         if (n.get("kind") or "") != "public_cam":
             continue
         st = n.get("status") or "?"
         status[st] = status.get(st, 0) + 1
-        key = ref_of(n.get("name") or "")
-        if not key:
+        name = n.get("name") or ""
+        if not ref_of(name):
             unkeyed += 1
             continue
         if not n.get("token"):
+            tokenless += 1
             continue
-        out[key] = {"node_id": n["id"], "token": n["token"],
-                    "lat": n.get("lat"), "lon": n.get("lon"),
-                    "name": (n.get("name") or "")[len(NAME_PREFIX):] or n["id"],
-                    "status": st}
+        # Keyed on the WHOLE name, which is the only unique thing - see
+        # node_name_for. A collision here means two rows are the same camera.
+        out[name] = {"node_id": n["id"], "token": n["token"],
+                     "lat": n.get("lat"), "lon": n.get("lon"), "status": st}
     path = Path(args.out)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(out), encoding="utf-8")
     print(f"{len(out)} public camera(s) exported to {path}")
     print("  by status: " + ", ".join(f"{k}={v}" for k, v in sorted(status.items())))
+    # 🚨 EVERY ROW MUST BE ACCOUNTED FOR. A count that only reports successes
+    # is how 400 cameras went missing in silence the first time.
+    total = sum(status.values())
+    dropped = total - len(out) - unkeyed - tokenless
     if unkeyed:
-        print(f"  ⚠ {unkeyed} public_cam node(s) carry no [src:ref] in the name "
-              f"and cannot be matched to a source - they will never poll")
+        print(f"  {unkeyed} node(s) carry no [src:ref] and are not from bulk "
+              f"enrolment - the survey fleet, polled from its own state file")
+    if tokenless:
+        print(f"  ⚠ {tokenless} node(s) have no token and can never post")
+    if dropped:
+        print(f"  ⚠ {dropped} node(s) share a name with another and collapsed - "
+              f"those are true duplicates and should be merged")
     if any(k != "active" for k in status):
         print("  ⚠ a camera that is not 'active' will be rejected when it posts")
     return 0
 
 
 def cams_from_tokens(tokens_path: str, sources: list) -> list:
-    """Join the live source indexes to exported credentials on `src:ref`."""
+    """Join the live source indexes to exported credentials on the node name."""
     creds = json.loads(Path(tokens_path).read_text(encoding="utf-8"))
     cams, missing = [], 0
     for src in sources:
@@ -456,7 +496,7 @@ def cams_from_tokens(tokens_path: str, sources: list) -> list:
             continue
         hit = 0
         for c in idx:
-            cr = creds.get(f"{c['src']}:{c['ref']}")
+            cr = creds.get(node_name_for(c))
             if not cr:
                 missing += 1
                 continue
