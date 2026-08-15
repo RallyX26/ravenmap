@@ -421,3 +421,11 @@ nav .addcam{color:var(--cam);font-weight:600}
 /* The results list is fixed-position and already knows where to sit; it just
    has to clear the dialog it is now launched from. */
 .pmodal ~ .plateresults, .plateresults{z-index:9600}
+
+/* Aircraft markers. The orbit ring pulses because an orbit is happening NOW -
+   it is the one thing on this map that is a live event rather than a record. */
+.airmark{background:none;border:0}
+.airwrap{width:30px;height:30px;display:flex;align-items:center;justify-content:center}
+.airwrap.orbit{border-radius:50%;box-shadow:0 0 0 2px #ff3b47aa;animation:airpulse 1.8s ease-in-out infinite}
+@keyframes airpulse{0%,100%{box-shadow:0 0 0 2px #ff3b4788}50%{box-shadow:0 0 0 7px #ff3b4711}}
+@media (prefers-reduced-motion:reduce){.airwrap.orbit{animation:none}}

@@ -95,6 +95,7 @@ const state = {
   // Public traffic cameras: a different kind of coverage from a volunteer's
   // camera, so it gets its own switch. See the checkbox in index.html.
   showPubCams: true,
+  showAircraft: false,
   sightings: new Map(),   // id -> record  (public tier: the records)
   markers: new Map(),     // id -> leaflet marker
   traffic: new Map(),     // id -> {rec, marker}  (private tier: the live view)
@@ -1218,6 +1219,114 @@ if (_showpubcams) {
     loadCameras();
   };
 }
+
+/* 🚁 AIRCRAFT ON THE MAP.
+ *
+ * The detector has existed for a while and only /planes could see it, which is
+ * a page nobody visits. The thing worth showing was never "aircraft" - it is
+ * an ORBIT: sustained circling at low altitude over one spot, which is what a
+ * police helicopter working a scene looks like from above, and which no amount
+ * of registration data can tell you because registration is a claim somebody
+ * filed once while an orbit is a thing an aircraft is doing right now.
+ *
+ * So this layer draws three things and nothing else: aircraft that are
+ * ORBITING, aircraft on a GOVERNMENT registration, and aircraft flagged as LAW
+ * ENFORCEMENT. Everything else in the sky is a light aircraft going somewhere
+ * and would bury the signal it is here to show.
+ *
+ * ⚠️ Bounded to what is on screen and polled slowly. The upstream is OpenSky's
+ * free tier - somebody else's service, shared by everyone - and a map that
+ * refetched the whole sky on every pan would be both useless and rude.
+ */
+const AIR_KEY = 'sparrow.showAircraft';
+const airLayer = L.layerGroup().addTo(map);
+let _airTimer = null, _airBusy = false;
+
+function airIcon(a) {
+  // An orbit is the headline, so it gets the colour and a ring; a government
+  // registration that is merely transiting is a fact, not an event.
+  const orbit = !!a.orbit;
+  const col = orbit ? '#ff3b47' : (a.law_enforcement ? '#ffb547' : '#7fb4ff');
+  const rot = Math.round(a.track || 0);
+  return L.divIcon({
+    className: 'airmark',
+    iconSize: [30, 30], iconAnchor: [15, 15],
+    html: `<div class="airwrap${orbit ? ' orbit' : ''}">`
+        + `<svg viewBox="0 0 24 24" width="22" height="22"`
+        + ` style="transform:rotate(${rot}deg)">`
+        + `<path fill="${col}" stroke="#06090f" stroke-width="1"`
+        + ` d="M12 2l1.6 7.2 7.4 3.2v1.6l-7.4-1.6-1 5.2 2.6 1.8v1.2L12 20l-3.2.6v-1.2l2.6-1.8-1-5.2-7.4 1.6v-1.6l7.4-3.2z"/>`
+        + `</svg></div>`,
+  });
+}
+
+function airPopup(a) {
+  const esc = (t) => String(t ?? '').replace(/[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const bits = [];
+  if (a.orbit) {
+    // Say what was MEASURED, not just "circling". This is the claim most worth
+    // being able to check, and the number is the whole basis for it.
+    const d = a.orbit_detail || {};
+    bits.push('<b style="color:#ff3b47">Circling</b>'
+      + (d.path_km ? ` — flew ${Math.round(d.path_km)} km and stayed within `
+                   + `${(d.net_km || 0).toFixed(1)} km` : ''));
+  }
+  if (a.law_enforcement) bits.push('<b>Law enforcement</b> registration');
+  else if (a.gov) bits.push('<b>Government</b> registration');
+  if (a.owner) bits.push(esc(a.owner));
+  if (a.alt_m != null) bits.push(`${Math.round(a.alt_m * 3.28084).toLocaleString()} ft`);
+  return `<div class="pop"><h4>${esc(a.call || a.n_number || a.icao)}</h4>`
+       + bits.map((b) => `<div class="sub">${b}</div>`).join('')
+       + `<div class="sub dim">Live position from ADS-B, which aircraft `
+       + `broadcast publicly. SparrowMap does not track aircraft.</div></div>`;
+}
+
+function drawAircraft(list) {
+  airLayer.clearLayers();
+  if (!state.showAircraft) return;
+  (list || []).forEach((a) => {
+    if (a.lat == null || a.lon == null) return;
+    if (!(a.orbit || a.gov || a.law_enforcement)) return;
+    L.marker([a.lat, a.lon], { icon: airIcon(a), zIndexOffset: 400 })
+      .bindPopup(airPopup(a))
+      .addTo(airLayer);
+  });
+}
+
+function loadAircraft() {
+  if (!state.showAircraft) { airLayer.clearLayers(); return; }
+  if (_airBusy) return;                 // a slow answer must not stack up
+  _airBusy = true;
+  const b = map.getBounds();
+  const box = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()]
+    .map((n) => n.toFixed(3)).join(',');
+  fetch(`/api/aircraft?box=${box}`, { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => { if (d && d.aircraft) drawAircraft(d.aircraft); })
+    .catch(() => { /* the rest of the map does not depend on this */ })
+    .then(() => { _airBusy = false; });
+}
+
+try {
+  const saved = localStorage.getItem(AIR_KEY);
+  if (saved !== null) state.showAircraft = saved === '1';
+} catch (err) { /* the default stands */ }
+const _showair = $('#showair');
+if (_showair) {
+  _showair.checked = state.showAircraft;
+  _showair.onchange = (e) => {
+    state.showAircraft = e.target.checked;
+    try { localStorage.setItem(AIR_KEY, state.showAircraft ? '1' : '0'); }
+    catch (err) { /* not remembering is survivable */ }
+    if (state.showAircraft) loadAircraft(); else airLayer.clearLayers();
+  };
+}
+// Slow on purpose - see the note above about whose service this is.
+if (_airTimer) clearInterval(_airTimer);
+_airTimer = setInterval(loadAircraft, 30000);
+map.on('moveend', () => { if (state.showAircraft) loadAircraft(); });
+if (state.showAircraft) loadAircraft();
 
 const _showcams = $('#showcams');
 // The checkbox must be made to AGREE with state before anyone sees it. The

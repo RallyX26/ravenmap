@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
-<link rel="stylesheet" href="/static/style.css?v=90">
+<link rel="stylesheet" href="/static/style.css?v=92">
 </head>
 <body>
 
@@ -120,6 +120,13 @@
            folded into "watched roads". Somebody who only wants to see what
            volunteers are contributing can turn them off. -->
       <label class="cams"><input type="checkbox" id="showpubcams" checked> traffic cams</label>
+      <!-- 🚁 Aircraft, and ONLY the ones that mean something. A police
+           helicopter holding a circle over one place is the single most
+           recognisable pattern in this whole project - people have been asking
+           to see it since it was built - and a sky full of Cessnas going
+           somewhere is noise that would bury it. Off by default: it is the
+           newest and least proven layer on the map. -->
+      <label class="cams"><input type="checkbox" id="showair"> aircraft</label>
     </div>
 
     <div class="trafficbar">
@@ -161,7 +168,7 @@
 <script src="/static/transparency.js?v=19"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
 <script src="/static/sitenav.js?v=22"></script>
-<script src="/static/app.js?v=91"></script>
+<script src="/static/app.js?v=92"></script>
 <script src="/static/refresh.js?v=18"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->
