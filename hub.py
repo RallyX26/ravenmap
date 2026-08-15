@@ -1096,7 +1096,23 @@ class Handler(BaseHTTPRequestHandler):
             # the app rather than 404ing a printed link.
             if p in ("/app", "/node", "/key", "/contribute"):
                 return self._file(PUBLIC / "app.html")
-            if p.startswith("/vendor/"): return self._file(PUBLIC / "vendor" / Path(p[8:]).name)
+            if p.startswith("/vendor/"):
+                # 🚨 `.name` FLATTENS THE PATH, WHICH IS THE TRAVERSAL GUARD AND
+                # ALSO WHY /vendor/images/* 404d. Leaflet asks for
+                # /vendor/images/marker-icon.png; `.name` turned that into
+                # vendor/marker-icon.png, which does not exist - so the marker
+                # on /business rendered as a broken-image box, on the one
+                # control the page asks a business to drag.
+                #
+                # The guard stays. One subdirectory is allowed and it is named
+                # literally, so nothing here can walk anywhere else: any segment
+                # that is not "images" falls through to the flat lookup, and the
+                # filename is still reduced to its own `.name`.
+                rest = [seg for seg in p[8:].split("/") if seg not in ("", ".", "..")]
+                if len(rest) == 2 and rest[0] == "images":
+                    return self._file(PUBLIC / "vendor" / "images"
+                                      / Path(rest[1]).name)
+                return self._file(PUBLIC / "vendor" / Path(p[8:]).name)
             if p.startswith("/static/"): return self._file(PUBLIC / Path(p[8:]).name)
             if p.startswith("/snap/"):   return self._file(SNAPS / Path(unquote(p[6:])).name)
 
