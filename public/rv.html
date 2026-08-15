@@ -1028,9 +1028,7 @@
             again.textContent = "issue a new one";
             again.className = "linkish";
             again.onclick = function(){
-              if(!confirm("Replace this camera's reviewer token?
-
-"
+              if(!confirm("Replace this camera's reviewer token? "
                         + "The old one stops working immediately, on every "
                         + "device that has it.")) return;
               fetchMyTokens(true);
