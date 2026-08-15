@@ -23,6 +23,7 @@
     padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
   .hidden{display:none!important}
+  .linkish{background:none;border:0;padding:0;color:var(--accent);font:inherit;text-decoration:underline;cursor:pointer}
 
   /* ---- header ---- */
   header{
@@ -978,7 +979,7 @@
     }catch(e){ return null; }
   }
 
-  function fetchMyTokens(){
+  function fetchMyTokens(replace){
     var n = nodeKey();
     var err = $("#pick-err");
     if(!n){ err.textContent = "no camera key on this device"; return; }
@@ -991,7 +992,8 @@
         method: "POST",
         headers: {"Content-Type": "application/json",
                   "Authorization": "Bearer " + n.token},
-        body: JSON.stringify({node_id: n.id, scope: scope})
+        body: JSON.stringify({node_id: n.id, scope: scope,
+                              regenerate: !!replace})
       }).then(function(r){ return r.ok ? r.json() : null; })
         .then(function(d){
           if(d && d.review_token){
@@ -1008,8 +1010,32 @@
           btn.textContent = "🔑 Get my reviewer tokens";
           if(got){ toast(got + " token" + (got>1?"s":"") + " added"); }
           else if(already){
-            err.textContent = "already issued on another device - "
-                            + "paste the token, or ask for it to be re-issued";
+            /* 🚨 THIS USED TO BE THE END OF THE ROAD. A token is stored as a
+               hash and cannot be shown twice, so "already issued" was a
+               permanent answer to "I do not know my token" - reported exactly
+               that way. The camera key on this device is the same secret that
+               lets this camera publish sightings, so it is entitled to replace
+               its own reviewer token; the old one is revoked server-side,
+               because a token that was lost to somebody else must not stay
+               live. Deliberately a second, explicit press: replacing is the
+               right answer for a lost token and the wrong one for a token
+               sitting on a tablet in the kitchen. */
+            err.innerHTML = "";
+            err.appendChild(document.createTextNode(
+              "already issued on another device. If you still have it, paste it "
+              + "above. If it is lost, replace it: "));
+            var again = document.createElement("button");
+            again.textContent = "issue a new one";
+            again.className = "linkish";
+            again.onclick = function(){
+              if(!confirm("Replace this camera's reviewer token?
+
+"
+                        + "The old one stops working immediately, on every "
+                        + "device that has it.")) return;
+              fetchMyTokens(true);
+            };
+            err.appendChild(again);
           } else {
             err.textContent = "could not reach the box";
           }
@@ -1130,7 +1156,11 @@
       // teaches people the page is broken.
       if(g && nodeKey()){
         g.style.display = "block";
-        g.addEventListener("click", fetchMyTokens);
+        // ⚠️ WRAPPED, NOT PASSED DIRECTLY. addEventListener hands the listener
+        // the Event object, which would arrive as `replace` and is truthy -
+        // so every ordinary press would have silently replaced the token it
+        // was asked to fetch.
+        g.addEventListener("click", function(){ fetchMyTokens(false); });
       }
       return;
     }

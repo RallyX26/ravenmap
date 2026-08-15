@@ -158,6 +158,59 @@ def ensure_pool_token(node_id: str, label: str) -> Optional[str]:
     return issue(label or "a camera", "pool", [node_id], created_by="self")
 
 
+# Origins a camera owner may replace on their own authority: anything minted
+# BY that camera or its enrolment. Deliberately NOT "operator" - an
+# operator-minted token can carry trust (review_api.is_trusted) that this
+# path must never be able to hand out or quietly destroy.
+SELF_MINTED = frozenset({"self", "enroll"})
+
+
+def reissue(node_id: str, label: str, scope: str = "own",
+            created_by: str = "self") -> str:
+    """Replace this camera's token of that scope, and return the new plaintext.
+
+    🚨 "MINTED ONCE" LEFT PEOPLE LOCKED OUT, INCLUDING THE OPERATOR.
+    A token is stored only as a hash, so an existing one can never be shown
+    again - which is right, and which is exactly why `ensure_*_token` refuses to
+    mint a second. The consequence nobody had a route out of: lose the token and
+    the self-service page answers "this camera already has that token" forever.
+    Reported plainly - "i don't know my review tokens".
+
+    Replacing is safe because of WHAT PROVES OWNERSHIP here: the caller has
+    presented the camera's own node token, the same secret that lets that camera
+    publish sightings. Anyone holding it can already do more than read a review
+    queue. So the only thing "minted once" was protecting was the old token's
+    continued existence, and the old token is precisely what is lost.
+
+    The previous one is REVOKED first, so a lost token does not stay live: if it
+    was lost because somebody else has it, re-issuing without revoking would be
+    the worst of both.
+    """
+    scope = "own" if scope == "own" else "pool"
+    for t in db.list_review_tokens(include_revoked=False):
+        if t.get("scope") != scope:
+            continue
+        if node_id not in (t.get("nodes") or "").split(","):
+            continue
+        # Only ever the camera's OWN self-service tokens. An operator-minted
+        # token can carry trust this path must not be able to mint (see
+        # review_api.is_trusted), so replacing one here would be a way to
+        # launder `created_by` from "operator" to "self" - or to revoke a
+        # colleague's token by naming their camera.
+        #
+        # ⚠️ "enroll" BELONGS IN THIS SET AND LEAVING IT OUT MADE THE WHOLE FIX
+        # A NO-OP. The token an owner actually loses is the one ENROLMENT minted
+        # and printed once (hub._ingest of /api/enroll -> created_by="enroll");
+        # a first guess of {"self"} matched none of them, so regenerate happily
+        # issued a new token and left the lost one live - the worst outcome
+        # available, since the reason for replacing it may be that somebody else
+        # has it. Caught by asserting the old token stops authenticating.
+        if (t.get("created_by") or "") not in SELF_MINTED:
+            continue
+        db.revoke_review_token(int(t["id"]))
+    return issue(label or "a camera", scope, [node_id], created_by=created_by)
+
+
 def login_value(token_str: str) -> Optional[str]:
     """Validate a submitted token; return the cookie value to set, or None."""
     if not token_str:

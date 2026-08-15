@@ -2675,15 +2675,28 @@ class Handler(BaseHTTPRequestHandler):
                 # owner starts publishing rubbish into the pool, the pool token
                 # goes and they keep their own camera.
                 want = str(b.get("scope") or "own")
+                url = "/rv/pool" if want == "pool" else "/rv/mine"
+                # 🚨 A WAY OUT OF "ALREADY ISSUED". The token is stored as a
+                # hash and cannot be shown twice, so an owner who lost theirs
+                # was told "this camera already has that token" for ever. The
+                # node token in this very request is the same secret that lets
+                # the camera publish sightings, so replacing its reviewer token
+                # grants nothing new - and the old one is revoked, because a
+                # token that was lost to somebody else must not stay live.
+                if b.get("regenerate"):
+                    tok = review_auth.reissue(
+                        nd["id"], nd.get("name") or "a camera", want,
+                        created_by="self")
+                    return self._json({"ok": True, "new": True, "scope": want,
+                                       "replaced": True,
+                                       "review_token": tok, "review_url": url})
                 if want == "pool":
                     tok = review_auth.ensure_pool_token(
                         nd["id"], nd.get("name") or "a camera")
-                    url = "/rv/pool"
                 else:
                     tok = review_auth.ensure_own_token(
                         nd["id"], nd.get("name") or "a camera",
                         created_by="self")
-                    url = "/rv/mine"
                 if tok:
                     return self._json({"ok": True, "new": True, "scope": want,
                                        "review_token": tok, "review_url": url})
