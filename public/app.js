@@ -945,7 +945,15 @@ map.addControl(new AllControl());
  * a weaker claim about the same camera that could only make the first one
  * sharper. Keep the road. Drop the door. */
 async function loadCameras() {
-  const cams = await (await fetch('/api/nodes')).json();
+  // 🚨 DO NOT DOWNLOAD 4,800 CAMERAS IN ORDER TO HIDE THEM.
+  //
+  // This response is ~90 KB without the public traffic cameras and 1.48 MB
+  // with them, and the layer that draws them defaults OFF because 4,800
+  // markers made the map lag on a phone. Filtering after the download bounded
+  // the DRAWING and left the megabyte and its parse exactly where they were -
+  // which is most of what "the map is laggy" actually was.
+  const url = state.showPubCams ? '/api/nodes' : '/api/nodes?public_cams=0';
+  const cams = await (await fetch(url)).json();
   state.camLayer.clearLayers();
 
   // Open on the area that actually has cameras, rather than a hardcoded zoom

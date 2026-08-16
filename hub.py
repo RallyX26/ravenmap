@@ -1080,6 +1080,13 @@ class Handler(BaseHTTPRequestHandler):
     _MICRO_PARAMS = {
         "/api/sightings":   ("since", "limit", "vclass", "bbox"),
         "/api/leaderboard": ("hours",),
+        # 🚨 A PARAMETER THAT CHANGES THE ANSWER AND IS NOT LISTED HERE IS A
+        # CACHE POISONING BUG, NOT AN OMISSION. /api/nodes now returns a
+        # different set for public_cams=0, and without this line both variants
+        # share one key: whichever request missed first decides what everybody
+        # else gets for the life of the entry - the map either loses 4,800
+        # cameras it asked for or gets a megabyte it deliberately declined.
+        "/api/nodes":       ("public_cams",),
     }
 
     def _micro_key_for(self, path: str) -> str:
@@ -2005,8 +2012,27 @@ class Handler(BaseHTTPRequestHandler):
                 return self._tile(p)
 
             if p == "/api/nodes":
+                # 🚨 4,800 PUBLIC CAMERAS WERE DOWNLOADED ON EVERY MAP LOAD IN
+                # ORDER TO BE HIDDEN.
+                #
+                # This response went from ~90 KB to 1.48 MB when the traffic
+                # camera fleet landed, and the layer that draws them now
+                # defaults OFF because 4,800 markers made the map lag on a
+                # phone. So the default page was paying a megabyte and a second
+                # of parsing for rows it then filtered out client-side - a
+                # bound applied to the DRAWING and not to the DOWNLOAD, which
+                # is the mistake this project keeps making in a new place.
+                #
+                # The client asks for them only when the layer is on. Absent
+                # parameter = include, so every existing caller of this API
+                # (and anyone reading it from outside) sees exactly what it
+                # always returned.
+                want_public = (parse_qs(urlparse(self.path).query)
+                               .get("public_cams", ["1"])[0] != "0")
                 out = []
                 for n in db.nodes():
+                    if not want_public and n["kind"] == "public_cam":
+                        continue
                     span = node_mod.span_of(n)
                     # 🚨 NO CAMERA POSITION IS PUBLISHED AT ALL. Not the true
                     # one, not the jittered one.
