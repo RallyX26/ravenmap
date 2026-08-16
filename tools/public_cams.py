@@ -1121,7 +1121,23 @@ def ref_of(node_name: str) -> str:
     if i < 0:
         return ""
     key = name[i + 1:-1].strip()
-    return key if ":" in key and " " not in key else ""
+    if ":" not in key:
+        return ""
+    # 🚨 THIS ONCE REJECTED ANY REF CONTAINING A SPACE, AND TEXAS IS 4,230
+    # CAMERAS WHOSE REF IS A SENTENCE.
+    #
+    # TxDOT identifies a camera by its owner string - "330 @ Airhart (W)" - so
+    # every Texas node name ends "[tx:330 @ Airhart (W)]". The space test was
+    # there to avoid mistaking an ordinary name that happens to end in brackets
+    # for one of ours, and it silently dropped 765 of 820 registered Texas
+    # cameras from the credential export. They were on the map, they had
+    # tokens, and the poller was told they did not exist.
+    #
+    # Checking the PREFIX against the known sources is both stricter and
+    # correct: "[tx:...]" is ours, "[see note 4]" is not, and neither answer
+    # depends on what the agency chose to put after the colon.
+    src = key.split(":", 1)[0]
+    return key if src in SOURCES else ""
 
 
 def cmd_tokens(args) -> int:
