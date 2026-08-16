@@ -213,8 +213,16 @@ HEAVY_WAIT_S = 12.0
 # Readers are the point of the site and cameras are replaceable - a pass missed
 # now is re-read on the next cycle. So ingest gets a minority of the pool and
 # readers keep the rest, permanently.
-INGEST_ROUTES = frozenset({"POST /api/sightings", "POST /api/heartbeat/bulk",
-                           "POST /api/enroll"})
+# 🚨 ENROLMENT IS NOT INGEST, AND PUTTING IT HERE REFUSED A REAL PERSON.
+# /api/enroll was in this pool, so somebody registering a camera queued behind
+# 176 poller workers and got "busy - too many requests in flight". Measured at
+# the time: ingest 0/40 saturated while the general pool sat at 55/200 - there
+# was plenty of capacity, just not in the bucket a human had been put in.
+#
+# A person signing up is the single most valuable request this server handles
+# and it happens a few times an hour. It belongs in the general pool, where the
+# only thing that can refuse it is the box genuinely being full.
+INGEST_ROUTES = frozenset({"POST /api/sightings", "POST /api/heartbeat/bulk"})
 # ⚠️ LOWERED 60 -> 40 for the same measurement. Ingest held all 60 slots through
 # the burst while a reader waited. Ingest is not latency-sensitive - it queues,
 # and a missed pass is re-read on the next sweep - so it is the side that should
