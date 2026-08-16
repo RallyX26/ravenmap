@@ -55,12 +55,21 @@ TRAFFIC_LIMIT = 400
 def main() -> int:
     now = time.time()
     pub = db.recent_sightings(since=0, limit=PUBLIC_LIMIT, vclass="public")
-    live = db.recent_sightings(since=now - TRAFFIC_WINDOW_S, limit=TRAFFIC_LIMIT)
 
     # 🚨 THE SAME FUNCTION THE API USES. Not a copy of its rules.
     pub = [privacy.redact(r, "anon") for r in pub]
-    live = [privacy.redact(r, "anon") for r in live
-            if r.get("tier") != "public"]
+
+    # 🚨 NO LIVE TRAFFIC IN HERE, AND THE FIRST VERSION HAD IT WRONG.
+    #
+    # A private pass fades from the map after TRAFFIC_FADE_S - 45 seconds - and
+    # this file is rebuilt every two minutes. So every traffic row it could
+    # carry is ALREADY EXPIRED before the first visitor sees it: the map would
+    # paint dots and immediately age them out, having claimed for a moment that
+    # cars were passing places they had long since left.
+    #
+    # It also doubled the file, 58 KB to 115 KB, to do it. A public sighting is
+    # a RECORD and stays true; a live pass is an EVENT and cannot be cached.
+    live: list = []
 
     doc = {
         "generated": now,
