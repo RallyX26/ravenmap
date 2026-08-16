@@ -367,6 +367,13 @@ def _castlerock_index(src: str, host: str) -> list:
     # returns the SAME hundred cameras for ever - measured, 20,004 "cameras"
     # from a 404-camera network. Stopping when a page adds nothing new is the
     # only condition the server cannot lie about.
+    return cached_index(src, lambda: _castlerock_fetch(src, host))
+
+
+def _castlerock_fetch(src: str, host: str) -> list:
+    """The live pull. Wrapped by cached_index because several of these hosts
+    403 a European address while serving a US one - Utah does, exactly like
+    Michigan - and enrolment has to run on the hub, which is in Helsinki."""
     out, start, seen = [], 0, set()
     while True:
         body = (f"start={start}&length=100&draw=1&query=&lang=en").encode()
