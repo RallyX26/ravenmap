@@ -195,6 +195,28 @@ MAX_HEAVY = 8
 # that outlives the reader's patience.
 HEAVY_WAIT_S = 12.0
 
+# 🚨 INGEST MUST NEVER BE ABLE TO SPEND EVERY PERMIT, AND ON 2026-08-16 IT DID.
+#
+# The two camera boxes poll with 96 and 80 workers, so they can open ~176
+# simultaneous POSTs into a server holding 200 permits. Add readers and the
+# pool is gone: the origin answered "busy - too many requests in flight" to
+# EVERYBODY, and the only reason the map stayed up is that Cloudflare fell back
+# to serving stale copies. Stopping the two pollers took the origin from
+# refusing everything to inflight 1/200 within seconds, which is the measurement
+# that identified this rather than the reader traffic I first blamed.
+#
+# Readers are the point of the site and cameras are replaceable - a pass missed
+# now is re-read on the next cycle. So ingest gets a minority of the pool and
+# readers keep the rest, permanently.
+INGEST_ROUTES = frozenset({"POST /api/sightings", "POST /api/heartbeat/bulk",
+                           "POST /api/enroll"})
+MAX_INGEST = 60
+
+# ⚠️ INGEST QUEUES RATHER THAN BEING REFUSED, because there is still no node
+# outbox: a node whose POST is refused DROPS that sighting on the floor. Waiting
+# a few seconds costs a camera nothing and saves the reading.
+INGEST_WAIT_S = 8.0
+
 # The most cameras one /api/heartbeat/bulk request may beat. Sized against
 # MAX_BODY rather than taste: an entry is a node id and a token, ~80 bytes of
 # JSON, so a thousand is ~80 KB and comfortably inside the body cap. The
@@ -544,6 +566,9 @@ class Handler(BaseHTTPRequestHandler):
     # The byte-shaped cap. See MAX_HEAVY.
     _HEAVY = threading.Semaphore(MAX_HEAVY)
     _HEAVY_ROUTES = HEAVY_ROUTES
+    # The keep-the-readers-alive cap. See MAX_INGEST.
+    _INGEST = threading.Semaphore(MAX_INGEST)
+    _INGEST_ROUTES = INGEST_ROUTES
     # Who is holding a permit right now, and the worst hold time seen per path.
     # Both are published by /api/health so the cap can be tuned from evidence.
     _INFLIGHT_PATHS: dict = {}
@@ -1086,12 +1111,22 @@ class Handler(BaseHTTPRequestHandler):
         holding permits. A limiter that cannot say who is using it can only be
         tuned by argument, and argument lost three times.
         """
-        # ⚠️ HEAVY PERMIT FIRST, AND IT QUEUES RATHER THAN REFUSES. A heavy
-        # request that waits a moment nearly always finds the answer already
-        # built by the leader it was queued behind; one that is refused sends a
-        # reader an error for work that was about to be free.
-        heavy = label in Handler._HEAVY_ROUTES
-        if heavy and not Handler._HEAVY.acquire(timeout=HEAVY_WAIT_S):
+        # ⚠️ A CLASS PERMIT FIRST, AND IT QUEUES RATHER THAN REFUSES. A request
+        # that waits a moment nearly always finds the answer already built by
+        # the leader it was queued behind; one that is refused sends a reader an
+        # error for work that was about to be free, or makes a node drop a
+        # sighting it cannot re-send.
+        #
+        # These pools are deliberately SMALLER than MAX_REQUESTS and they
+        # overlap with it rather than replace it: MAX_REQUESTS still bounds the
+        # total, while these bound the two classes that proved able to eat the
+        # total on their own - big map answers, and camera ingest.
+        extra, wait = None, 0.0
+        if label in Handler._HEAVY_ROUTES:
+            extra, wait = Handler._HEAVY, HEAVY_WAIT_S
+        elif label in Handler._INGEST_ROUTES:
+            extra, wait = Handler._INGEST, INGEST_WAIT_S
+        if extra is not None and not extra.acquire(timeout=wait):
             return self._too_busy()
         try:
             if not Handler._INFLIGHT.acquire(blocking=False):
@@ -1123,8 +1158,8 @@ class Handler(BaseHTTPRequestHandler):
                                                key=lambda kv: kv[1])[:20]:
                                 Handler._SLOW_HELD.pop(k, None)
         finally:
-            if heavy:
-                Handler._HEAVY.release()
+            if extra is not None:
+                extra.release()
 
     # 🚨 THE EDGE CACHE THIS SERVER WAS DESIGNED AROUND IS NOT SWITCHED ON.
     #
@@ -1905,6 +1940,15 @@ class Handler(BaseHTTPRequestHandler):
                 nowt = time.time()
                 health["inflight"] = len(holding)
                 health["inflight_cap"] = MAX_REQUESTS
+                # ⚠️ REPORTED, for the same reason _gated records who holds a
+                # permit: this cap is the one that stopped the OOM kills, and a
+                # cap nobody can watch is a cap that gets tuned by argument.
+                # heavy_free near 0 under load means readers are queueing on
+                # map data and MAX_HEAVY is the thing to look at first.
+                health["heavy_cap"] = MAX_HEAVY
+                health["heavy_free"] = Handler._HEAVY._value
+                health["ingest_cap"] = MAX_INGEST
+                health["ingest_free"] = Handler._INGEST._value
                 # Longest-held first: the one at the top is the one to blame.
                 # ⚠️ THE ONE RESOURCE THE LAST OUTAGE FIX INTRODUCED, AND THE
                 # ONLY ONE HEALTH DID NOT REPORT. Saturate these 12 permits and
