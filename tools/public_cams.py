@@ -17,12 +17,23 @@ Michigan's 806 cameras gave ~15px vehicles against the ~120px the classifier
 needs, DOT cameras were found to be standard definition as a category, and
 training at low resolution could not rescue them. All the code was removed.
 
-What changed is not the argument, it is the hardware: HD cameras now exist
-inside the same public networks. Measured 2026-08-15 on New York City's 966
-online cameras - 87% are 352x240 and useless, 2.5% are 1920x1080 and give
-205-375px vehicles, comfortably past the bar. So this does not "add thousands of
-cameras". It finds the handful that can actually see, and ignores the rest. The
-survey step is not optional garnish; it is the entire reason this is viable.
+⚠️ "AS A CATEGORY" WAS THE WRONG WORD AND A NATIONWIDE SWEEP DISPROVED IT.
+It is per-AGENCY, and the spread is enormous. Measured across whole fleets:
+
+    Ohio          85% at 1280+          Indiana     86%
+    Iowa          50%                   Ontario     24%
+    New Mexico    25%                   Michigan    11%
+    Minnesota      1.5%                 Wisconsin    1.4%
+    Arkansas       0% of 554            Louisiana    0%
+    Georgia        0% of 7,083          Caltrans     0% of 2,936
+
+So a camera COUNT tells you nothing at all - Georgia publishes 7,083 and not one
+of them can see a vehicle, while Ohio's 1,164 are nearly all usable. There is no
+substitute for downloading the images and looking at their size, which is what
+`probe` is for and why every source here is gated behind it.
+
+The other half is the same as it ever was: this does not "add thousands of
+cameras", it finds the ones that can actually see and ignores the rest.
 
 WHERE IT RUNS, AND WHY THAT MATTERS
 At HOME, never on the box. The box has no OpenCV and two vCPUs, and putting
