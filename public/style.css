@@ -118,7 +118,18 @@ main{position:absolute; inset:52px 0 57px 0; display:flex}
    at most 200px on its long edge, so on a phone the vehicle is a smudge and
    there is no way to check the claim the map is making. */
 .shotwrap{position:relative}
-.viewbtn{
+/* 🚨 SCOPED TO .shotwrap, AND THAT IS THE WHOLE BUG.
+   This class is ALSO used by the two dropdown trigger buttons in the panel
+   (#viewbtn and #layerbtn), which reuse it purely for the pill look. Unscoped,
+   they inherited `position:absolute` from here. A second `.viewbtn` rule lower
+   down restyles them but never resets `position`, so it stayed absolute: the
+   parent `.layerpick` collapsed to 0x0 and the button rendered at top:-42px,
+   floating above its own row and clipped by the panel edge.
+
+   Reported three times. My first two fixes were to the menu direction and to
+   the row's flex-wrap - neither touched the actual cause, because the button
+   was never in the layout to begin with. */
+.shotwrap .viewbtn{
   position:absolute; right:7px; bottom:7px;
   appearance:none; border:1px solid rgba(255,255,255,.28); border-radius:7px;
   background:rgba(10,16,26,.78); color:#e8eef6; font:inherit; font-size:12px;
@@ -127,7 +138,7 @@ main{position:absolute; inset:52px 0 57px 0; display:flex}
      LEFT of every stored crop, so anywhere else covers the provenance the
      stamp exists to preserve. */
 }
-.viewbtn:hover{background:rgba(20,30,46,.92); border-color:rgba(255,255,255,.5)}
+.shotwrap .viewbtn:hover{background:rgba(20,30,46,.92); border-color:rgba(255,255,255,.5)}
 
 .lightbox{
   position:fixed; inset:0; z-index:4000; background:rgba(4,7,12,.93);
