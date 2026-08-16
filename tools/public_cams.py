@@ -595,13 +595,34 @@ def probe_filter(cams: list, src: str) -> list:
     return out
 
 
+PROBE_DIR = ROOT / "data" / "probe"
+
+
 def load_probe() -> dict:
+    """Every measurement we have, from one file per source.
+
+    🚨 ONE FILE PER SOURCE BECAUSE ONE SHARED FILE IS A LOST-UPDATE RACE.
+    A probe reads the whole map, adds its own results and writes the whole map
+    back. Run two at once - which is the obvious thing to do when there are
+    four large networks to measure - and the second finisher writes a map built
+    before the first one's results existed, silently deleting them. Nothing
+    errors; a network simply appears unmeasured again later.
+
+    The legacy single file is still read, so an older box loses nothing.
+    """
+    out = {}
     if PROBE.exists():
         try:
-            return json.loads(PROBE.read_text(encoding="utf-8"))
+            out.update(json.loads(PROBE.read_text(encoding="utf-8")))
         except Exception:
             pass
-    return {}
+    if PROBE_DIR.is_dir():
+        for f in sorted(PROBE_DIR.glob("*.json")):
+            try:
+                out.update(json.loads(f.read_text(encoding="utf-8")))
+            except Exception:
+                continue
+    return out
 
 
 def cmd_probe(args) -> int:
@@ -609,7 +630,17 @@ def cmd_probe(args) -> int:
     if args.source in SELF_DESCRIBING:
         print(f"{args.source} publishes its own resolutions - nothing to probe")
         return 0
-    known = load_probe()
+    # ⚠️ ONLY THIS SOURCE'S OWN FILE IS REWRITTEN. Reading everybody's
+    # measurements and writing them all back is exactly the lost-update race
+    # that per-source files exist to prevent - see load_probe.
+    mine = PROBE_DIR / f"{args.source}.json"
+    known = {}
+    if mine.exists():
+        try:
+            known = json.loads(mine.read_text(encoding="utf-8"))
+        except Exception:
+            known = {}
+    everyone = load_probe()
     # 🚨 THE RAW LIST, NOT THE FILTERED ONE, OR THIS CAN NEVER BOOTSTRAP.
     # Every probe-gated index refuses to return unmeasured cameras by design,
     # so asking it what to measure would answer "nothing" for ever.
@@ -623,7 +654,7 @@ def cmd_probe(args) -> int:
         urls = [c["url"] for c in SOURCES[args.source](measured_only=False)]
     else:
         urls = [c["url"] for c in SOURCES[args.source]()]
-    todo = [u for u in urls if u not in known]
+    todo = [u for u in urls if u not in everyone]
     print(f"{len(urls)} camera(s), {len(known)} already measured, "
           f"{len(todo)} to do")
 
@@ -640,12 +671,13 @@ def cmd_probe(args) -> int:
             done += 1
             if done % 200 == 0:
                 print(f"  ...{done}/{len(todo)}", flush=True)
-    PROBE.parent.mkdir(parents=True, exist_ok=True)
-    PROBE.write_text(json.dumps(known), encoding="utf-8")
-    good = sum(1 for u in urls if known.get(u, 0) >= MIN_HD_WIDTH)
-    dead = sum(1 for u in urls if known.get(u, 0) == 0)
+    PROBE_DIR.mkdir(parents=True, exist_ok=True)
+    mine.write_text(json.dumps(known), encoding="utf-8")
+    everyone.update(known)
+    good = sum(1 for u in urls if everyone.get(u, 0) >= MIN_HD_WIDTH)
+    dead = sum(1 for u in urls if everyone.get(u, 0) == 0)
     print(f"\n{good} of {len(urls)} clear the {MIN_HD_WIDTH}px bar "
-          f"({dead} would not load at all) -> {PROBE}")
+          f"({dead} would not load at all) -> {mine}")
     return 0
 
 
