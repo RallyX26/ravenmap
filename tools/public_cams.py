@@ -841,9 +841,36 @@ def cached_index(src: str, build):
     return []
 
 
-def _md5(b: bytes) -> str:
+def content_hash(raw: bytes) -> str:
+    """A fingerprint of what the picture SHOWS, ignoring a burned-in clock.
+
+    🚨 HASHING THE RAW BYTES DOES NOT FIND THESE CARDS, AND THAT WAS THE FIRST
+    ATTEMPT. "Temporarily Unavailable" placeholders burn a LIVE TIMESTAMP into
+    the image, so every camera serving the identical card produces different
+    bytes and a byte hash reports them all as unique. Measured on Bay Area 511:
+    275 of 744 cameras serve one card, and a byte hash finds none of them.
+
+    So decode, drop the bottom strip where the clock is printed, and hash the
+    pixels above it. Cropping 15% is enough for every timestamp bar seen and
+    small enough that two genuinely different views never collide - they differ
+    across the whole frame, not in a caption.
+
+    ⚠️ Falls back to a byte hash if the image will not decode. A hash that
+    raises is worse than one that occasionally misses.
+    """
     import hashlib
-    return hashlib.md5(b).hexdigest()
+    try:
+        im = Image.open(io.BytesIO(raw)).convert("L")
+        w, h = im.size
+        im = im.crop((0, 0, w, max(1, int(h * 0.85))))
+        # Downscale first: two frames from ONE camera differ pixel by pixel as
+        # traffic moves, and this must fingerprint the CARD, not the moment.
+        # A placeholder is flat, so it survives shrinking; a real road does not
+        # match another real road even at 64px.
+        im = im.resize((64, 64), Image.BILINEAR)
+        return hashlib.md5(im.tobytes()).hexdigest()
+    except Exception:
+        return hashlib.md5(raw).hexdigest()
 
 
 def load_probe() -> dict:
@@ -912,7 +939,7 @@ def cmd_probe(args) -> int:
             raw = fetch_image(u, timeout=20)
             # The bytes are kept so identical images can be found afterwards -
             # see the placeholder sweep below.
-            return u, Image.open(io.BytesIO(raw)).size[0], _md5(raw)
+            return u, Image.open(io.BytesIO(raw)).size[0], content_hash(raw)
         except Exception:
             return u, 0, ""        # 0 = measured and unusable, not unmeasured
 
@@ -936,11 +963,14 @@ def cmd_probe(args) -> int:
     # Found by the state survey, and it is not rare: Tennessee's ENTIRE 21-strong
     # "HD tail" is one placeholder, and it ate 27 of South Carolina's 35.
     #
-    # A placeholder gives itself away by being byte-identical across cameras
-    # that are supposed to be looking at different roads. A real camera never
-    # matches another one exactly. Five is the threshold because two or three
-    # identical frames can happen honestly - a black night shot, a covered lens
-    # - while five separate roads producing one file cannot.
+    # A placeholder gives itself away by SHOWING the same thing on cameras
+    # that are supposed to be looking at different roads. Note "showing", not
+    # "byte-identical": these cards print a live clock, so the bytes differ
+    # every time and a byte hash finds none of them. See content_hash.
+    #
+    # Five is the threshold because two or three matching frames can happen
+    # honestly - a black night shot, a covered lens - while five separate roads
+    # producing one picture cannot.
     if digest:
         counts: dict = {}
         for h in digest.values():
