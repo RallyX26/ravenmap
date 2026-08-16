@@ -329,26 +329,36 @@ def michigan_index(measured_only: bool = True) -> list:
     that path segment for the full-resolution frame. Left alone, Michigan
     measures as a 320px network and gets written off - the thumbnails ARE 320px.
     """
-    rows = _get_json("https://mdotjboss.state.mi.us/MiDrive/camera/AllForMap/",
+    ⚠️ AND IT TAKES TWO ENDPOINTS. `AllForMap` has clean latitude/longitude/id/
+    title and NO image at all; `list` has the image and buries its coordinates
+    in an HTML anchor. Neither alone is a camera. They are joined on the id,
+    which in `list` exists only inside the image blob as id="1129Img".
+    """
+    coords = _get_json("https://mdotjboss.state.mi.us/MiDrive/camera/AllForMap/",
+                       timeout=60)
+    by_id = {}
+    for c in (coords if isinstance(coords, list) else []):
+        if c.get("id") is not None and c.get("latitude") and c.get("longitude"):
+            by_id[int(c["id"])] = c
+    rows = _get_json("https://mdotjboss.state.mi.us/MiDrive/camera/list",
                      timeout=60)
-    if isinstance(rows, dict):
-        rows = rows.get("cameras") or rows.get("data") or []
     out = []
-    for c in rows:
-        lat, lon = c.get("latitude"), c.get("longitude")
-        url = c.get("image") or c.get("imageUrl") or c.get("url")
-        if not url or lat in (None, 0) or lon in (None, 0):
+    for c in (rows if isinstance(rows, list) else []):
+        blob = c.get("image") or ""
+        m = re.search(r'src="([^"?]+)', blob)
+        i = re.search(r'id="(\d+)Img"', blob)
+        if not m or not i:
             continue
-        if "<" in url:                       # some rows carry an <img> blob
-            m = re.search(r'src=["\']([^"\']+)', url)
-            if not m:
-                continue
-            url = m.group(1)
-        url = url.replace("/thumbs/", "/")   # see the note above
-        out.append({"src": "mi", "ref": str(c.get("id") or url)[-24:],
-                    "name": (c.get("title") or c.get("name")
-                             or "Michigan camera")[:60],
-                    "lat": float(lat), "lon": float(lon), "url": url})
+        meta = by_id.get(int(i.group(1)))
+        if not meta:
+            continue
+        url = m.group(1).replace("/thumbs/", "/")   # see the note above
+        name = (meta.get("title")
+                or f"{c.get('route', '')} {c.get('location', '')}").strip()
+        out.append({"src": "mi", "ref": i.group(1),
+                    "name": (name or "Michigan camera")[:60],
+                    "lat": float(meta["latitude"]), "lon": float(meta["longitude"]),
+                    "url": url})
     return probe_filter(out, "mi") if measured_only else out
 
 
@@ -368,19 +378,27 @@ def indiana_index(measured_only: bool = True) -> list:
                      timeout=60)
     listing = fetch("https://pws.trafficwise.org/cctv/", timeout=60).decode(
         "utf-8", "ignore")
-    files = set(re.findall(r'href="([^"]+\.jpg)"', listing))
-    # ⚠️ `t.jpg` files in that directory are thumbnails, not cameras.
-    files = {f for f in files if not f.lower().endswith("t.jpg")}
+    # ⚠️ THE HREFS ARE UNQUOTED. This directory emits `href=01-002-073-cam1.jpg`,
+    # so a regex expecting href="..." matches nothing and the whole state
+    # silently disappears - which is exactly what happened on the first run.
+    files = set(re.findall(r'href=["\']?([^"\'\s>]+\.jpg)', listing))
+    # ⚠️ `...t.jpg` in that directory are thumbnails, not cameras.
+    files = {f for f in files if not re.search(r"t\.jpg$", f, re.I)}
     by_token = {}
     for f in files:
-        by_token.setdefault(re.split(r"-cam-", f, 1)[0].lower(), []).append(f)
+        by_token.setdefault(re.split(r"-cam", f, 1)[0].lower(), []).append(f)
     out = []
     for c in rows:
         loc = c.get("location") or {}
         lat, lon = loc.get("latitude"), loc.get("longitude")
         if lat in (None, 0) or lon in (None, 0):
             continue
-        token = str(c.get("name") or "").split()[0].lower() if c.get("name") else ""
+        # The index calls a camera "1-094-035-8-1 E OF US421"; the files are
+        # named "01-094-035-cam1.jpg". Three leading parts, first zero-padded.
+        parts = str(c.get("name") or "").split()[0].split("-")
+        token = ""
+        if len(parts) >= 3:
+            token = f"{parts[0].zfill(2)}-{parts[1]}-{parts[2]}".lower()
         for f in by_token.get(token, []):
             out.append({"src": "in", "ref": f.rsplit(".", 1)[0][-24:],
                         "name": (c.get("name") or "Indiana camera")[:60],
