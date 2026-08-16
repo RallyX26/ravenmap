@@ -472,3 +472,26 @@ nav .addcam{color:var(--cam);font-weight:600}
 @media (prefers-reduced-motion: reduce) {
   .pendingPulse { animation: none; opacity: .6; }
 }
+
+/* 🚨 THE LAYER SWITCHES, COLLAPSED. Same shape as .viewpick, and deliberately
+   so: two controls sitting beside each other that behave differently is a
+   worse cost than a little repetition here.
+   ⚠️ position:relative + an absolutely positioned panel keeps this IN FLOW -
+   the button occupies its own space and only the OPEN menu overlays the map.
+   Nothing floats over the header. See the seven overlap reports that rule
+   came from. */
+.layerpick{position:relative}
+.layerpick .layers{
+  position:absolute;top:calc(100% + 6px);left:0;z-index:1100;
+  display:flex;flex-direction:column;gap:2px;min-width:200px;
+  background:#0f1520;border:1px solid var(--line2);border-radius:12px;
+  padding:6px;box-shadow:0 14px 34px rgba(0,0,0,.5)
+}
+.layerpick .layers[hidden]{display:none}
+/* Full-width rows with a real hit area - these were 12px labels crammed onto
+   one line, which is a miss waiting to happen on a phone. */
+.layerpick .layers .cams{
+  display:flex;align-items:center;gap:9px;width:100%;
+  padding:9px 10px;border-radius:8px;white-space:nowrap;font-size:13px
+}
+.layerpick .layers .cams:hover{background:#1b2636}

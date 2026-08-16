@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
-<link rel="stylesheet" href="/static/style.css?v=95">
+<link rel="stylesheet" href="/static/style.css?v=96">
 </head>
 <body>
 
@@ -117,43 +117,58 @@
         <option value="86400">last 24 hours</option>
         <option value="604800">last 7 days</option>
       </select>
+      <!-- 🚨 FIVE CHECKBOXES BECAME ONE BUTTON, THE SAME WAY THE FIVE VIEW
+           CHIPS DID, AND FOR THE SAME REASON HE GAVE THEN.
+           On a phone the row wrapped to two lines AND still overflowed - "other
+           gov / circling" was cut off at the right edge - so it cost a band of
+           map to show a control that was itself unreadable. These are settings
+           somebody changes once and then lives with, which is exactly the shape
+           that belongs behind a button rather than permanently on screen.
+           The inputs themselves are UNCHANGED and keep their ids, so every
+           handler in app.js still binds to the same elements. -->
+      <div class="layerpick">
+        <button type="button" class="viewbtn" id="layerbtn" aria-haspopup="true"
+                aria-expanded="false">Layers <b id="layern">0</b> <span class="car">▾</span></button>
+        <div class="layers" id="layers" hidden>
       <!-- The toggle shows/hides the WATCHED ROADS. Camera positions are not
-           published at all, so there is nothing here to reveal.
-           Ships UNCHECKED to match the default in app.js (state.showCams), and
-           app.js sets .checked from the stored preference on load. The two must
-           agree before anyone sees the control: a box that says "on" over a map
-           with no bands reads as broken. -->
-      <label class="cams"><input type="checkbox" id="showcams"> watched roads</label>
-      <!-- The town badges are useful at a glance and in the way when you are
-           reading one street, so they get the same treatment as the watched
-           roads: a checkbox, remembered, and OFF is a real answer. -->
-      <label class="cams"><input type="checkbox" id="showplaces" checked> town badges</label>
-      <!-- Public traffic cameras are a different KIND of coverage from a
-           volunteer's window, so they get their own switch rather than being
-           folded into "watched roads". Somebody who only wants to see what
-           volunteers are contributing can turn them off. -->
-      <!-- Ships UNCHECKED and app.js defaults to false, for the same reason the
-           two must agree above. Off because there are now 4,434 of them: the
-           layer was fine at eighteen cameras and made the map lag the moment
-           the fleet landed. -->
-      <label class="cams"><input type="checkbox" id="showpubcams"> traffic cams</label>
-      <!-- 🚁 Aircraft, and ONLY the ones that mean something. A police
-           helicopter holding a circle over one place is the single most
-           recognisable pattern in this whole project - people have been asking
-           to see it since it was built - and a sky full of Cessnas going
-           somewhere is noise that would bury it. Off by default: it is the
-           newest and least proven layer on the map.
+               published at all, so there is nothing here to reveal.
+               Ships UNCHECKED to match the default in app.js (state.showCams), and
+               app.js sets .checked from the stored preference on load. The two must
+               agree before anyone sees the control: a box that says "on" over a map
+               with no bands reads as broken. -->
+          <label class="cams"><input type="checkbox" id="showcams"> watched roads</label>
+          <!-- The town badges are useful at a glance and in the way when you are
+               reading one street, so they get the same treatment as the watched
+               roads: a checkbox, remembered, and OFF is a real answer. -->
+          <label class="cams"><input type="checkbox" id="showplaces" checked> town badges</label>
+          <!-- Public traffic cameras are a different KIND of coverage from a
+               volunteer's window, so they get their own switch rather than being
+               folded into "watched roads". Somebody who only wants to see what
+               volunteers are contributing can turn them off. -->
+          <!-- Ships UNCHECKED and app.js defaults to false, for the same reason the
+               two must agree above. Off because there are now 4,434 of them: the
+               layer was fine at eighteen cameras and made the map lag the moment
+               the fleet landed. -->
+          <label class="cams"><input type="checkbox" id="showpubcams"> traffic cams</label>
+          <!-- 🚁 Aircraft, and ONLY the ones that mean something. A police
+               helicopter holding a circle over one place is the single most
+               recognisable pattern in this whole project - people have been asking
+               to see it since it was built - and a sky full of Cessnas going
+               somewhere is noise that would bury it. Off by default: it is the
+               newest and least proven layer on the map.
 
-           🚨 TWO BOXES, BECAUSE "GOVERNMENT" IS NOT "POLICE". The FAA's
-           government category is mostly universities and agricultural
-           agencies. Under one toggle they drew identically to a sheriff's
-           helicopter, so the map could not answer the one question it is here
-           for. Split, the answer is the box you ticked. -->
-      <label class="cams"><input type="checkbox" id="showair"> police aircraft</label>
-      <!-- Other government registrations, plus anything CIRCLING whoever owns
-           it - behaviour is worth seeing even when ownership says nothing. -->
-      <label class="cams"><input type="checkbox" id="showairgov"> other gov / circling</label>
-    </div>
+               🚨 TWO BOXES, BECAUSE "GOVERNMENT" IS NOT "POLICE". The FAA's
+               government category is mostly universities and agricultural
+               agencies. Under one toggle they drew identically to a sheriff's
+               helicopter, so the map could not answer the one question it is here
+               for. Split, the answer is the box you ticked. -->
+          <label class="cams"><input type="checkbox" id="showair"> police aircraft</label>
+          <!-- Other government registrations, plus anything CIRCLING whoever owns
+               it - behaviour is worth seeing even when ownership says nothing. -->
+          <label class="cams"><input type="checkbox" id="showairgov"> other gov / circling</label>
+            </div>
+      </div>
+</div>
 
     <div class="trafficbar">
       <span id="traffic">road quiet</span>
@@ -194,7 +209,7 @@
 <script src="/static/transparency.js?v=20"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
 <script src="/static/sitenav.js?v=24"></script>
-<script src="/static/app.js?v=101"></script>
+<script src="/static/app.js?v=102"></script>
 <script src="/static/refresh.js?v=18"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->

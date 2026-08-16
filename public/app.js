@@ -1531,6 +1531,40 @@ _showcams.onchange = (e) => {
  * "everything" also dragged down every private pass ever recorded, almost all
  * of which would be drawn and immediately reaped. Two bounded queries beat one
  * that grows without limit. */
+/* The Layers button: open the switches, close them, and keep the count honest.
+ *
+ * ⚠️ It OWNS NOTHING. Every checkbox keeps its own existing handler; this only
+ * shows and hides the panel and counts what is ticked. Two things deciding
+ * whether a layer is on is the "one rule, many owners" bug the View button
+ * already had to avoid. */
+(function () {
+  const btn = $('#layerbtn');
+  const panel = $('#layers');
+  if (!btn || !panel) return;
+  const boxes = () => panel.querySelectorAll('input[type=checkbox]');
+  const count = () => {
+    const n = [...boxes()].filter((b) => b.checked).length;
+    const el = $('#layern');
+    if (el) el.textContent = String(n);
+  };
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    const open = panel.hasAttribute('hidden');
+    panel.toggleAttribute('hidden', !open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  };
+  // Tapping the map closes it, the same as the View menu - a panel that can
+  // only be dismissed by the button that opened it traps a phone user.
+  document.addEventListener('click', (e) => {
+    if (!panel.contains(e.target) && e.target !== btn) {
+      panel.setAttribute('hidden', '');
+      btn.setAttribute('aria-expanded', 'false');
+    }
+  });
+  boxes().forEach((b) => b.addEventListener('change', count));
+  count();
+})();
+
 /* 🚨 "A POSSIBLE PATROL CAR HERE IS WAITING ON A PERSON."
  *
  * Unreviewed police-classed sightings, drawn as a slow pulse over a ~5 km cell.
