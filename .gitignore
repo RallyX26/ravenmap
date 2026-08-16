@@ -123,3 +123,4 @@ desktop/*.spec
 desktop/.buildenv/
 tools/measure_public_cams.py
 static/snapshot.json
+camsurvey/
