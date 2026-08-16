@@ -1013,15 +1013,26 @@ async function loadCameras() {
   // A guard, NOT an early return: returning here would abandon loadCameras
   // before it draws the watched-road spans and picks the opening view, so
   // unticking one checkbox would quietly break two unrelated things.
+  // \uD83D\uDEA8 circleMarker, NOT marker+divIcon, AND THAT IS THE WHOLE FIX FOR THE
+  // PHONE FREEZE.
+  //
+  // L.marker with a divIcon builds a REAL DOM ELEMENT per camera and ignores
+  // preferCanvas entirely - that is what a marker is. At eighteen cameras
+  // nobody noticed; at several thousand it is several thousand nodes for the
+  // browser to lay out, and a phone stops responding while it does.
+  //
+  // The sighting dots were moved to canvas for exactly this reason once
+  // already ("the phone lag was SVG reflow"); the traffic cameras were left
+  // behind and became the bigger layer. A circleMarker honours the map's
+  // preferCanvas and is drawn, not built - thousands cost one canvas pass.
+  //
+  // \u26A0\uFE0F The look changes slightly: a canvas circle instead of a rounded square
+  // with a glyph in it. Canvas cannot render a DOM box, and a layer that a
+  // phone cannot open is not a nicer icon.
   if (state.showPubCams) cams.filter((c) => c.kind === 'public_cam' && c.lat != null).forEach((c) => {
-    L.marker([c.lat, c.lon], {
-      icon: L.divIcon({
-        className: '', iconSize: [18, 18], iconAnchor: [9, 9],
-        html: '<div style="width:18px;height:18px;border-radius:4px;'
-            + 'background:#1b2a3d;border:1.5px solid #7fd1ff;color:#7fd1ff;'
-            + 'font:10px/16px system-ui;text-align:center">\u25A3</div>',
-      }),
-      title: c.name,
+    L.circleMarker([c.lat, c.lon], {
+      radius: 4, weight: 1.5,
+      color: '#7fd1ff', fillColor: '#1b2a3d', fillOpacity: 0.9,
     }).bindPopup(
       '<b>' + esc(c.name) + '</b><br>'
       + '<span style="color:#93a3b3">A public traffic camera, read by SparrowMap.'
