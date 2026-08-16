@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
-<link rel="stylesheet" href="/static/style.css?v=100">
+<link rel="stylesheet" href="/static/style.css?v=101">
 </head>
 <body>
 
@@ -84,22 +84,6 @@
          two and reads as an answer rather than a row of options.
          The chips themselves are UNCHANGED and still carry data-f, so every
          existing handler binds to exactly the same elements. -->
-    <div class="viewpick">
-      <button type="button" class="viewbtn" id="viewbtn" aria-haspopup="true"
-              aria-expanded="false">View: <b id="viewnow">All</b> <span class="car">▾</span></button>
-      <div class="filters" id="filters" hidden>
-        <button class="chip on" data-f="all">All</button>
-        <button class="chip" data-f="police"   data-c="police">Government</button>
-        <button class="chip" data-f="gov"      data-c="gov">Gov plate</button>
-        <!-- The inverse of "Government": the live road, with the records taken
-             off it. Nothing new is revealed - these are the same inert dots
-             already drawn under "All" - it just stops a handful of red records
-             being the only thing the eye lands on when what you want to know
-             is whether the street is actually moving. -->
-        <button class="chip" data-f="traffic"  data-c="civilian">Traffic only</button>
-        <button class="chip" data-f="none">None</button>
-      </div>
-    </div>
 
     <div class="win">
       <!-- The word "Show" was pure decoration - the dropdown says "everything"
@@ -117,6 +101,26 @@
         <option value="86400">last 24 hours</option>
         <option value="604800">last 7 days</option>
       </select>
+      <!-- 🚨 ALL THREE CONTROLS ON ONE ROW, his layout call: the native dropdown
+           first, then the two rounded pills to its right. The View picker used
+           to sit on its own row above, which spent a band of panel on one
+           control and left the row below looking half empty. -->
+      <div class="viewpick">
+        <button type="button" class="viewbtn" id="viewbtn" aria-haspopup="true"
+                aria-expanded="false">View: <b id="viewnow">All</b> <span class="car">▾</span></button>
+        <div class="filters" id="filters" hidden>
+          <button class="chip on" data-f="all">All</button>
+          <button class="chip" data-f="police"   data-c="police">Government</button>
+          <button class="chip" data-f="gov"      data-c="gov">Gov plate</button>
+          <!-- The inverse of "Government": the live road, with the records taken
+               off it. Nothing new is revealed - these are the same inert dots
+               already drawn under "All" - it just stops a handful of red records
+               being the only thing the eye lands on when what you want to know
+               is whether the street is actually moving. -->
+          <button class="chip" data-f="traffic"  data-c="civilian">Traffic only</button>
+          <button class="chip" data-f="none">None</button>
+        </div>
+      </div>
       <!-- 🚨 FIVE CHECKBOXES BECAME ONE BUTTON, THE SAME WAY THE FIVE VIEW
            CHIPS DID, AND FOR THE SAME REASON HE GAVE THEN.
            On a phone the row wrapped to two lines AND still overflowed - "other
