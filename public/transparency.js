@@ -76,6 +76,49 @@ window.sparrowTransparency = async function () {
           : `Every camera feeding this map is a volunteer's, and no camera `
             + `position is published.`;
       }
+
+      /* 🚨 ATTRIBUTION IS A LICENCE CONDITION, NOT A COURTESY, AND IT WAS
+       * MISSING. Fintraffic and Iowa DOT both publish under CC BY 4.0 and
+       * Ontario under the Open Government Licence - every one of which
+       * requires naming the source. SparrowMap has been republishing crops
+       * from all three with no credit anywhere on the site.
+       *
+       * That is worse here than it would be elsewhere. This project's entire
+       * argument is that you can check what it says about itself; being
+       * casual with somebody else's licence while demanding accountability
+       * from police departments is not a position that survives contact with
+       * anyone who looks.
+       *
+       * COUNTED FROM THE NODES, NOT ASSERTED. The source tag is in each node's
+       * name as "[fi:C0150301]", so a network that stops feeding the map stops
+       * being credited, and one that starts cannot be forgotten. */
+      const credit = $('#camsources');
+      if (credit) {
+        const SRC = {
+          fi:  ['Fintraffic', 'https://www.fintraffic.fi/en', 'CC BY 4.0'],
+          ia:  ['Iowa DOT', 'https://data.iowadot.gov/', 'CC BY 4.0'],
+          atx: ['City of Austin', 'https://data.austintexas.gov/', 'public domain'],
+          on:  ['Ontario 511 (MTO)', 'https://511on.ca/', 'Open Government Licence – Ontario'],
+          nyc: ['NYC DOT', 'https://webcams.nyctmc.org/', 'public feed'],
+        };
+        const seen = {};
+        pub.forEach((n) => {
+          const m = /\[([a-z]+):[^\]]*\]$/.exec(n.name || '');
+          if (m) seen[m[1]] = (seen[m[1]] || 0) + 1;
+        });
+        const rows = Object.entries(seen)
+          .sort((a, b) => b[1] - a[1])
+          .map(([k, count]) => {
+            const [name, url, lic] = SRC[k] || [k, '', 'see the source'];
+            return `<li>${count.toLocaleString()} from <a href="${esc(url)}" `
+                 + `rel="noopener noreferrer" target="_blank">${esc(name)}</a> `
+                 + `— ${esc(lic)}</li>`;
+          });
+        credit.innerHTML = rows.length
+          ? `<p>Those images come from these networks, used under their own `
+            + `terms:</p><ul>${rows.join('')}</ul>`
+          : '';
+      }
     } catch (e) { /* the table below still stands on its own */ }
 
     $('#policy').innerHTML = '<tr><th>Setting</th><th>Value</th></tr>' +
