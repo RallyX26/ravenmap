@@ -62,6 +62,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import urllib.parse as up
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -703,7 +704,7 @@ def cached_index(src: str, build):
     ⚠️ The cache is a FALLBACK, never the first choice. A stale catalogue that
     silently outranks the live one is how a network quietly stops growing.
 
-    Returns whatever  returns - a list for most sources, a dict for
+    Returns whatever build() returns - a list for most sources, a dict for
     Michigan, which needs two endpoints joined.
     """
     try:
@@ -775,7 +776,7 @@ def cmd_probe(args) -> int:
                 if v.get("Status") == "Enabled" and v.get("Url")]
     elif args.source in ARCGIS:
         urls = [c["url"] for c in arcgis_index(args.source, measured_only=False)]
-    elif args.source in ("oh", "nm", "mo", "ny", "mi", "in"):
+    elif args.source in ("oh", "nm", "mo", "ny", "mi", "in", "tx"):
         urls = [c["url"] for c in SOURCES[args.source](measured_only=False)]
     else:
         urls = [c["url"] for c in SOURCES[args.source]()]
@@ -785,7 +786,7 @@ def cmd_probe(args) -> int:
 
     def one(u):
         try:
-            return u, Image.open(io.BytesIO(fetch(u, timeout=20))).size[0]
+            return u, Image.open(io.BytesIO(fetch_image(u, timeout=20))).size[0]
         except Exception:
             return u, 0            # 0 = measured and unusable, not unmeasured
 
@@ -843,6 +844,11 @@ def fetch(url: str, ua: str = UA_SURVEY, timeout: int = 15,
                # correct anyway - it is their bandwidth too.
                "Accept-Encoding": "gzip",
                "Digitraffic-User": "SparrowMap/public-cameras"}
+    # ⚠️ TxDOT's snapshot endpoint refuses a request with no Referer. Sent only
+    # to that host: a Referer is a claim about where you came from, and sending
+    # a false one everywhere is both untrue and a fingerprint.
+    if "its.txdot.gov" in url:
+        headers["Referer"] = "https://its.txdot.gov/its/"
     if conditional:
         et, lm = _COND.get(url, (None, None))
         if et:
@@ -894,6 +900,64 @@ def fetch(url: str, ua: str = UA_SURVEY, timeout: int = 15,
         if e.code == 304:
             raise NotModified()
         raise
+
+
+TXDOT_SNAP = "its.txdot.gov/its/DistrictIts/GetCctvSnapshotByIcdId"
+
+
+def fetch_image(url: str, timeout: int = 15, conditional: bool = False) -> bytes:
+    """The JPEG bytes for a camera, whatever hoop its agency puts in the way.
+
+    🚨 NOT EVERY CAMERA IS A URL THAT RETURNS A PICTURE. Texas publishes 4,230
+    cameras and none of them has an image address: you ask a JSON endpoint for
+    a snapshot and it hands back base64 in a `snippet` field. Every other part
+    of this file - probe, survey, the sweep - is written around "fetch this URL,
+    get a JPEG", so the choice was to special-case three call sites or to put
+    the difference in one function. This is that function.
+
+    ⚠️ The base64 has NO `data:` prefix. It starts /9j/, which is a JPEG's own
+    magic bytes in base64, and a decoder expecting a data URI silently gets
+    nothing.
+    """
+    raw = fetch(url, timeout=timeout, conditional=conditional)
+    if TXDOT_SNAP not in url:
+        return raw
+    snip = (json.loads(raw) or {}).get("snippet") or ""
+    if not snip:
+        raise ValueError("no snapshot in the response")
+    # Tolerate a data: prefix in case they ever add one.
+    m = re.search(r"base64,\s*([A-Za-z0-9+/=]+)", snip)
+    return base64.b64decode(m.group(1) if m else snip)
+
+
+def texas_index(measured_only: bool = True) -> list:
+    """TxDOT ITS - the whole state, and it covers Dallas and San Antonio too.
+
+    ⚠️ `isActive` IS FALSE ON ALL 4,230 AND MEANS NOTHING HERE. Filtering on it
+    - the obvious reading - returns an empty fleet from a live network.
+
+    ⚠️ The owner string goes in the query and MUST be URL-encoded: these names
+    carry spaces, @ and brackets ("IH-10ML @ Dairy Ashford"). Unencoded, most
+    requests fail, which reads as a broken source rather than a quoting bug.
+    """
+    rows = _get_json("https://its.txdot.gov/its/Map/GetIconModelsOfType?type=camera",
+                     timeout=60)
+    out = []
+    for c in rows:
+        lat, lon, owner = c.get("lat"), c.get("lon"), c.get("owner")
+        if not lat or not lon or not owner:
+            continue
+        o = up.quote(str(owner), safe="")
+        out.append({"src": "tx", "ref": str(owner)[-24:],
+                    "name": (c.get("name") or str(owner))[:60],
+                    "lat": float(lat), "lon": float(lon),
+                    "url": f"https://{TXDOT_SNAP}?icdId={o}&districtCode={o}"})
+    return probe_filter(out, "tx") if measured_only else out
+
+
+# Registered here rather than in the table above, because Texas needs
+# fetch_image and fetch_image needs to sit next to fetch.
+SOURCES["tx"] = texas_index
 
 
 def load_model():
@@ -1216,7 +1280,7 @@ def cmd_survey(args) -> int:
     good = 0
     for c in cams[:args.limit]:
         try:
-            img = Image.open(io.BytesIO(fetch(c["url"]))).convert("RGB")
+            img = Image.open(io.BytesIO(fetch_image(c["url"]))).convert("RGB")
         except Exception:
             continue
         # Resolution is a free filter and 87% fail it, so spend no inference
@@ -1402,7 +1466,8 @@ def cmd_run(args) -> int:
             # camera is a second the other 4,411 are not being looked at, and
             # the next sweep is along in five minutes anyway.
             _t = time.time()
-            raw = fetch(c["url"], conditional=True, timeout=POLL_TIMEOUT_S)
+            raw = fetch_image(c["url"], conditional=True,
+                              timeout=POLL_TIMEOUT_S)
             img = Image.open(io.BytesIO(raw)).convert("RGB")
             t_fetch[0] += time.time() - _t
             return c, img, None
