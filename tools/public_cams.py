@@ -68,6 +68,11 @@ SEND_EDGE = 200          # the plate-illegible cap, same as detect/relay
 MIN_VEHICLE_PX = 120     # the bar: below this the head is guessing
 POLL_S = 20.0            # per camera; DOT snapshots refresh slower than this
 BEAT_BATCH = 1000        # must not exceed hub.BULK_BEAT_MAX
+# A 1920x1080 JPEG from these networks is 150-400 KB. Ten megabytes is not a
+# traffic camera, it is a mistake or a trap, and either way it is not worth a
+# worker slot on a sweep of thousands.
+MAX_IMAGE_BYTES = 10 << 20
+POLL_TIMEOUT_S = 8       # per camera during `run` - see fetch()'s deadline
 MIN_HD_WIDTH = 1280
 
 
@@ -256,7 +261,34 @@ def fetch(url: str, ua: str = UA_SURVEY, timeout: int = 15,
     req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            body = r.read()
+            # 🚨 A WALL-CLOCK DEADLINE, NOT JUST A PER-READ TIMEOUT. MEASURED:
+            # ONE CHUNK OF 192 CAMERAS TOOK 150 SECONDS INSTEAD OF 5.
+            #
+            # `timeout` is the socket timeout, which applies to each recv
+            # SEPARATELY. A camera trickling one packet every few seconds
+            # resets it for ever, so `r.read()` can hold a worker for minutes
+            # while never once timing out. With 96 workers against thousands of
+            # somebody else's cameras, a handful of those drag a whole sweep
+            # under - and it looks exactly like being slow rather than being
+            # stuck, which is why it survived the first three runs.
+            #
+            # The hub already learned this about its own request bodies (see
+            # _body in hub.py). Same trap, same fix: read in pieces against a
+            # total budget, and cap the size while we are here - a traffic
+            # camera sending 20 MB is not a traffic camera.
+            deadline = time.time() + timeout
+            parts, got = [], 0
+            while True:
+                if time.time() > deadline:
+                    raise TimeoutError(f"body exceeded {timeout}s")
+                piece = r.read(1 << 16)
+                if not piece:
+                    break
+                got += len(piece)
+                if got > MAX_IMAGE_BYTES:
+                    raise ValueError(f"body over {MAX_IMAGE_BYTES // 1024} KB")
+                parts.append(piece)
+            body = b"".join(parts)
             if r.headers.get("Content-Encoding") == "gzip":
                 body = gzip.decompress(body)
             if conditional:
@@ -722,7 +754,12 @@ def cmd_run(args) -> int:
         the loop skips without spending any inference on it - see fetch().
         """
         try:
-            raw = fetch(c["url"], conditional=True)
+            # ⚠️ SHORTER THAN THE SURVEY'S 15s, DELIBERATELY. A survey is
+            # patient because it runs once and a slow camera is still worth
+            # measuring. A sweep is not: every second spent waiting on one
+            # camera is a second the other 4,411 are not being looked at, and
+            # the next sweep is along in five minutes anyway.
+            raw = fetch(c["url"], conditional=True, timeout=POLL_TIMEOUT_S)
             return c, Image.open(io.BytesIO(raw)).convert("RGB"), None
         except NotModified:
             return c, None, "304"
