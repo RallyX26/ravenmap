@@ -412,8 +412,8 @@ def _castlerock_index(src: str, host: str) -> list:
 
 def newengland_index(measured_only: bool = True) -> list:
     """Vermont, Maine and New Hampshire share one 511 deployment."""
-    out = _castlerock_index("ne", "www.newengland511.org")
-    return probe_filter(out, "ne") if measured_only else out
+    out = _castlerock_index("ne_511", "www.newengland511.org")
+    return probe_filter(out, "ne_511") if measured_only else out
 
 
 def northcarolina_index(measured_only: bool = True) -> list:
@@ -482,6 +482,129 @@ def michigan_index(measured_only: bool = True) -> list:
                     "lat": float(meta["latitude"]), "lon": float(meta["longitude"]),
                     "url": url})
     return probe_filter(out, "mi") if measured_only else out
+
+
+# 🚨 ONE PLATFORM, EIGHT STATES, AND IT IS A TEMPLATE RATHER THAN A COINCIDENCE.
+#
+# `https://{ss}tg.carsprogram.org/cameras_v1/api/cameras` is keyless and returns
+# a whole state fleet in ONE request with no paging. Probing all fifty
+# two-letter codes found CO, IN, IA, KS, MA, MN, NE and SD answering it - so
+# five of the states below cost one adapter between them rather than five.
+#
+# ⚠️ Their own 511 sites answer /api/v2/get/cameras with "Invalid Key". The
+# keyless door is a different door, which is now the third time that has been
+# true (see newyork_index and _castlerock_index).
+#
+# ⚠️ MASSACHUSETTS AND IOWA ARE DELIBERATELY ABSENT. Massachusetts measured 0 of
+# 308 - it caps at 352px and its `-fullJpeg.jpg` really is 352x198 - and Iowa
+# already comes through the ArcGIS layer, which is a better index for it.
+CARS = {
+    "in": ("intg", "Indiana"),
+    "ne": ("netg", "Nebraska"),
+    "ks": ("kstg", "Kansas"),
+    "mn": ("mntg", "Minnesota"),
+    "co": ("cotg", "Colorado"),
+}
+
+
+def cars_index(state: str, measured_only: bool = True) -> list:
+    """Any state on the CARS platform.
+
+    ⚠️ ORDERED SAMPLING LIES ABOUT THESE FEEDS, STRUCTURALLY. Minnesota is two
+    populations - 720px metro cameras and 1920px outstate ones - and the index
+    lists metro first, so a sample taken in order hits nothing but 720 and
+    hides all 557 usable cameras. That is the Virginia and Florida lesson for
+    the third time: `probe` walks the whole fleet, never a sample.
+    """
+    host, label = CARS[state]
+    rows = _get_json(f"https://{host}.carsprogram.org/cameras_v1/api/cameras",
+                     timeout=60)
+    out = []
+    for c in rows:
+        loc = c.get("location") or {}
+        lat, lon = loc.get("latitude"), loc.get("longitude")
+        if lat in (None, 0) or lon in (None, 0):
+            continue
+        for i, v in enumerate(c.get("views") or []):
+            url = v.get("videoPreviewUrl") or v.get("url")
+            if not url or not str(url).lower().startswith("http"):
+                continue
+            out.append({"src": state, "ref": f"{c.get('id')}-{i}",
+                        "name": (v.get("name") or c.get("name")
+                                 or f"{label} camera")[:60],
+                        "lat": float(lat), "lon": float(lon), "url": url})
+    return probe_filter(out, state) if measured_only else out
+
+
+def illinois_index(measured_only: bool = True) -> list:
+    """Travel Midwest (LMIGA) - the largest single haul in the whole survey.
+
+    ⚠️ POST ONLY. A GET returns 405, which reads as a dead endpoint on a site
+    that otherwise looks like an abandoned SPA. The body is an empty JSON
+    object and that is all it wants.
+
+    ⚠️ One camera carries SEVERAL image URLs in `remUrls`, so the count of
+    cameras and the count of pictures are different numbers - 1,945 sites and
+    4,331 URLs.
+    """
+    body = json.dumps({}).encode()
+    req = urllib.request.Request(
+        "https://travelmidwest.com/lmiga/cameraMap.json", data=body,
+        method="POST", headers={"User-Agent": UA_SURVEY,
+                                "Content-Type": "application/json",
+                                "Accept-Encoding": "gzip"})
+    with urllib.request.urlopen(req, timeout=90) as r:
+        raw = r.read()
+        if r.headers.get("Content-Encoding") == "gzip":
+            raw = gzip.decompress(raw)
+    d = json.loads(raw)
+    out = []
+    for f in (d.get("features") or []):
+        pr = f.get("properties") or {}
+        geo = (f.get("geometry") or {}).get("coordinates") or []
+        if len(geo) < 2:
+            continue
+        for i, url in enumerate(pr.get("remUrls") or []):
+            if not url or not str(url).lower().startswith("http"):
+                continue
+            out.append({"src": "il", "ref": f"{pr.get('id') or pr.get('name')}-{i}",
+                        "name": (pr.get("name") or pr.get("desc")
+                                 or "Illinois camera")[:60],
+                        "lat": float(geo[1]), "lon": float(geo[0]),
+                        "url": url})
+    return probe_filter(out, "il") if measured_only else out
+
+
+def southdakota_index(measured_only: bool = True) -> list:
+    """South Dakota, on Iteris. The best OPTICS anywhere - 21 are true 4K.
+
+    ⚠️ 3840px is also exactly the width a quad mosaic arrives at, so these were
+    opened and looked at before being believed. They are single views.
+    """
+    d = _get_json("https://sd.cdn.iteris-atis.com/geojson/icons/metadata/"
+                  "icons.cameras.geojson", timeout=60)
+    out = []
+    for f in (d.get("features") or []):
+        pr = f.get("properties") or {}
+        geo = (f.get("geometry") or {}).get("coordinates") or []
+        if len(geo) < 2:
+            continue
+        for i, cam in enumerate(pr.get("cameras") or []):
+            url = cam.get("image")
+            if not url:
+                continue
+            out.append({"src": "sd", "ref": f"{pr.get('id') or cam.get('id')}-{i}",
+                        "name": (cam.get("name") or pr.get("name")
+                                 or "South Dakota camera")[:60],
+                        "lat": float(geo[1]), "lon": float(geo[0]),
+                        "url": url})
+    return probe_filter(out, "sd") if measured_only else out
+
+
+def arizona_index(measured_only: bool = True) -> list:
+    """AZ511, through the legacy Castle Rock list rather than the keyed API."""
+    out = _castlerock_index("az", "www.az511.gov")
+    return probe_filter(out, "az") if measured_only else out
 
 
 def indiana_index(measured_only: bool = True) -> list:
@@ -740,7 +863,9 @@ SOURCES = {"nyc": nyc_index, "fi": finland_index, "atx": austin_index,
            "nm": newmexico_index, "mo": missouri_index,
            "ny": newyork_index, "mi": michigan_index,
            "in": indiana_index, "al": alabama_index,
-           "ne": newengland_index, "nc": northcarolina_index}
+           "ne_511": newengland_index, "nc": northcarolina_index,
+           "il": illinois_index, "sd": southdakota_index,
+           "az": arizona_index}
 for _k in ARCGIS:
     SOURCES[_k] = (lambda k: lambda: arcgis_index(k))(_k)
 
@@ -925,8 +1050,9 @@ def cmd_probe(args) -> int:
                 if v.get("Status") == "Enabled" and v.get("Url")]
     elif args.source in ARCGIS:
         urls = [c["url"] for c in arcgis_index(args.source, measured_only=False)]
-    elif args.source in ("oh", "nm", "mo", "ny", "mi", "in", "tx",
-                         "al", "ne", "nc"):
+    elif (args.source in ("oh", "nm", "mo", "ny", "mi", "in", "tx", "al",
+                          "ne_511", "nc", "il", "sd", "az")
+          or args.source in CARS):
         urls = [c["url"] for c in SOURCES[args.source](measured_only=False)]
     else:
         urls = [c["url"] for c in SOURCES[args.source]()]
@@ -1143,6 +1269,9 @@ def texas_index(measured_only: bool = True) -> list:
 # Registered here rather than in the table above, because Texas needs
 # fetch_image and fetch_image needs to sit next to fetch.
 SOURCES["tx"] = texas_index
+for _st in CARS:
+    SOURCES[_st] = (lambda k: lambda measured_only=True:
+                    cars_index(k, measured_only))(_st)
 
 
 def load_model():
