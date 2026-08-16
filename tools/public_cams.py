@@ -667,7 +667,8 @@ def cams_from_tokens(tokens_path: str, sources: list) -> list:
     node across restarts, and its sightings keep landing on the same dot.
     """
     creds = json.loads(Path(tokens_path).read_text(encoding="utf-8"))
-    cams, missing, ambiguous = [], 0, 0
+    probe = load_probe()
+    cams, missing, ambiguous, dead = [], 0, 0, 0
     for src in sources:
         try:
             idx = dedupe_index(SOURCES[src]())
@@ -675,6 +676,18 @@ def cams_from_tokens(tokens_path: str, sources: list) -> list:
             print(f"  ⚠ {src} index unavailable ({type(exc).__name__}: "
                   f"{str(exc)[:60]}) - its cameras are skipped this run")
             continue
+        # 🚨 DO NOT SPEND A SWEEP ON A CAMERA MEASURED AS DEAD. Austin's index
+        # offers 1,005 cameras and 163 of them do not return an image at all -
+        # they are listed, they are gone, and every cycle paid a connection and
+        # up to the fetch timeout to rediscover that.
+        #
+        # ⚠️ ONLY width == 0, which means MEASURED AND UNLOADABLE. A camera with
+        # no probe entry is UNMEASURED and is kept: missing data is not negative
+        # data, and silently dropping everything unprobed would quietly delete
+        # whole networks the moment the probe file went missing.
+        before = len(idx)
+        idx = [c for c in idx if probe.get(c["url"], 1) != 0]
+        dead += before - len(idx)
         groups: dict = {}
         for c in idx:
             groups.setdefault(node_name_for(c), []).append(c)
@@ -705,6 +718,8 @@ def cams_from_tokens(tokens_path: str, sources: list) -> list:
                              "lon": cr.get("lon", c["lon"])})
                 hit += 1
         print(f"  {src}: {hit} of {len(idx)} camera(s) matched to a node")
+    if dead:
+        print(f"  {dead} camera(s) skipped: measured and never return an image")
     if ambiguous:
         print(f"  {ambiguous} camera(s) share a name with another and were "
               f"paired by position - correct, but not guaranteed correct")
