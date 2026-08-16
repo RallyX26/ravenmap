@@ -31,7 +31,7 @@
     // coverage this project can get - the hardware and the sightline are
     // already paid for. It was reachable only from a paragraph inside
     // /app and a link near the bottom of the landing page.
-    { href: "/IPCamera",     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h11a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H4z"/><path d="M17 10.5 21 8v7l-4-2.5z"/><path d="M8 15v4M5 19h6"/></svg>', label: "Add an IP Camera" },
+    { href: "/IPCamera",     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h11a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H4z"/><path d="M17 10.5 21 8v7l-4-2.5z"/><path d="M8 15v4M5 19h6"/></svg>', label: "IP Camera" },
     { href: "/rv",           icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5 9.5 18 20 6.5"/></svg>',       label: "Review" },
     { href: "/about",        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.8" r=".9" fill="currentColor" stroke="none"/></svg>',       label: "About",        mode: "about" },
     { href: "/transparency", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.8-6.5 10-6.5S22 12 22 12s-3.8 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/></svg>', label: "Transparency", mode: "transparency" },
