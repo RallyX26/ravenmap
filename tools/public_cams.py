@@ -363,47 +363,36 @@ def michigan_index(measured_only: bool = True) -> list:
 
 
 def indiana_index(measured_only: bool = True) -> list:
-    """INDOT.
+    """INDOT, via the CARS platform. Only reachable from the US box.
 
-    🚨 THE OBVIOUS IMAGE URL IS THE WRONG ONE, AND IT COSTS 86% OF THE STATE.
-    The index's own `views[].videoPreviewUrl` on public.carsprogram.org is
-    downsampled to 352x240 - measured, 14% clear the bar. The same cameras are
-    published full size at pws.trafficwise.org, where 86% do. A source is not
-    its index's favourite link.
+    ⚠️ THE FULL-SIZE MIRROR DOES NOT COVER THIS INDEX. pws.trafficwise.org
+    serves 738 full-resolution JPEGs and looks like the obvious better source -
+    86% of THOSE clear the bar against 15% of the index's own previews. But the
+    two barely overlap: the files are named by route (01-002-073, 01-006-003)
+    and the index's cameras are on routes with no files at all - there is not a
+    single 01-094-* image for any of its I-94 cameras. Measured: 33 of 740 join.
+    The previews, probed, yield about a hundred. Fewer good pictures beats more
+    good pictures of somewhere else.
 
-    The join is by filename token: the image directory names files after the
-    camera's `d-rrr-mmm-t` designation with a `-cam-N` suffix.
+    ⚠️ So this takes videoPreviewUrl and lets `probe` find the HD subset, which
+    is the same bargain every other mixed network here makes.
     """
     rows = _get_json("https://intg.carsprogram.org/cameras_v1/api/cameras",
                      timeout=60)
-    listing = fetch("https://pws.trafficwise.org/cctv/", timeout=60).decode(
-        "utf-8", "ignore")
-    # ⚠️ THE HREFS ARE UNQUOTED. This directory emits `href=01-002-073-cam1.jpg`,
-    # so a regex expecting href="..." matches nothing and the whole state
-    # silently disappears - which is exactly what happened on the first run.
-    files = set(re.findall(r'href=["\']?([^"\'\s>]+\.jpg)', listing))
-    # ⚠️ `...t.jpg` in that directory are thumbnails, not cameras.
-    files = {f for f in files if not re.search(r"t\.jpg$", f, re.I)}
-    by_token = {}
-    for f in files:
-        by_token.setdefault(re.split(r"-cam", f, 1)[0].lower(), []).append(f)
     out = []
     for c in rows:
         loc = c.get("location") or {}
         lat, lon = loc.get("latitude"), loc.get("longitude")
         if lat in (None, 0) or lon in (None, 0):
             continue
-        # The index calls a camera "1-094-035-8-1 E OF US421"; the files are
-        # named "01-094-035-cam1.jpg". Three leading parts, first zero-padded.
-        parts = str(c.get("name") or "").split()[0].split("-")
-        token = ""
-        if len(parts) >= 3:
-            token = f"{parts[0].zfill(2)}-{parts[1]}-{parts[2]}".lower()
-        for f in by_token.get(token, []):
-            out.append({"src": "in", "ref": f.rsplit(".", 1)[0][-24:],
-                        "name": (c.get("name") or "Indiana camera")[:60],
-                        "lat": float(lat), "lon": float(lon),
-                        "url": "https://pws.trafficwise.org/cctv/" + f})
+        for i, v in enumerate(c.get("views") or []):
+            url = v.get("videoPreviewUrl")
+            if not url or not url.lower().startswith("http"):
+                continue
+            out.append({"src": "in", "ref": f"{c.get('id')}-{i}",
+                        "name": (v.get("name") or c.get("name")
+                                 or "Indiana camera")[:60],
+                        "lat": float(lat), "lon": float(lon), "url": url})
     return probe_filter(out, "in") if measured_only else out
 
 
