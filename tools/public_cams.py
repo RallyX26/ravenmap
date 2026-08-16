@@ -751,7 +751,17 @@ def cmd_run(args) -> int:
             # exist. Chunking makes the ceiling `chunk` frames, ~1.2 GB, and
             # costs nothing: the pool refills while inference runs.
             chunk = max(workers * 2, 32)
+            # 🚨 A FLEET SWEEP MUST NARRATE ITSELF. Without this the process
+            # printed nothing between "polling 4,412 cameras" and the end of a
+            # cycle - eight minutes of a silent log in which a healthy sweep, a
+            # stalled one and a hung socket are indistinguishable. The startup
+            # estimate only counts the happy path, and the thing that actually
+            # dominates a cold sweep is cameras that answer slowly or not at
+            # all, each costing up to the fetch timeout.
+            _done = 0
+            _t0 = time.time()
             for _batch in (cams[i:i + chunk] for i in range(0, len(cams), chunk)):
+                _bt = time.time()
                 for c, img, err in pool.map(grab, _batch):
                     if err == "304":
                         unchanged += 1          # nothing new; costs ~200 bytes
@@ -809,6 +819,11 @@ def cmd_run(args) -> int:
                         print(f"  ERR   {c['name'][:34]:<36} {type(exc).__name__}: {str(exc)[:50]}")
                     if args.once:
                         continue
+                _done += len(_batch)
+                _el = time.time() - _t0
+                print(f"  .. {_done}/{len(cams)} swept in {_el:.0f}s "
+                      f"({len(_batch) / max(0.01, time.time() - _bt):.0f} cam/s, "
+                      f"{unchanged} unchanged, {sent} sent)", flush=True)
             beat(reached)
             took = time.time() - cycle_started
             if unchanged:
