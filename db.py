@@ -644,15 +644,37 @@ def pending_areas(now_ts: Optional[float] = None) -> list[dict]:
     the whole answer - enough to say "something here wants a human", which is
     the entire purpose, and not enough to identify anybody.
     """
+    # 🚨 THE PENDING POOL IS A DIRECTORY, NOT A COLUMN, AND THE FIRST VERSION
+    # OF THIS QUERIED THE COLUMN.
+    #
+    # `/rv` reads mirror.REVIEW - one JSON file per candidate, keyed by
+    # sighting id - and a crop sits there until a human presses Cop or Not a
+    # cop. `sightings.reviewed` is what happens AFTERWARDS. So a query for
+    # `reviewed IS NULL` returns nothing whether the queue is empty or has
+    # sixty items in it, and this layer would have read zero for ever while
+    # the reviewer stared at a full queue.
+    #
+    # Caught only because he sent screenshots showing "6 left" while the
+    # endpoint said none. Two numbers about the same thing disagreeing is the
+    # only reason it surfaced - the same way every silent drop in this project
+    # has surfaced.
+    import mirror                        # local: hub imports this lazily too
     now_ts = now_ts or now()
-    rows = connect().execute(
-        "SELECT lat, lon FROM sightings "
-        "WHERE vclass IN ('police', 'gov') AND ts > ? "
-        "AND (reviewed IS NULL OR reviewed = '') "
-        "AND lat IS NOT NULL AND lon IS NOT NULL",
-        (now_ts - PENDING_WINDOW_S,)).fetchall()
     cells: dict = {}
-    for r in rows:
+    if not mirror.REVIEW.exists():
+        return []
+    conn = connect()
+    for jp in mirror.REVIEW.glob("*.json"):
+        try:
+            sid = int(jp.stem)
+        except ValueError:
+            continue
+        r = conn.execute("SELECT lat, lon, ts FROM sightings WHERE id = ?",
+                         (sid,)).fetchone()
+        if not r or r["lat"] is None or r["lon"] is None:
+            continue
+        if (r["ts"] or 0) < now_ts - PENDING_WINDOW_S:
+            continue
         key = (round(r["lat"] / PENDING_CELL), round(r["lon"] / PENDING_CELL))
         cells[key] = cells.get(key, 0) + 1
     return [{"lat": round(k[0] * PENDING_CELL, 3),
