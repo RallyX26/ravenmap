@@ -45,7 +45,7 @@ Environment=PYTHONUNBUFFERED=1
 #   and 87% of its cameras are 352x240, below the 120px bar anyway.
 ExecStart=/opt/sparrowmap/.venv/bin/python /opt/sparrowmap/tools/public_cams.py \
     run --tokens /opt/sparrowmap/data/cam_tokens.json \
-        --sources fi,ia,atx,on,oh,nm,mo,sea,wsd,tor,nl --interval 300 --workers 96
+        --sources fi,ia,atx,on,oh,ny,nm,mo,sea,wsd,tor,nl --interval 300 --workers 96
 
 Restart=on-failure
 RestartSec=30
