@@ -862,7 +862,20 @@ POSTING_WINDOW_S = 300.0
 # ⚠️ IT IS DELIBERATELY NOT A BLANKET WIDENING. A volunteer's camera keeps the
 # tight window, because there the absence of a beat is meaningful within
 # seconds and that is the whole value of the signal.
-PUBLIC_CAM_WINDOW_S = 660.0
+# 🚨 SIZED FOR THE SLOWEST POLLER, AND THERE IS MORE THAN ONE NOW. Helsinki
+# sweeps every 300s and Ashburn every 600s, so two cycles plus slack is 1260 -
+# not the 660 that was right when Helsinki was the only box.
+#
+# 🚨 THIS EXACT COUPLING BROKE THE MAP ON 2026-08-16. During the spike the
+# intervals were raised to 900s and 1800s to shed ingest, and this constant was
+# left alone. Every camera then beat LESS OFTEN than the window that declares it
+# online, so 9,900 working cameras reported as dead - a fleet-wide outage that
+# was purely an arithmetic disagreement between two files, while every camera
+# was fetching images perfectly the whole time.
+#
+# ⚠️ IF YOU CHANGE --interval ON EITHER POLLER, CHANGE THIS IN THE SAME EDIT.
+# The rule is 2 × (longest interval) + 60.
+PUBLIC_CAM_WINDOW_S = 1260.0
 
 
 def beat_window(kind: str) -> float:
