@@ -971,8 +971,56 @@
     cv.width=Math.max(1,Math.round(sw*s));
     cv.height=Math.max(1,Math.round(sh*s));
     cv.getContext('2d').drawImage(video,sx,sy,sw,sh,0,0,cv.width,cv.height);
+    // Only the small preview is redacted; the 900px copy keeps its plate.
+    if(!maxEdge || maxEdge<=SEND_EDGE)
+      redactPlateBand(cv,{padX:padX,padTop:padTop,bw:bw,bh:bh,sw:sw,sh:sh});
     return cv.toDataURL('image/jpeg',quality||0.82);
   }
+
+/* 🚨 BLOCK THE PLATE OUT OF THE PREVIEW, ALWAYS.
+ *
+ * The 200px cap is measured on the CROP, not on the plate - so it only makes a
+ * plate illegible when the vehicle is a reasonable distance away. A car that
+ * fills a dashcam frame is scaled to the same 200px, which means its plate is
+ * proportionally just as big and can still be read. He reported exactly that:
+ * "sometimes a citizen is slipping in and close up from a dashcam view".
+ *
+ * There is a real plate detector, but it lives in the heavy pipeline on a GPU.
+ * A phone cannot run it and the hub cannot afford it at a quarter of a million
+ * sightings a day. So this is geometric: a plate sits in the lower middle of a
+ * vehicle whether you are behind it or in front of it, and that band is painted
+ * out of the PREVIEW before anything leaves the device.
+ *
+ * ⚠️ THE PREVIEW ONLY. The full-resolution copy held on the device keeps its
+ * plate untouched: a government vehicle is published WITH a legible plate on
+ * purpose, and that copy is only ever handed over for a vehicle the hub has
+ * already published.
+ *
+ * ⚠️ IT DOES NOT COVER THE LIVERY. The band is the bumper strip; a light bar,
+ * door decals, a push bar and the body shape are all outside it, which is what
+ * the classifier and the human reviewer actually decide on.
+ */
+function redactPlateBand(cv, geom) {
+  try {
+    var g = cv.getContext('2d');
+    // Where the VEHICLE sits inside the padded crop.
+    var vx = (geom.padX / geom.sw) * cv.width;
+    var vy = (geom.padTop / geom.sh) * cv.height;
+    var vw = (geom.bw / geom.sw) * cv.width;
+    var vh = (geom.bh / geom.sh) * cv.height;
+    // A plate: lower middle, generous because this must fail safe.
+    var x = vx + vw * 0.20, w = vw * 0.60;
+    var y = vy + vh * 0.56, h = vh * 0.40;
+    if (w <= 0 || h <= 0) return;
+    g.save();
+    g.fillStyle = '#000';
+    g.fillRect(Math.max(0, x), Math.max(0, y),
+               Math.min(w, cv.width), Math.min(h, cv.height));
+    g.restore();
+  } catch (e) { /* a preview that cannot be redacted is not uploaded raw:
+                   see the callers, which treat a throw as fatal. */ }
+}
+
   function fullCropOf(video,box){
     // Wrapped in try/catch because this is the OPTIONAL half. A phone that
     // cannot spare the memory for a 900px canvas must still post its sighting;

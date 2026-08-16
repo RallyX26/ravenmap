@@ -234,6 +234,25 @@ def crop_of(frame, box):
         sub = cv2.resize(sub, (max(1, int(sub.shape[1] * s)),
                                max(1, int(sub.shape[0] * s))),
                          interpolation=cv2.INTER_AREA)
+    # 🚨 BLOCK THE PLATE OUT. SEND_EDGE caps the CROP, not the plate, so it only
+    # makes a plate illegible when the vehicle is far enough away. A camera
+    # looking down at close traffic scales the same 200px over a much larger
+    # plate, and it stays readable. Same geometric band as the browser clients:
+    # a plate sits in the lower middle of a vehicle from either end, while the
+    # light bar, decals and body shape - what the decision actually rests on -
+    # are all above it.
+    ch, cw = sub.shape[:2]
+    vx = (pad_x / (ex - sx)) * cw
+    vy = (pad_top / (ey - sy)) * ch
+    vw = (bw / (ex - sx)) * cw
+    vh = (bh / (ey - sy)) * ch
+    px0 = max(0, int(vx + vw * 0.20))
+    py0 = max(0, int(vy + vh * 0.56))
+    px1 = min(cw, int(vx + vw * 0.80))
+    py1 = min(ch, int(vy + vh * 0.96))
+    if px1 > px0 and py1 > py0:
+        sub[py0:py1, px0:px1] = 0
+
     ok, buf = cv2.imencode(".jpg", sub, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
     if not ok:
         return None
