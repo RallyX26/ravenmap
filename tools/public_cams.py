@@ -328,7 +328,7 @@ def michigan_index(measured_only: bool = True) -> list:
     ⚠️ AND THE THUMBNAIL IS THE DEFAULT. The list gives `/thumbs/` URLs; strip
     that path segment for the full-resolution frame. Left alone, Michigan
     measures as a 320px network and gets written off - the thumbnails ARE 320px.
-    """
+
     ⚠️ AND IT TAKES TWO ENDPOINTS. `AllForMap` has clean latitude/longitude/id/
     title and NO image at all; `list` has the image and buries its coordinates
     in an HTML anchor. Neither alone is a camera. They are joined on the id,
