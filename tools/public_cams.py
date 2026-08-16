@@ -315,6 +315,35 @@ def ohio_index(measured_only: bool = True) -> list:
     return probe_filter(out, "oh") if measured_only else out
 
 
+def newyork_index(measured_only: bool = True) -> list:
+    """511NY (NYSDOT).
+
+    ⚠️ THE KEYLESS DOOR IS A DIFFERENT DOOR. `/api/v2/get/cameras` - the Castle
+    Rock path every other 511 site answers - returns "Invalid Key" here, and
+    that is what got New York written down as key-gated on the first sweep. The
+    working endpoint is `/api/getcameras?format=json&key=` with an EMPTY key.
+    One state, two APIs, opposite answers; test the state's own before
+    concluding a key is needed.
+
+    ⚠️ `Disabled` is not decoration - 1,064 of 2,931 rows are disabled cameras
+    that still carry a URL.
+    """
+    rows = _get_json("https://511ny.org/api/getcameras?format=json&key=",
+                     timeout=60)
+    out = []
+    for c in rows:
+        if c.get("Disabled") or c.get("Blocked"):
+            continue
+        lat, lon, url = c.get("Latitude"), c.get("Longitude"), c.get("Url")
+        if not url or not lat or not lon:
+            continue
+        out.append({"src": "ny", "ref": str(c.get("ID") or url)[-24:],
+                    "name": (c.get("Name") or c.get("RoadwayName")
+                             or "New York camera")[:60],
+                    "lat": float(lat), "lon": float(lon), "url": url})
+    return probe_filter(out, "ny") if measured_only else out
+
+
 def newmexico_index(measured_only: bool = True) -> list:
     """NMRoads.
 
@@ -481,7 +510,8 @@ def arcgis_index(key: str, measured_only: bool = True) -> list:
 
 SOURCES = {"nyc": nyc_index, "fi": finland_index, "atx": austin_index,
            "ia": iowa_index, "on": ontario_index, "oh": ohio_index,
-           "nm": newmexico_index, "mo": missouri_index}
+           "nm": newmexico_index, "mo": missouri_index,
+           "ny": newyork_index}
 for _k in ARCGIS:
     SOURCES[_k] = (lambda k: lambda: arcgis_index(k))(_k)
 
@@ -565,7 +595,7 @@ def cmd_probe(args) -> int:
                 if v.get("Status") == "Enabled" and v.get("Url")]
     elif args.source in ARCGIS:
         urls = [c["url"] for c in arcgis_index(args.source, measured_only=False)]
-    elif args.source in ("oh", "nm", "mo"):
+    elif args.source in ("oh", "nm", "mo", "ny"):
         urls = [c["url"] for c in SOURCES[args.source](measured_only=False)]
     else:
         urls = [c["url"] for c in SOURCES[args.source]()]
