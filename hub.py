@@ -187,7 +187,12 @@ MAX_REQUESTS = 200
 # ⚠️ ADD A ROUTE HERE THE DAY ITS ANSWER GETS BIG, not the day it falls over.
 # The test is the size of the body, not how often it is called.
 HEAVY_ROUTES = frozenset({"/api/nodes", "/api/sightings"})
-MAX_HEAVY = 8
+# ⚠️ RAISED 8 -> 12 ON MEASUREMENT. At 8, a cache-missing /api/nodes measured
+# 12.7s during a poll burst - it was queueing, not computing (heavy_free was 0).
+# 12 concurrent builds is ~180 MB of peak, affordable against the 620 MB the hub
+# now sits at, and a reader waiting 12s for the map is the failure this whole
+# exercise was meant to prevent.
+MAX_HEAVY = 12
 
 # How long a heavy request waits for a permit before giving up. Long enough to
 # outlast the leader it is almost certainly queued behind (a build is well
@@ -210,7 +215,11 @@ HEAVY_WAIT_S = 12.0
 # readers keep the rest, permanently.
 INGEST_ROUTES = frozenset({"POST /api/sightings", "POST /api/heartbeat/bulk",
                            "POST /api/enroll"})
-MAX_INGEST = 60
+# ⚠️ LOWERED 60 -> 40 for the same measurement. Ingest held all 60 slots through
+# the burst while a reader waited. Ingest is not latency-sensitive - it queues,
+# and a missed pass is re-read on the next sweep - so it is the side that should
+# give way. This is the priority stated above, applied to a real number.
+MAX_INGEST = 40
 
 # ⚠️ INGEST QUEUES RATHER THAN BEING REFUSED, because there is still no node
 # outbox: a node whose POST is refused DROPS that sighting on the floor. Waiting
