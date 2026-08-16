@@ -334,14 +334,19 @@ def michigan_index(measured_only: bool = True) -> list:
     in an HTML anchor. Neither alone is a camera. They are joined on the id,
     which in `list` exists only inside the image blob as id="1129Img".
     """
-    coords = _get_json("https://mdotjboss.state.mi.us/MiDrive/camera/AllForMap/",
-                       timeout=60)
+    def _build():
+        coords = _get_json(
+            "https://mdotjboss.state.mi.us/MiDrive/camera/AllForMap/", timeout=60)
+        rows = _get_json("https://mdotjboss.state.mi.us/MiDrive/camera/list",
+                         timeout=60)
+        return {"coords": coords, "rows": rows}
+
+    both = cached_index("mi", _build)
+    coords, rows = both.get("coords") or [], both.get("rows") or []
     by_id = {}
     for c in (coords if isinstance(coords, list) else []):
         if c.get("id") is not None and c.get("latitude") and c.get("longitude"):
             by_id[int(c["id"])] = c
-    rows = _get_json("https://mdotjboss.state.mi.us/MiDrive/camera/list",
-                     timeout=60)
     out = []
     for c in (rows if isinstance(rows, list) else []):
         blob = c.get("image") or ""
@@ -678,6 +683,44 @@ def probe_filter(cams: list, src: str) -> list:
 
 
 PROBE_DIR = ROOT / "data" / "probe"
+INDEX_DIR = ROOT / "data" / "index_cache"
+
+
+def cached_index(src: str, build):
+    """Build a source's camera list, falling back to a shipped copy.
+
+    🚨 THE MACHINE THAT CAN READ A CATALOGUE IS NOT ALWAYS THE ONE THAT NEEDS
+    IT. Michigan's index answers a US address and 403s a European one, while
+    its IMAGE host serves both. But enrolment has to run on the HUB, because
+    that is where the database is - and the hub is in Helsinki. So the state
+    was unreachable from the only machine allowed to register it.
+
+    Reading the catalogue and reading the pictures are separate problems, so
+    they get separate machines: whichever box CAN see the index writes
+    data/index_cache/<src>.json, that file is copied to the hub, and enrolment
+    reads it. A camera list changes over months; an image changes every minute.
+
+    ⚠️ The cache is a FALLBACK, never the first choice. A stale catalogue that
+    silently outranks the live one is how a network quietly stops growing.
+
+    Returns whatever  returns - a list for most sources, a dict for
+    Michigan, which needs two endpoints joined.
+    """
+    try:
+        rows = build()
+        if rows:
+            INDEX_DIR.mkdir(parents=True, exist_ok=True)
+            (INDEX_DIR / f"{src}.json").write_text(json.dumps(rows),
+                                                   encoding="utf-8")
+            return rows
+    except Exception as exc:
+        cached = INDEX_DIR / f"{src}.json"
+        if not cached.exists():
+            raise
+        print(f"  ⚠ {src}: index unreachable from here "
+              f"({type(exc).__name__}) - using the shipped copy")
+        return json.loads(cached.read_text(encoding="utf-8"))
+    return []
 
 
 def load_probe() -> dict:
