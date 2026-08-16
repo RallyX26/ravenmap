@@ -86,6 +86,9 @@ BEAT_BATCH = 1000        # must not exceed hub.BULK_BEAT_MAX
 # worker slot on a sweep of thousands.
 MAX_IMAGE_BYTES = 10 << 20
 POLL_TIMEOUT_S = 8       # per camera during `run` - see fetch()'s deadline
+# How many cameras must serve the byte-identical image before it is judged a
+# placeholder rather than a coincidence. See the sweep in cmd_probe.
+PLACEHOLDER_MIN = 5
 MIN_HD_WIDTH = 1280
 
 
@@ -315,6 +318,119 @@ def ohio_index(measured_only: bool = True) -> list:
             out.append({"src": "oh", "ref": f"{r['Id']}-{i}", "name": name[:60],
                         "lat": float(lat), "lon": float(lon), "url": url})
     return probe_filter(out, "oh") if measured_only else out
+
+
+def alabama_index(measured_only: bool = True) -> list:
+    """ALGO Traffic. The best-optics network measured anywhere - 89% clear the bar.
+
+    ⚠️ NOT the ArcGIS layer that turns up first in a search. That one is titled
+    "Old AL DOT roadway cameras" and every image id 404s; it is a stale
+    dataset and cost an afternoon. `api.algotraffic.com/v4.0/Cameras` is the
+    live system and is fully keyless.
+
+    ⚠️ 14 of its widest images are QUAD MOSAICS of four fisheye views, and ten
+    more at 3072px are a "No camera preview available" card. Both are caught by
+    SRC_MAX_WIDTH and the placeholder sweep rather than trusted.
+    """
+    rows = _get_json("https://api.algotraffic.com/v4.0/Cameras", timeout=60)
+    out = []
+    for c in rows:
+        loc = c.get("location") or {}
+        lat, lon = loc.get("latitude"), loc.get("longitude")
+        url = c.get("snapshotImageUrl")
+        if not url or not lat or not lon:
+            continue
+        name = " ".join(x for x in (loc.get("displayRouteDesignator"),
+                                    loc.get("displayCrossStreet"),
+                                    loc.get("city")) if x)
+        out.append({"src": "al", "ref": str(c.get("id")),
+                    "name": (name or "Alabama camera")[:60],
+                    "lat": float(lat), "lon": float(lon), "url": url})
+    return probe_filter(out, "al") if measured_only else out
+
+
+def _castlerock_index(src: str, host: str) -> list:
+    """Castle Rock 511 sites, through their own map XHR rather than the API.
+
+    🚨 THE SITE ID IS NOT THE IMAGE ID, AND CONFUSING THEM COSTS TWO THIRDS OF
+    THE FLEET. `/map/mapIcons/Cameras` returns SITE ids; asking for
+    `/map/Cctv/<siteId>` returns a 540x330 "camera unavailable" card for most
+    of them - 258 of 404 across New England. The real image ids live in
+    `images[].id` from the List/GetData POST. Fixing this took New England
+    from 68 usable to 172.
+
+    ⚠️ These same hosts answer `/api/v2/get/cameras` with "Invalid Key". The
+    keyless door is a different door - see newyork_index for the same lesson.
+    """
+    # ⚠️ TRUST NEW IDS, NOT THE PAGE COUNTER. This endpoint happily accepts a
+    # `start` it then ignores, so a loop that advances until rows run out
+    # returns the SAME hundred cameras for ever - measured, 20,004 "cameras"
+    # from a 404-camera network. Stopping when a page adds nothing new is the
+    # only condition the server cannot lie about.
+    out, start, seen = [], 0, set()
+    while True:
+        body = (f"start={start}&length=100&draw=1&query=&lang=en").encode()
+        req = urllib.request.Request(
+            f"https://{host}/List/GetData/Cameras", data=body, method="POST",
+            headers={"User-Agent": UA_SURVEY,
+                     "Content-Type": "application/x-www-form-urlencoded",
+                     "Accept-Encoding": "gzip"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            raw = r.read()
+            if r.headers.get("Content-Encoding") == "gzip":
+                raw = gzip.decompress(raw)
+        d = json.loads(raw)
+        rows = d.get("data") or []
+        if not rows:
+            break
+        fresh = 0
+        for c in rows:
+            wkt = (((c.get("latLng") or {}).get("geography") or {})
+                   .get("wellKnownText") or "")
+            m = re.search(r"POINT\s*\(\s*(-?[\d.]+)\s+(-?[\d.]+)", wkt)
+            if not m:
+                continue
+            lon, lat = float(m.group(1)), float(m.group(2))
+            for im in (c.get("images") or []):
+                iid = im.get("id") or im.get("imageId")
+                if not iid or str(iid) in seen:
+                    continue
+                seen.add(str(iid))
+                fresh += 1
+                out.append({"src": src, "ref": str(iid),
+                            "name": (c.get("title") or c.get("name")
+                                     or f"{src.upper()} camera")[:60],
+                            "lat": lat, "lon": lon,
+                            "url": f"https://{host}/map/Cctv/{iid}"})
+        if not fresh:
+            break                    # the page repeated: see the note above
+        start += len(rows)
+        if start > 20000:
+            break
+    return out
+
+
+def newengland_index(measured_only: bool = True) -> list:
+    """Vermont, Maine and New Hampshire share one 511 deployment."""
+    out = _castlerock_index("ne", "www.newengland511.org")
+    return probe_filter(out, "ne") if measured_only else out
+
+
+def northcarolina_index(measured_only: bool = True) -> list:
+    """NCDOT. 660 of 1,121 clear the bar."""
+    d = _get_json("https://www.drivenc.gov/map/mapIcons/Cameras", timeout=60)
+    out = []
+    for c in (d.get("item2") or []):
+        loc = c.get("location") or []
+        iid = c.get("itemId")
+        if len(loc) < 2 or not iid:
+            continue
+        out.append({"src": "nc", "ref": str(iid),
+                    "name": (c.get("title") or "North Carolina camera")[:60]
+                            or f"NC camera {iid}",
+                    "lat": float(loc[0]), "lon": float(loc[1]),
+                    "url": f"https://www.drivenc.gov/map/Cctv/{iid}"})
+    return probe_filter(out, "nc") if measured_only else out
 
 
 def michigan_index(measured_only: bool = True) -> list:
@@ -623,7 +739,8 @@ SOURCES = {"nyc": nyc_index, "fi": finland_index, "atx": austin_index,
            "ia": iowa_index, "on": ontario_index, "oh": ohio_index,
            "nm": newmexico_index, "mo": missouri_index,
            "ny": newyork_index, "mi": michigan_index,
-           "in": indiana_index}
+           "in": indiana_index, "al": alabama_index,
+           "ne": newengland_index, "nc": northcarolina_index}
 for _k in ARCGIS:
     SOURCES[_k] = (lambda k: lambda: arcgis_index(k))(_k)
 
@@ -648,7 +765,7 @@ PROBE = ROOT / "data" / "cam_probe.json"
 # survey: a vehicle found in one tile would be published at the camera's single
 # published coordinate, which is a different junction. Excluded until someone
 # can say where each tile points. See ohio_index.
-SRC_MAX_WIDTH = {"oh": 2559}
+SRC_MAX_WIDTH = {"oh": 2559, "al": 2559}
 
 
 def probe_filter(cams: list, src: str) -> list:
@@ -724,6 +841,11 @@ def cached_index(src: str, build):
     return []
 
 
+def _md5(b: bytes) -> str:
+    import hashlib
+    return hashlib.md5(b).hexdigest()
+
+
 def load_probe() -> dict:
     """Every measurement we have, from one file per source.
 
@@ -776,7 +898,8 @@ def cmd_probe(args) -> int:
                 if v.get("Status") == "Enabled" and v.get("Url")]
     elif args.source in ARCGIS:
         urls = [c["url"] for c in arcgis_index(args.source, measured_only=False)]
-    elif args.source in ("oh", "nm", "mo", "ny", "mi", "in", "tx"):
+    elif args.source in ("oh", "nm", "mo", "ny", "mi", "in", "tx",
+                         "al", "ne", "nc"):
         urls = [c["url"] for c in SOURCES[args.source](measured_only=False)]
     else:
         urls = [c["url"] for c in SOURCES[args.source]()]
@@ -786,17 +909,49 @@ def cmd_probe(args) -> int:
 
     def one(u):
         try:
-            return u, Image.open(io.BytesIO(fetch_image(u, timeout=20))).size[0]
+            raw = fetch_image(u, timeout=20)
+            # The bytes are kept so identical images can be found afterwards -
+            # see the placeholder sweep below.
+            return u, Image.open(io.BytesIO(raw)).size[0], _md5(raw)
         except Exception:
-            return u, 0            # 0 = measured and unusable, not unmeasured
+            return u, 0, ""        # 0 = measured and unusable, not unmeasured
 
-    done = 0
+    done, digest = 0, {}
     with cf.ThreadPoolExecutor(max_workers=16) as pool:
-        for u, w in pool.map(one, todo):
+        for u, w, h in pool.map(one, todo):
+            if h:
+                digest[u] = h
             known[u] = w
             done += 1
             if done % 200 == 0:
                 print(f"  ...{done}/{len(todo)}", flush=True)
+    # 🚨 A 1920x1080 "STREAM NOT AVAILABLE" CARD PASSES A WIDTH TEST.
+    #
+    # Several networks answer a dead camera with a full-HD placeholder image
+    # rather than an error, and this probe measures WIDTH - so a placeholder is
+    # indistinguishable from a working HD camera and gets enrolled as one. The
+    # node then beats, posts nothing for ever, and looks like a camera pointed
+    # at a very quiet road.
+    #
+    # Found by the state survey, and it is not rare: Tennessee's ENTIRE 21-strong
+    # "HD tail" is one placeholder, and it ate 27 of South Carolina's 35.
+    #
+    # A placeholder gives itself away by being byte-identical across cameras
+    # that are supposed to be looking at different roads. A real camera never
+    # matches another one exactly. Five is the threshold because two or three
+    # identical frames can happen honestly - a black night shot, a covered lens
+    # - while five separate roads producing one file cannot.
+    if digest:
+        counts: dict = {}
+        for h in digest.values():
+            counts[h] = counts.get(h, 0) + 1
+        dupes = {h for h, n in counts.items() if n >= PLACEHOLDER_MIN}
+        if dupes:
+            hit = [u for u, h in digest.items() if h in dupes]
+            for u in hit:
+                known[u] = 0        # measured, and measured to be a card
+            print(f"  ⚠ {len(hit)} image(s) are byte-identical across "
+                  f"{len(dupes)} group(s) - placeholders, not cameras")
     PROBE_DIR.mkdir(parents=True, exist_ok=True)
     mine.write_text(json.dumps(known), encoding="utf-8")
     everyone.update(known)
