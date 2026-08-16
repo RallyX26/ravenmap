@@ -667,6 +667,38 @@ ONLINE_WINDOW_S = 90.0
 # short enough that a driver who has arrived home drops off the count.
 POSTING_WINDOW_S = 300.0
 
+# 🚨 A PUBLIC TRAFFIC CAMERA CANNOT SATISFY A 90 SECOND WINDOW, AND IT IS NOT
+# BROKEN FOR THAT.
+#
+# The 90s above is built around a phone beating every 30 seconds - a cadence the
+# DEVICE chooses. A public camera does not beat for itself: one poller sweeps
+# thousands of them on a schedule we set, currently a ~150s sweep inside a 300s
+# interval, so each camera is heard from exactly once per cycle. Judged by the
+# phone's window, the entire fleet would flap - measured going 4,484 online,
+# then ~700 a minute later - and the front page would swing by thousands while
+# nothing whatsoever changed.
+#
+# So the window follows the CADENCE, not the kind of hardware: two poll cycles
+# plus slack, the same "one dropped request must not blink it offline" rule the
+# 90s was derived from. If --interval on the poller changes, this changes.
+#
+# ⚠️ IT IS DELIBERATELY NOT A BLANKET WIDENING. A volunteer's camera keeps the
+# tight window, because there the absence of a beat is meaningful within
+# seconds and that is the whole value of the signal.
+PUBLIC_CAM_WINDOW_S = 660.0
+
+
+def beat_window(kind: str) -> float:
+    """How stale a heartbeat may be before that KIND of node reads offline.
+
+    One definition, because three places asked the same question and would
+    otherwise answer it differently - /api/stats, /api/nodes and the town
+    badges each had their own copy of `now() - ONLINE_WINDOW_S`, so a fleet
+    fixed in one would still flap in the other two.
+    """
+    return PUBLIC_CAM_WINDOW_S if kind == "public_cam" else ONLINE_WINDOW_S
+
+
 
 def stats() -> dict:
     c = connect()
@@ -742,12 +774,18 @@ def stats() -> dict:
         # seeing. The window is wider than ONLINE_WINDOW_S because sightings are
         # event-driven - a quiet street produces none for minutes without the
         # camera being any less on, whereas a missed beat means something.
+        # The beat window is per KIND - see PUBLIC_CAM_WINDOW_S. A phone chooses
+        # its own 30s cadence; a public camera is swept by one poller once per
+        # cycle, and judging the second by the first makes the whole fleet flap.
         "nodes_online":   one("SELECT COUNT(*) FROM nodes n "
                               "WHERE n.status='active' AND n.superseded_by IS NULL "
-                              "AND (n.last_beat > ? OR EXISTS ("
+                              "AND (n.last_beat > "
+                              "       (CASE WHEN n.kind='public_cam' THEN ? ELSE ? END)"
+                              "     OR EXISTS ("
                               "  SELECT 1 FROM sightings s WHERE s.node_id = n.id "
                               "  AND s.ts > ?))",
-                              (now() - ONLINE_WINDOW_S, now() - POSTING_WINDOW_S)),
+                              (now() - PUBLIC_CAM_WINDOW_S, now() - ONLINE_WINDOW_S,
+                               now() - POSTING_WINDOW_S)),
         "sightings_24h":  one("SELECT COUNT(*) FROM sightings WHERE ts > ?", (day,)),
         "public_24h":     one("SELECT COUNT(*) FROM sightings WHERE tier='public' AND ts > ?", (day,)),
         # Passes past a camera. Not vehicles - the same car twice is two.

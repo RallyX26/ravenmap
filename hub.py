@@ -1495,8 +1495,8 @@ class Handler(BaseHTTPRequestHandler):
                     e["cameras"] += 1
                     e["_la"] += la
                     e["_lo"] += lo
-                    if nd.get("last_beat") and \
-                            now() - nd["last_beat"] < db.ONLINE_WINDOW_S:
+                    if nd.get("last_beat") and now() - nd["last_beat"] \
+                            < db.beat_window(nd.get("kind") or ""):
                         e["online"] += 1
                 out = []
                 for e in places.values():
@@ -2083,8 +2083,8 @@ class Handler(BaseHTTPRequestHandler):
                         # 'a car drove past in the last 15 minutes', which
                         # marked every camera on a quiet street as switched off
                         # and read as a fault the user then went looking for.
-                        "online": bool(n["last_beat"] and
-                                       n["last_beat"] > now() - db.ONLINE_WINDOW_S),
+                        "online": bool(n["last_beat"] and n["last_beat"]
+                                       > now() - db.beat_window(n["kind"])),
                     }
                     out.append(rec)
                 return self._json(out)
