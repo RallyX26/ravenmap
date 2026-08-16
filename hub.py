@@ -174,6 +174,27 @@ MAX_REQUESTS = 200
 # a caller cannot make one request cost unbounded work.
 BULK_BEAT_MAX = 1000
 
+# How coarsely a viewport box is snapped before it is used as a cache key or a
+# filter. ~11 km: far finer than any decision made from it, coarse enough that
+# ordinary panning keeps landing on a key that already exists.
+BOX_SNAP = 0.1
+
+
+def _snap_box(raw: str) -> str:
+    """`S,W,N,E` snapped OUTWARD to the BOX_SNAP grid, or "" if unparseable.
+
+    🚨 OUTWARD, ALWAYS. This string is both the cache key and the filter, so
+    the snapped box must CONTAIN the caller's box - never merely approximate
+    it. Round-to-nearest would shrink some of them, and the symptom is rows
+    quietly missing at the edge of a viewport, only for whoever did not happen
+    to be the request that populated the cache.
+    """
+    import math
+    s, w, n, e = (float(x) for x in raw.split(","))
+    return "%g,%g,%g,%g" % (
+        math.floor(s / BOX_SNAP) * BOX_SNAP, math.floor(w / BOX_SNAP) * BOX_SNAP,
+        math.ceil(n / BOX_SNAP) * BOX_SNAP, math.ceil(e / BOX_SNAP) * BOX_SNAP)
+
 
 # ---------------------------------------------------------------------------
 # Live feed
@@ -1086,7 +1107,7 @@ class Handler(BaseHTTPRequestHandler):
         # share one key: whichever request missed first decides what everybody
         # else gets for the life of the entry - the map either loses 4,800
         # cameras it asked for or gets a megabyte it deliberately declined.
-        "/api/nodes":       ("public_cams",),
+        "/api/nodes":       ("public_cams", "box"),
     }
 
     def _micro_key_for(self, path: str) -> str:
@@ -1121,6 +1142,33 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     v = str(int(float(v) // CACHE_BUCKET_S * CACHE_BUCKET_S))
                 except (TypeError, ValueError):
+                    continue
+            elif n in ("bbox", "box"):
+                # 🚨 AN UNBUCKETED BOX IS THE CACHE-BUSTER THIS DOCSTRING
+                # WARNS ABOUT, AND `bbox` HAS BEEN ONE ALL ALONG.
+                #
+                # A map sends a new box on every pan, to as many decimal places
+                # as Leaflet feels like. Each distinct string is its own key,
+                # its own miss, its own single-flight leader and its own
+                # admission permit - so the busiest interaction on the site was
+                # the one the micro-cache could never help with, and one person
+                # dragging the map could mint keys as fast as they could move a
+                # finger.
+                #
+                # ⚠️ SNAPPED OUTWARD, NEVER ROUNDED TO NEAREST, AND THAT IS A
+                # CORRECTNESS RULE RATHER THAN A PREFERENCE. Rounding to nearest
+                # can SHRINK the box, and then two viewports sharing a key get
+                # an answer that covers one of them - rows missing at the edge
+                # of somebody's screen, intermittently, depending on who missed
+                # the cache first. Snapping outward makes every cached answer a
+                # SUPERSET of any box in its bucket: extra rows off-screen are
+                # harmless, absent ones are not.
+                #
+                # The route snaps identically (see _snap_box) so the key and the
+                # query can never disagree about what was asked for.
+                try:
+                    v = _snap_box(v) or v
+                except ValueError:
                     continue
             bits.append(f"{n}={v}")
         return path + ("?" + "&".join(bits) if bits else "")
@@ -2027,12 +2075,36 @@ class Handler(BaseHTTPRequestHandler):
                 # parameter = include, so every existing caller of this API
                 # (and anyone reading it from outside) sees exactly what it
                 # always returned.
-                want_public = (parse_qs(urlparse(self.path).query)
-                               .get("public_cams", ["1"])[0] != "0")
+                _q = parse_qs(urlparse(self.path).query)
+                want_public = (_q.get("public_cams", ["1"])[0] != "0")
+                # 🗺️ AND BOUNDED BY VIEWPORT WHEN THE LAYER IS ON.
+                #
+                # A phone in Michigan has no use for 2,160 Finnish cameras, and
+                # switching the layer on used to mean downloading every one of
+                # them. Snapped OUTWARD to the same grid the cache keys on, so
+                # the answer is a superset of what was asked for and panning
+                # keeps hitting one key instead of minting one per drag.
+                #
+                # ⚠️ ONLY public_cam is filtered. Volunteer nodes are ~350 rows
+                # and their SPANS are the map's actual content; dropping those
+                # off-screen would make the map look empty while it loaded, and
+                # they are not what made this response big.
+                cam_box = None
+                if "box" in _q:
+                    try:
+                        cam_box = tuple(float(x) for x in
+                                        _snap_box(_q["box"][0]).split(","))
+                    except (ValueError, AttributeError):
+                        cam_box = None
                 out = []
                 for n in db.nodes():
-                    if not want_public and n["kind"] == "public_cam":
-                        continue
+                    if n["kind"] == "public_cam":
+                        if not want_public:
+                            continue
+                        if cam_box and n["lat"] is not None:
+                            s, w, ne, e = cam_box
+                            if not (s <= n["lat"] <= ne and w <= n["lon"] <= e):
+                                continue
                     span = node_mod.span_of(n)
                     # 🚨 NO CAMERA POSITION IS PUBLISHED AT ALL. Not the true
                     # one, not the jittered one.

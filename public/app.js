@@ -944,6 +944,26 @@ map.addControl(new AllControl());
  * hiding it. Publishing both meant publishing the honest fact and, next to it,
  * a weaker claim about the same camera that could only make the first one
  * sharper. Keep the road. Drop the door. */
+/* The viewport, snapped OUTWARD to the server's grid and padded by one cell.
+ *
+ * ⚠️ THE PADDING IS WHAT STOPS THIS REFETCHING CONSTANTLY. Without it, sitting
+ * exactly on a cell boundary makes every small drag flip the key back and
+ * forth, so the one thing that was supposed to reuse a cached answer would
+ * request twice as often as before.
+ *
+ * Snapped in the SAME direction as hub._snap_box: outward. A client that
+ * rounded to nearest would ask for a box the server then widened, get a
+ * superset back, and quietly disagree with the server about which key it was
+ * on - correct output, wasted cache. */
+const BOX_SNAP = 0.1;
+function camBoxKey() {
+  const b = map.getBounds();
+  const f = (v) => Math.floor(v / BOX_SNAP) * BOX_SNAP - BOX_SNAP;
+  const c = (v) => Math.ceil(v / BOX_SNAP) * BOX_SNAP + BOX_SNAP;
+  return [f(b.getSouth()), f(b.getWest()), c(b.getNorth()), c(b.getEast())]
+    .map((n) => n.toFixed(1)).join(',');
+}
+
 async function loadCameras() {
   // 🚨 DO NOT DOWNLOAD 4,800 CAMERAS IN ORDER TO HIDE THEM.
   //
@@ -952,7 +972,15 @@ async function loadCameras() {
   // markers made the map lag on a phone. Filtering after the download bounded
   // the DRAWING and left the megabyte and its parse exactly where they were -
   // which is most of what "the map is laggy" actually was.
-  const url = state.showPubCams ? '/api/nodes' : '/api/nodes?public_cams=0';
+  //
+  // With the layer ON it is bounded by VIEWPORT as well, snapped to the same
+  // ~11 km grid the server keys its cache on - so panning reuses one cached
+  // answer instead of minting a new one per drag, and the answer is always a
+  // superset of what is on screen.
+  let url = '/api/nodes?public_cams=0';
+  if (state.showPubCams) {
+    url = `/api/nodes?box=${camBoxKey()}`;
+  }
   const cams = await (await fetch(url)).json();
   state.camLayer.clearLayers();
 
@@ -1409,6 +1437,22 @@ map.on('moveend', () => {
   if (state.showAircraft || state.showAircraftGov) loadAircraft();
 });
 if (state.showAircraft || state.showAircraftGov) loadAircraft();
+
+/* Traffic cameras follow the viewport - but ONLY when the snapped box actually
+ * changes.
+ *
+ * ⚠️ A bare `moveend -> loadCameras()` would refetch on every nudge of the map,
+ * which is how a fix for downloading too much turns into downloading more
+ * often. The whole point of snapping to a grid is that most movement does not
+ * change the answer, so most movement must not ask for it again. */
+let _camBox = null;
+map.on('moveend', () => {
+  if (!state.showPubCams) return;
+  const k = camBoxKey();
+  if (k === _camBox) return;
+  _camBox = k;
+  loadCameras();
+});
 
 /* The View button: open the chips, close them, and keep the label honest.
  *
