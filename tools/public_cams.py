@@ -57,6 +57,7 @@ import concurrent.futures as cf
 import gzip
 import io
 import json
+import re
 import sys
 import time
 import urllib.error
@@ -315,6 +316,79 @@ def ohio_index(measured_only: bool = True) -> list:
     return probe_filter(out, "oh") if measured_only else out
 
 
+def michigan_index(measured_only: bool = True) -> list:
+    """MDOT Mi Drive.
+
+    ⚠️ ONLY REACHABLE FROM THE US BOX. mdotjboss.state.mi.us answers a European
+    address with 403 while serving a US one normally - and confusingly its
+    IMAGE host (micamerasimages.net) is happy to serve Helsinki. Index blocked,
+    pictures not, which is why this looked like a dead source rather than a
+    geographic one.
+
+    ⚠️ AND THE THUMBNAIL IS THE DEFAULT. The list gives `/thumbs/` URLs; strip
+    that path segment for the full-resolution frame. Left alone, Michigan
+    measures as a 320px network and gets written off - the thumbnails ARE 320px.
+    """
+    rows = _get_json("https://mdotjboss.state.mi.us/MiDrive/camera/AllForMap/",
+                     timeout=60)
+    if isinstance(rows, dict):
+        rows = rows.get("cameras") or rows.get("data") or []
+    out = []
+    for c in rows:
+        lat, lon = c.get("latitude"), c.get("longitude")
+        url = c.get("image") or c.get("imageUrl") or c.get("url")
+        if not url or lat in (None, 0) or lon in (None, 0):
+            continue
+        if "<" in url:                       # some rows carry an <img> blob
+            m = re.search(r'src=["\']([^"\']+)', url)
+            if not m:
+                continue
+            url = m.group(1)
+        url = url.replace("/thumbs/", "/")   # see the note above
+        out.append({"src": "mi", "ref": str(c.get("id") or url)[-24:],
+                    "name": (c.get("title") or c.get("name")
+                             or "Michigan camera")[:60],
+                    "lat": float(lat), "lon": float(lon), "url": url})
+    return probe_filter(out, "mi") if measured_only else out
+
+
+def indiana_index(measured_only: bool = True) -> list:
+    """INDOT.
+
+    🚨 THE OBVIOUS IMAGE URL IS THE WRONG ONE, AND IT COSTS 86% OF THE STATE.
+    The index's own `views[].videoPreviewUrl` on public.carsprogram.org is
+    downsampled to 352x240 - measured, 14% clear the bar. The same cameras are
+    published full size at pws.trafficwise.org, where 86% do. A source is not
+    its index's favourite link.
+
+    The join is by filename token: the image directory names files after the
+    camera's `d-rrr-mmm-t` designation with a `-cam-N` suffix.
+    """
+    rows = _get_json("https://intg.carsprogram.org/cameras_v1/api/cameras",
+                     timeout=60)
+    listing = fetch("https://pws.trafficwise.org/cctv/", timeout=60).decode(
+        "utf-8", "ignore")
+    files = set(re.findall(r'href="([^"]+\.jpg)"', listing))
+    # ⚠️ `t.jpg` files in that directory are thumbnails, not cameras.
+    files = {f for f in files if not f.lower().endswith("t.jpg")}
+    by_token = {}
+    for f in files:
+        by_token.setdefault(re.split(r"-cam-", f, 1)[0].lower(), []).append(f)
+    out = []
+    for c in rows:
+        loc = c.get("location") or {}
+        lat, lon = loc.get("latitude"), loc.get("longitude")
+        if lat in (None, 0) or lon in (None, 0):
+            continue
+        token = str(c.get("name") or "").split()[0].lower() if c.get("name") else ""
+        for f in by_token.get(token, []):
+            out.append({"src": "in", "ref": f.rsplit(".", 1)[0][-24:],
+                        "name": (c.get("name") or "Indiana camera")[:60],
+                        "lat": float(lat), "lon": float(lon),
+                        "url": "https://pws.trafficwise.org/cctv/" + f})
+    return probe_filter(out, "in") if measured_only else out
+
+
 def newyork_index(measured_only: bool = True) -> list:
     """511NY (NYSDOT).
 
@@ -535,7 +609,8 @@ def arcgis_index(key: str, measured_only: bool = True) -> list:
 SOURCES = {"nyc": nyc_index, "fi": finland_index, "atx": austin_index,
            "ia": iowa_index, "on": ontario_index, "oh": ohio_index,
            "nm": newmexico_index, "mo": missouri_index,
-           "ny": newyork_index}
+           "ny": newyork_index, "mi": michigan_index,
+           "in": indiana_index}
 for _k in ARCGIS:
     SOURCES[_k] = (lambda k: lambda: arcgis_index(k))(_k)
 
@@ -650,7 +725,7 @@ def cmd_probe(args) -> int:
                 if v.get("Status") == "Enabled" and v.get("Url")]
     elif args.source in ARCGIS:
         urls = [c["url"] for c in arcgis_index(args.source, measured_only=False)]
-    elif args.source in ("oh", "nm", "mo", "ny"):
+    elif args.source in ("oh", "nm", "mo", "ny", "mi", "in"):
         urls = [c["url"] for c in SOURCES[args.source](measured_only=False)]
     else:
         urls = [c["url"] for c in SOURCES[args.source]()]

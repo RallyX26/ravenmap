@@ -34,9 +34,32 @@ WorkingDirectory=/opt/sparrowmap
 # expensive way; the same trap, same fix.
 Environment=PYTHONUNBUFFERED=1
 
+# 🚨 TWO POLLERS RUN THIS UNIT AND THEY MUST NOT POLL THE SAME LIST.
+#
+# Several US agencies refuse the Helsinki box outright - Kentucky answers it
+# with a self-signed WatchGuard FIREWALL certificate, Indiana's image host
+# times out, Michigan's index 403s - while serving a US address normally. So
+# there is a second, smaller box in Ashburn whose whole job is the sources the
+# European one cannot reach.
+#
+# The difference is CONFIGURATION, not a second copy of this file. A forked
+# unit is how two machines quietly drift apart, and the failure mode is a
+# source that both poll (double the load on somebody's public camera) or that
+# neither does (a state silently missing from the map).
+#
+#   /etc/sparrowmap-cams.env      SPARROW_SOURCES=... SPARROW_INTERVAL=... SPARROW_WORKERS=...
+#
+# The defaults below are the Helsinki box's, so an env file is optional.
+Environment=SPARROW_SOURCES=fi,ia,atx,on,oh,ny,nm,mo,sea,wsd,tor,nl
+Environment=SPARROW_INTERVAL=300
+Environment=SPARROW_WORKERS=96
+EnvironmentFile=-/etc/sparrowmap-cams.env
+
 # --interval 300: a traffic camera refreshes every 1-5 minutes, so polling
 #   faster only spends bandwidth re-downloading frames we already scored. It is
 #   also what keeps a 4,400-camera fleet inside the box's 20 TB allowance.
+#   ⚠️ THE ASHBURN BOX HAS 2 TB, NOT 20 - US allowances are an order of
+#   magnitude smaller, so its interval is a bandwidth decision not a taste one.
 # --workers 96: the fetch is 0.36s of WAITING per camera, almost none of it
 #   CPU, so concurrency is what sizes the sweep - roughly 17s of fetching for
 #   4,400 cameras. ⚠️ MEASURE the "cycle done in Ns" line before changing
@@ -45,7 +68,8 @@ Environment=PYTHONUNBUFFERED=1
 #   and 87% of its cameras are 352x240, below the 120px bar anyway.
 ExecStart=/opt/sparrowmap/.venv/bin/python /opt/sparrowmap/tools/public_cams.py \
     run --tokens /opt/sparrowmap/data/cam_tokens.json \
-        --sources fi,ia,atx,on,oh,ny,nm,mo,sea,wsd,tor,nl --interval 300 --workers 96
+        --sources ${SPARROW_SOURCES} --interval ${SPARROW_INTERVAL} \
+        --workers ${SPARROW_WORKERS}
 
 Restart=on-failure
 RestartSec=30
