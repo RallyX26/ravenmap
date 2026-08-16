@@ -1520,6 +1520,37 @@ _showcams.onchange = (e) => {
  * "everything" also dragged down every private pass ever recorded, almost all
  * of which would be drawn and immediately reaped. Two bounded queries beat one
  * that grows without limit. */
+/* The opening view, drawn before the live data can possibly arrive.
+ *
+ * 🚨 THE MAP USED TO OPEN EMPTY FOR ABOUT 0.7s ON EVERY VISIT. Two live API
+ * calls - measured 57.8 KB and 175.5 KB - and both answer max-age=4 with
+ * cf-cache-status DYNAMIC, so the edge caches neither and every visitor is a
+ * pair of database queries for an answer identical for all of them.
+ *
+ * /static/snapshot.json is a plain file, so the edge DOES cache it: the first
+ * paint costs one cached fetch and no origin work.
+ *
+ * ⚠️ IT NEVER OVERWRITES LIVE DATA. If load() has already landed - a fast
+ * connection, or a soft refresh - this returns without touching anything. A
+ * snapshot arriving late and painting stale dots over fresh ones would be
+ * worse than the blank map it replaces.
+ *
+ * ⚠️ AND IT DOES NOT CLAIM TO BE LIVE. The status pill stays "connecting"
+ * until real data arrives; a stale snapshot presented as live would be the
+ * project telling a small lie on its own front page every few minutes.
+ */
+let _liveArrived = false;
+
+async function drawSnapshot() {
+  try {
+    const d = await (await fetch('/static/snapshot.json')).json();
+    if (_liveArrived || !d) return;
+    (d.public || []).forEach((r) => state.sightings.set(r.id, r));
+    (d.traffic || []).forEach((r) => { if (r.tier !== 'public') drawTraffic(r); });
+    redrawAll();
+  } catch (err) { /* the live path is the real one; this is a head start */ }
+}
+
 async function load() {
   const trafficCut = bucketed(Date.now() / 1000 - TRAFFIC_FADE_S);
   const [pub, live] = await Promise.all([
@@ -1527,6 +1558,9 @@ async function load() {
       .then((r) => r.json()),
     fetch(`/api/sightings?since=${trafficCut}&limit=400`).then((r) => r.json()),
   ]);
+  // ⚠️ The clear() is why drawSnapshot must never run after this: live data
+  // replaces the snapshot wholesale rather than merging with it.
+  _liveArrived = true;
   state.sightings.clear();
   pub.forEach((r) => state.sightings.set(r.id, r));
   live.forEach((r) => { if (r.tier !== 'public') drawTraffic(r); });
@@ -1698,6 +1732,11 @@ async function refresh() {
   paintLive();
 }
 
+// 🚨 FIRST, AND DELIBERATELY NOT AWAITED. The snapshot is a cached static file
+// and usually wins the race against refresh() by a wide margin, so the map has
+// dots before the live query has left the building. If it loses, it checks
+// _liveArrived and does nothing - see drawSnapshot.
+drawSnapshot();
 refresh();
 loadCameras();
 // Towns are independent of the watched-roads toggle: they are what the map
