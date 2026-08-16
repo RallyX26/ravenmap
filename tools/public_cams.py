@@ -1006,7 +1006,12 @@ def cmd_run(args) -> int:
                       f"({len(_batch) / max(0.01, time.time() - _bt):.0f} cam/s"
                       f" | fetch {t_fetch[0]:.0f}s across {workers} threads,"
                       f" infer {t_infer[0]:.0f}s serial"
-                      f" | {unchanged} unchanged, {sent} sent)", flush=True)
+                      # ⚠️ QUEUED, NOT SENT. Posts are drained at the end of the
+                      # cycle now, so `sent` is 0 for the whole sweep and a line
+                      # saying "0 sent" would read as "finding nothing" during
+                      # the exact minutes it is finding things.
+                      f" | {unchanged} unchanged, {len(posts)} queued)",
+                      flush=True)
             # ⚠️ DRAINED, NOT ABANDONED. Submitting and walking away would make
             # "sent" a count of things we hoped for. Every result is collected
             # and printed before the cycle claims a number.
