@@ -276,6 +276,10 @@
 
 <!-- APP -->
 <div id="view-app" class="hidden" style="height:100%;display:flex;flex-direction:column">
+  <!-- ⚠️ Only appears when the signed-in token is a different KIND from this
+       page. The token is the gate; this is the label. -->
+  <div id="scopenote" style="display:none;background:#1a1206;border-bottom:1px solid #5a4620;
+       color:#ffd166;padding:9px 12px;font-size:12.5px;line-height:1.5"></div>
   <header>
     <span class="brand"><span class="dot"></span> <span id="brand-txt">Review</span></span>
     <!-- The other page is always one tap away. Two review surfaces with no
@@ -604,11 +608,25 @@
   /* Only the tokens that belong on THIS page. A pool token on the "my
      cameras" page would quietly widen what you are ruling on, which is the
      confusion the split exists to remove. */
+  /* 🚨 THE GATE IS THE TOKEN, AND NOTHING ELSE. His call, and it is the right
+   * one: "make it gate on the token and nothing else if that makes it work
+   * better".
+   *
+   * This used to filter the wallet by PAGE_SCOPE, so a pool token on /rv/mine
+   * counted as no token at all: the gate re-rendered after a SUCCESSFUL sign-in
+   * and the button looked dead. Signing in twice and still being asked is what
+   * he reported, twice.
+   *
+   * ⚠️ SAFE BECAUSE AUTHORITY IS NOT DECIDED HERE. review_api.may_touch checks
+   * scope on EVERY access, not just on the listing, and it says so in its own
+   * comment - a token scoped to one camera cannot fetch or rule on another's
+   * crop even by naming its id. This filter was a label, never a lock, and
+   * removing a label does not widen anything.
+   *
+   * What the page still owes the reader is HONESTY about which queue they are
+   * looking at - see the banner in dressHeader. */
   function scoped(){
-    if(!PAGE_SCOPE) return wallet.slice();
-    return wallet.filter(function(e){
-      return (e.scope === "pool" ? "pool" : "own") === PAGE_SCOPE;
-    });
+    return wallet.slice();
   }
   function activeEntries(){
     var w = scoped();
@@ -998,8 +1016,50 @@
   }
 
   // ---- wiring ----------------------------------------------------------
+  /* 🚨 A TOKEN CAN BE ACCEPTED AND STILL NOT OPEN THIS PAGE, AND THAT SILENCE
+   * IS THE BUG HE REPORTED: "its not doing anything on the second sign in page
+   * when i press add token".
+   *
+   * It WAS doing something. /api/rv/me returned 200 and the token went into the
+   * wallet. But this page filters the wallet by SCOPE - a pool token on
+   * /rv/mine is not a credential for /rv/mine - so scoped() stayed empty, the
+   * gate rendered again, and from the outside that is indistinguishable from a
+   * dead button.
+   *
+   * Accepting a credential and then behaving as though nothing happened is the
+   * worst of both: no error to act on, no progress to see. Say which queue the
+   * token IS for, and offer it. */
+  function afterAdd(){
+    // The token is the gate now, so a valid token always starts the page.
+    // Whether it is the RIGHT KIND for this queue is a labelling question,
+    // answered by the banner rather than by refusing entry.
+    start();
+  }
+
+  /* ⚠️ SAY WHEN THE TOKEN IS NOT THE KIND THIS PAGE IS ABOUT.
+   * Letting a pool token open /rv/mine is fine - the server still decides what
+   * it may touch - but showing somebody the pool under a heading that says "my
+   * cameras" would be its own quiet lie. A line of text costs nothing and keeps
+   * the page honest about what they are ruling on. */
+  function scopeNote(){
+    var el = document.getElementById("scopenote");
+    if(!el || !PAGE_SCOPE) return;
+    var kinds = wallet.map(function(e){ return e.scope === "pool" ? "pool" : "own"; });
+    var matches = kinds.indexOf(PAGE_SCOPE) !== -1;
+    if(matches || !wallet.length){ el.style.display = "none"; return; }
+    var mine = PAGE_SCOPE === "own";
+    el.style.display = "";
+    el.innerHTML = mine
+      ? "You are signed in with a <b>shared pool</b> token, so this is the pool "
+        + "queue rather than only your cameras. "
+        + "<a href=\"/rv/pool\" style=\"color:#5aa9ff\">Open the pool page</a>"
+      : "You are signed in with a token for <b>your own cameras</b>. "
+        + "<a href=\"/rv/mine\" style=\"color:#5aa9ff\">Open my cameras</a>";
+  }
+
   $("#first-add").addEventListener("click", function(){
-    addToken($("#first-token").value, function(){ start(); }, function(m){ $("#first-err").textContent = m; });
+    addToken($("#first-token").value, afterAdd,
+             function(m){ $("#first-err").textContent = m; });
   });
   $("#first-token").addEventListener("keydown", function(e){ if(e.key==="Enter") $("#first-add").click(); });
 
@@ -1271,6 +1331,7 @@
   function start(){
     show("app");
     dressHeader();
+    scopeNote();
     // own-scoped reviewers with one camera just see it; multi-token shows All
     if(scoped().length === 1) activeToken = null;
     buildSwitch();
@@ -1468,8 +1529,10 @@
       if (devKey && wallet.some(function(e){ return e.token === devKey; })) devKey = null;
       if(devKey){
         addToken(devKey, function(){
+          // ⚠️ Same silence as the button: the device key can be valid and
+          // still be the wrong scope for this page. afterAdd explains it.
           if(scoped().length){ start(); }
-          else { show("add"); dressHeader(); }
+          else { show("add"); dressHeader(); afterAdd(); }
         }, function(){
           // The device key did not work - it may be from another deployment,
           // or the camera may have been removed. Ask, and say nothing about it
