@@ -263,6 +263,47 @@ def ontario_index() -> list:
     return out
 
 
+def ohio_index(measured_only: bool = True) -> list:
+    """Ohio DOT (OHGO). Keyless, and it overturns this file's own headline.
+
+    🚨 "DOT CAMERAS ARE STANDARD DEFINITION AS A CATEGORY" IS NO LONGER TRUE,
+    AND THIS IS THE SOURCE THAT BREAKS IT. That conclusion was reached in
+    August against Michigan's 806 cameras and it was fair there - 11% clear the
+    bar. Measured across Ohio's full fleet: 982 of 1,151 are 1280 or wider,
+    85%, most of them 1920 or better. It is not a category, it is a per-agency
+    procurement decision, and the only way to know is to measure.
+
+    ⚠️ AND 319 OF THE HD ONES ARE FOUR CAMERAS IN A TRENCHCOAT.
+    The 2560x1920, 2592 and 2688 frames are 2x2 QUAD MOSAICS: four unrelated
+    views tiled into one image. They clear the width bar and they are the most
+    dangerous thing in this whole survey - a vehicle detected in the bottom
+    right tile would be published at the camera's coordinates, which is a
+    different junction entirely. This map's one job is not to say a patrol car
+    was somewhere it was not.
+
+    Splitting them needs a per-tile location the API does not publish, so they
+    are EXCLUDED. That leaves 663 single-frame HD cameras, and excluding is the
+    only honest option until someone can say where each tile points.
+    """
+    rows = _get_json("https://api.ohgo.com/cameras", timeout=60)
+    out = []
+    for r in rows:
+        lat, lon = r.get("Latitude"), r.get("Longitude")
+        if not lat or not lon:
+            continue
+        for i, cam in enumerate(r.get("Cameras") or []):
+            url = cam.get("LargeURL") or cam.get("SmallURL")
+            if not url:
+                continue
+            name = (r.get("Location") or r.get("Description") or "Ohio camera")
+            d = (cam.get("Direction") or "").strip()
+            if d and d.lower() != "view":
+                name = f"{name} ({d})"
+            out.append({"src": "oh", "ref": f"{r['Id']}-{i}", "name": name[:60],
+                        "lat": float(lat), "lon": float(lon), "url": url})
+    return probe_filter(out, "oh") if measured_only else out
+
+
 # --------------------------------------------------------------------------
 # the generic ArcGIS source: ONE adapter, many agencies
 # --------------------------------------------------------------------------
@@ -338,8 +379,7 @@ def arcgis_index(key: str, measured_only: bool = True) -> list:
     against a 5,000-camera layer returns 2,000 and looks completely successful.
     """
     cfg = ARCGIS[key]
-    probe = load_probe() if measured_only else {}
-    out, offset, unmeasured, small = [], 0, 0, 0
+    out, offset = [], 0
     while True:
         q = (cfg["url"] + "/query?where=1%3D1&outFields=*&f=geojson"
              f"&resultRecordCount=1000&resultOffset={offset}")
@@ -368,14 +408,6 @@ def arcgis_index(key: str, measured_only: bool = True) -> list:
             ref = str(pr.get(cfg["ref"]) or "").strip()
             if not ref:
                 continue
-            if measured_only:
-                w = probe.get(url)
-                if w is None:
-                    unmeasured += 1
-                    continue
-                if w < MIN_HD_WIDTH:
-                    small += 1
-                    continue
             bits = [str(pr.get(k) or "").strip() for k in cfg["label"]]
             name = " ".join(b for b in bits if b) or cfg["name"]
             out.append({"src": key, "ref": ref, "name": name[:60],
@@ -385,16 +417,11 @@ def arcgis_index(key: str, measured_only: bool = True) -> list:
         offset += len(feats)
         if offset > 60000:               # a runaway guard, not a real limit
             break
-    if unmeasured:
-        print(f"  ⚠ {key}: {unmeasured} camera(s) never measured - run "
-              f"`public_cams.py probe --source {key}` or they stay out")
-    if measured_only and not out and unmeasured:
-        raise RuntimeError(f"no {key} cameras are measured yet; run `probe` first")
-    return out
+    return probe_filter(out, key) if measured_only else out
 
 
-SOURCES = {"nyc": nyc_index, "fi": finland_index,
-           "atx": austin_index, "ia": iowa_index, "on": ontario_index}
+SOURCES = {"nyc": nyc_index, "fi": finland_index, "atx": austin_index,
+           "ia": iowa_index, "on": ontario_index, "oh": ohio_index}
 for _k in ARCGIS:
     SOURCES[_k] = (lambda k: lambda: arcgis_index(k))(_k)
 
@@ -411,6 +438,47 @@ SELF_DESCRIBING = {"fi"}
 # network means downloading one image per camera, which is a thing to do once
 # and remember - not on every restart of a service that restarts on failure.
 PROBE = ROOT / "data" / "cam_probe.json"
+
+
+# 🚨 AN UPPER BOUND, WHICH SOUNDS BACKWARDS UNTIL YOU SEE WHY.
+# Ohio tiles four unrelated camera views into one 2560x1920 frame. It clears
+# the width bar with room to spare and is the most dangerous image in the
+# survey: a vehicle found in one tile would be published at the camera's single
+# published coordinate, which is a different junction. Excluded until someone
+# can say where each tile points. See ohio_index.
+SRC_MAX_WIDTH = {"oh": 2559}
+
+
+def probe_filter(cams: list, src: str) -> list:
+    """Keep only cameras MEASURED to be usable. Shared by every gated source.
+
+    ⚠️ Unmeasured is not the same as unusable. A camera with no probe entry is
+    dropped from this run and SAID SO, rather than being quietly treated as too
+    small - a probe file that failed to copy would otherwise look exactly like
+    a network that went standard definition overnight.
+    """
+    probe = load_probe()
+    hi = SRC_MAX_WIDTH.get(src, 10 ** 9)
+    out, unmeasured, small, big = [], 0, 0, 0
+    for c in cams:
+        w = probe.get(c["url"])
+        if w is None:
+            unmeasured += 1
+        elif w < MIN_HD_WIDTH:
+            small += 1
+        elif w > hi:
+            big += 1
+        else:
+            out.append(c)
+    if unmeasured:
+        print(f"  ⚠ {src}: {unmeasured} camera(s) never measured - run "
+              f"`public_cams.py probe --source {src}` or they stay out")
+    if big:
+        print(f"  {src}: {big} camera(s) excluded as multi-view mosaics "
+              f"(over {hi}px - see SRC_MAX_WIDTH)")
+    if not out and unmeasured:
+        raise RuntimeError(f"no {src} cameras are measured yet; run `probe` first")
+    return out
 
 
 def load_probe() -> dict:
@@ -437,6 +505,8 @@ def cmd_probe(args) -> int:
                 if v.get("Status") == "Enabled" and v.get("Url")]
     elif args.source in ARCGIS:
         urls = [c["url"] for c in arcgis_index(args.source, measured_only=False)]
+    elif args.source == "oh":
+        urls = [c["url"] for c in ohio_index(measured_only=False)]
     else:
         urls = [c["url"] for c in SOURCES[args.source]()]
     todo = [u for u in urls if u not in known]
