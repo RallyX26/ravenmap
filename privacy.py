@@ -255,6 +255,17 @@ def redact(row: dict, viewer: str = "anon") -> dict:
     if r.get("tier") != "public":
         r.pop("plate_text", None)
         r.pop("plate_state", None)
+        # 🚨 AND THE VEHICLE LINK, WHICH IS THE STRONGEST THING ON THE ROW.
+        #
+        # A tag says "these sightings are probably one vehicle", which across
+        # cameras and time is a track. db.tag_sighting already refuses to write
+        # one to anything but a published police or government row, so this
+        # should be unreachable - and it is here for the same reason the plate
+        # redaction above is, on a database that never holds private plate
+        # text. The belt is cheap and the failure mode is following somebody
+        # home.
+        for k in ("vehicle_tag", "tag_conf", "tag_why", "tag_rev"):
+            r.pop(k, None)
         # 🚨 AND THE PHOTOGRAPH. A private-tier row still carries `snap` (the
         # image filename, servable via /snap/<name>), and a photograph of a car
         # IS a photograph of its plate. redact used to strip the plate TEXT but

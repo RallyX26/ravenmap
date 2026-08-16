@@ -650,6 +650,15 @@ async function select(id) {
         one pass, folded together.">${s.detections} merged</b>` : ''}
     </div>
     <div class="why"><b>Why this class:</b> ${esc(s.vclass_why || 'no signals recorded')}</div>
+    <!-- 🚨 A LINK BETWEEN SIGHTINGS IS A GUESS AND MUST READ AS ONE.
+         "Possibly the same vehicle", never "unit 4021" - and the reason is
+         printed next to it so a reader can disagree with the machine rather
+         than take its word. A link nobody can check is an assertion with
+         extra steps. Only published police and government rows can carry one;
+         db.tag_sighting refuses everything else. -->
+    ${s.vehicle_tag ? `<div class="why"><b>Possibly the same vehicle</b> as
+      other sightings tagged <code>${esc(s.vehicle_tag)}</code>.
+      ${esc(s.tag_why || '')} <i>This is inferred, not confirmed.</i></div>` : ''}
     ${pub ? '' : `<div class="why">This vehicle is private tier. Its plate was
       hashed at the camera and never stored, so there is no plate to show and
       no way to search for it. The identifier above is a rolling alias that

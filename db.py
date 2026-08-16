@@ -275,6 +275,37 @@ MIGRATIONS = [
     # registered total is a true count of registrations, and the sightings stay
     # attached to the node that actually took them.
     ("nodes", "superseded_by", "TEXT"),
+    # 🚨 "THESE SIGHTINGS MAY BE THE SAME VEHICLE." A GUESS, LABELLED AS ONE.
+    #
+    # This is the most dangerous column in the schema, so read all four notes
+    # before touching anything that writes it.
+    #
+    # 1. IT IS THE THING THIS PROJECT REFUSES TO DO, POINTED THE OTHER WAY.
+    #    Linking one vehicle across cameras over time IS tracking - it is the
+    #    entire capability the architecture exists to not have for the public.
+    #    It is defensible here for exactly one class of vehicle: a marked
+    #    patrol car on a public road, paid for publicly, whose plate this
+    #    system already keeps ON PURPOSE while destroying everyone else's.
+    #    Applied to a civilian it would make every promise on /transparency
+    #    untrue in one commit. See tag_sighting(), which refuses.
+    #
+    # 2. IT IS INFERRED AND MUST READ AS INFERRED. Never "unit 4021", always
+    #    "possibly the same vehicle as N other sightings, because <reason>".
+    #    tag_why carries the reason in words, the way vclass_why already does,
+    #    because a link nobody can check is just an assertion with extra steps.
+    #
+    # 3. IT IS DERIVED, NEVER AUTHORITATIVE. tag_rev records WHICH rule or
+    #    model drew the link, so a better one can re-derive every tag and you
+    #    can still tell old conclusions from new. Nothing downstream may treat
+    #    a tag as a fact about the world - it is this version's opinion, and
+    #    the whole point of the column is that the opinion will improve.
+    #
+    # 4. IT MUST BE ABLE TO BE WRONG WITHOUT COSTING ANYTHING. A tag is not a
+    #    key, nothing joins on it, and deleting the column loses no sighting.
+    ("sightings", "vehicle_tag", "TEXT"),
+    ("sightings", "tag_conf", "REAL"),
+    ("sightings", "tag_why", "TEXT"),
+    ("sightings", "tag_rev", "TEXT"),
 ]
 
 # The setup funnel, in order. Progress only ever moves FORWARD through this
@@ -515,6 +546,89 @@ def heartbeat(node_id: str, ts: Optional[float] = None) -> None:
                  "beats = COALESCE(beats, 0) + 1 WHERE id = ?",
                  (ts or now(), node_id))
     conn.commit()
+
+
+# The rule/model that drew the current generation of links. BUMP IT whenever
+# the logic changes, so a tag can always be traced to what believed it - and so
+# a re-tag can be told apart from the thing it replaced.
+TAG_REV = "r1-plate"
+
+# Vehicle classes a link may be drawn for. NOT a list of "interesting"
+# vehicles - a list of vehicles whose identity this project already publishes
+# on purpose. Everything else is destroyed at the edge and must stay that way.
+TAGGABLE = ("police", "gov")
+
+
+class NotTaggable(Exception):
+    """Refused: linking this sighting would be tracking a private vehicle."""
+
+
+def tag_sighting(sighting_id: int, tag: str, conf: float, why: str,
+                 rev: str = TAG_REV) -> None:
+    """Record that a sighting MAY be the same vehicle as others.
+
+    🚨 THE REFUSAL LIVES HERE, NOT IN THE CALLER.
+    Every other guard in this file has eventually been reached by some path
+    that forgot it. This one is checked against the stored row at the moment of
+    writing - not against what the caller believes about it - so a future
+    batch job, backfill or console session cannot link a civilian by being
+    unaware that it must not.
+
+    Refuses unless the row is BOTH public tier AND a class this project
+    already publishes the identity of. A private sighting has no plate text by
+    design; linking one by appearance would be building the tracker this map
+    exists to argue against.
+    """
+    if not why or not why.strip():
+        # Same rule as vclass_why: a claim with no stated evidence is not a
+        # claim, it is an assertion, and nobody downstream can check it.
+        raise ValueError("a link needs a reason in words")
+    conn = connect()
+    row = conn.execute("SELECT tier, vclass FROM sightings WHERE id = ?",
+                       (sighting_id,)).fetchone()
+    if not row:
+        raise NotTaggable(f"no sighting {sighting_id}")
+    if row["tier"] != "public" or (row["vclass"] or "") not in TAGGABLE:
+        raise NotTaggable(
+            f"sighting {sighting_id} is tier={row['tier']} "
+            f"vclass={row['vclass']}: linking it would be tracking a private "
+            f"vehicle, which is the thing this project refuses to do")
+    conn.execute("UPDATE sightings SET vehicle_tag = ?, tag_conf = ?, "
+                 "tag_why = ?, tag_rev = ? WHERE id = ?",
+                 (tag, float(conf), why.strip(), rev, sighting_id))
+    conn.commit()
+
+
+def clear_tags(rev: Optional[str] = None) -> int:
+    """Forget every link, or every link drawn by one revision.
+
+    ⚠️ EXISTS SO THE LINKS CAN BE WRONG. A better model should be able to throw
+    away everything the previous one believed rather than leave two
+    generations of guess sharing one column and no way to tell them apart.
+    """
+    conn = connect()
+    if rev:
+        cur = conn.execute("UPDATE sightings SET vehicle_tag = NULL, "
+                           "tag_conf = NULL, tag_why = NULL, tag_rev = NULL "
+                           "WHERE tag_rev = ?", (rev,))
+    else:
+        cur = conn.execute("UPDATE sightings SET vehicle_tag = NULL, "
+                           "tag_conf = NULL, tag_why = NULL, tag_rev = NULL "
+                           "WHERE vehicle_tag IS NOT NULL")
+    conn.commit()
+    return cur.rowcount
+
+
+def tagged_group(tag: str, limit: int = 200) -> list[dict]:
+    """Every sighting currently believed to be this vehicle, oldest first.
+
+    ⚠️ Ordered by time on purpose: what a reader wants from a link is the
+    SEQUENCE - where it was, then where it was next - and a list that arrives
+    in an arbitrary order invites the reader to invent one.
+    """
+    return [dict(r) for r in connect().execute(
+        "SELECT * FROM sightings WHERE vehicle_tag = ? AND tier = 'public' "
+        "ORDER BY ts ASC LIMIT ?", (tag, limit)).fetchall()]
 
 
 def heartbeat_many(node_ids: list, ts: Optional[float] = None) -> int:

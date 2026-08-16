@@ -332,14 +332,38 @@ def store_crop(frame: Image.Image, bbox: Optional[tuple], meta: dict,
         img = img.resize((int(img.width * s), int(img.height * s)), Image.LANCZOS)
 
     ts = meta.get("ts", time.time())
-    lines = [
-        time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)),
-        f"{meta.get('node_name', meta.get('node_id', 'node'))}  |  SparrowMap",
-    ]
-    if meta.get("tier") == "public" and meta.get("plate_text"):
-        lines.append(f"plate {meta['plate_text']}  ({meta.get('vclass', '?')})")
-    if stamp:
-        img = _stamp(img, lines, watermark=meta.get("watermark", ""))
+
+    # 🚨 THE CAPTION IS GONE, AND IT WAS REMOVED FOR BEING WRONG.
+    #
+    # Every stored crop carried a burned-in strip: timestamp, camera name,
+    # sometimes the plate, plus a CONFIRMED/UNVERIFIED/CONTRIBUTED watermark.
+    # HIS REPORT: "8 hours off and a day in the future".
+    #
+    # He was right, and the cause is one call. The line was built with
+    # time.localtime(), which is the SERVER's timezone - and the server is in
+    # Helsinki while the cameras are in Michigan. So every photograph of a
+    # Michigan street was stamped with Finnish local time, seven or eight hours
+    # ahead, which after his early evening is also the next day. A false fact
+    # burned into the evidence itself, where it cannot be corrected later.
+    #
+    # 📌 And the caption was redundant even when it was right: the timestamp,
+    # the camera and the plate are all printed in plain text beside the image
+    # on every surface that shows one. A caption that repeats the page and
+    # contradicts it is worse than no caption, because a reader trusts the
+    # thing that looks like part of the photograph.
+    #
+    # ⚠️ Fixing the timezone was the obvious move and is the wrong one. A
+    # burned-in caption cannot be corrected once written, cannot be
+    # translated, and is the one part of a published record that cannot be
+    # audited against the database. Deleting it removes the class of bug.
+    #
+    # ⚠️ EXCEPT "SIMULATED", WHICH STAYS AND MUST STAY. That watermark is not a
+    # label about provenance, it is a safety property: a synthetic image that
+    # does not say it is synthetic is a fake photograph of a police vehicle.
+    # It carries no timestamp, so it never had this bug.
+    watermark = meta.get("watermark", "")
+    if stamp and watermark == "SIMULATED":
+        img = _stamp(img, [], watermark=watermark)
 
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=JPEG_QUALITY, optimize=True)
