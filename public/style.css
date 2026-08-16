@@ -456,3 +456,19 @@ nav .addcam{color:var(--cam);font-weight:600}
   padding:10px 11px
 }
 .viewpick .filters .chip.on{background:#1b2636}
+
+/* 🚨 A QUESTION, NOT A RECORD. Unreviewed police-classed sightings pulse over a
+   rough area so a reader can see something is waiting on a human without being
+   told a patrol car is there. Slow on purpose - a fast blink reads as an alarm,
+   and this is not an alarm, it is a to-do list with a location. */
+@keyframes sparrowPending {
+  0%, 100% { opacity: .30; }
+  50%      { opacity: .85; }
+}
+.pendingPulse { animation: sparrowPending 2.6s ease-in-out infinite; }
+/* Anyone who has asked not to see motion is asked for a reason, and a pulsing
+   shape is exactly the thing that reason is about. It stays visible, it stops
+   moving. */
+@media (prefers-reduced-motion: reduce) {
+  .pendingPulse { animation: none; opacity: .6; }
+}

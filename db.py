@@ -619,6 +619,47 @@ def clear_tags(rev: Optional[str] = None) -> int:
     return cur.rowcount
 
 
+# How coarse a pending sighting's position is published. 0.05 degrees is about
+# 5 km of latitude - a town, not a street.
+PENDING_CELL = 0.05
+
+# How long a possible patrol car is worth flagging as "someone should look".
+# Beyond this it is not news, it is a backlog, and a map is the wrong place to
+# report a backlog.
+PENDING_WINDOW_S = 6 * 3600
+
+
+def pending_areas(now_ts: Optional[float] = None) -> list[dict]:
+    """Rough areas where the classifier thinks it saw a patrol car, unreviewed.
+
+    🚨 COARSE ON PURPOSE, AND COARSENED HERE RATHER THAN IN THE BROWSER.
+    These rows have NOT been reviewed, so the claim behind each one is a
+    machine's opinion that nobody has checked. One in twenty of those is not a
+    patrol car - and publishing a precise position for an unconfirmed claim
+    would put a specific civilian vehicle on a public map on a guess.
+    Rounding in the client would be decoration; the exact position would still
+    have been sent. So the cell is all that ever leaves this function.
+
+    ⚠️ NO id, NO photograph, NO plate, NO node. A count and a cell centre is
+    the whole answer - enough to say "something here wants a human", which is
+    the entire purpose, and not enough to identify anybody.
+    """
+    now_ts = now_ts or now()
+    rows = connect().execute(
+        "SELECT lat, lon FROM sightings "
+        "WHERE vclass IN ('police', 'gov') AND ts > ? "
+        "AND (reviewed IS NULL OR reviewed = '') "
+        "AND lat IS NOT NULL AND lon IS NOT NULL",
+        (now_ts - PENDING_WINDOW_S,)).fetchall()
+    cells: dict = {}
+    for r in rows:
+        key = (round(r["lat"] / PENDING_CELL), round(r["lon"] / PENDING_CELL))
+        cells[key] = cells.get(key, 0) + 1
+    return [{"lat": round(k[0] * PENDING_CELL, 3),
+             "lon": round(k[1] * PENDING_CELL, 3), "n": v}
+            for k, v in sorted(cells.items(), key=lambda kv: -kv[1])]
+
+
 def tagged_group(tag: str, limit: int = 200) -> list[dict]:
     """Every sighting currently believed to be this vehicle, oldest first.
 

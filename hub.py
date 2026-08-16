@@ -2056,6 +2056,23 @@ class Handler(BaseHTTPRequestHandler):
                                    "missed_pending": len(missed),
                                    **db.review_stats()})
 
+            if p == "/api/pending":
+                # 🚨 "SOMETHING HERE WANTS A HUMAN", AND NOTHING MORE.
+                #
+                # A coarse cell and a count, for sightings the classifier called
+                # police or government and nobody has reviewed. It exists so the
+                # map can show that a possible patrol car is waiting on a person
+                # WITHOUT asserting one is there - which is the same
+                # propose/human-decide split the rest of the project runs on,
+                # made visible instead of hidden in a queue.
+                #
+                # ⚠️ The coarsening happens in db.pending_areas, not here and
+                # certainly not in the browser: an unreviewed claim's exact
+                # position must never leave the database at all.
+                return self._json({"cells": db.pending_areas(),
+                                   "cell_deg": db.PENDING_CELL,
+                                   "window_s": db.PENDING_WINDOW_S})
+
             if p.startswith("/api/tile/"):
                 return self._tile(p)
 

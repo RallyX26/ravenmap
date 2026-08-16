@@ -1520,6 +1520,48 @@ _showcams.onchange = (e) => {
  * "everything" also dragged down every private pass ever recorded, almost all
  * of which would be drawn and immediately reaped. Two bounded queries beat one
  * that grows without limit. */
+/* 🚨 "A POSSIBLE PATROL CAR HERE IS WAITING ON A PERSON."
+ *
+ * Unreviewed police-classed sightings, drawn as a slow pulse over a ~5 km cell.
+ * The point is to say that something is pending and roughly where, WITHOUT
+ * asserting a patrol car is there - the classifier runs at about 95% precision,
+ * so one in twenty of these is not one, and a confident dot would be the map
+ * making a claim no human has checked.
+ *
+ * ⚠️ IT IS DELIBERATELY UNLIKE A SIGHTING. Sightings are small, sharp and
+ * exactly placed because they are records. This is large, soft, dashed and
+ * pulsing because it is a question. If the two ever start looking alike,
+ * something has gone wrong with the argument this map makes.
+ *
+ * ⚠️ The coarsening is the SERVER's (db.pending_areas). Rounding here would be
+ * decoration - the precise position would already have been sent.
+ */
+let pendingLayer = null;
+
+async function loadPending() {
+  try {
+    const d = await (await fetch('/api/pending', { cache: 'no-store' })).json();
+    pendingLayer = pendingLayer || L.layerGroup().addTo(map);
+    pendingLayer.clearLayers();
+    (d.cells || []).forEach((c) => {
+      const km = (d.cell_deg || 0.05) * 111;
+      L.circle([c.lat, c.lon], {
+        radius: km * 500,               // half the cell, in metres
+        className: 'pendingPulse',
+        color: '#ffb547', weight: 2, dashArray: '6 6',
+        fillColor: '#ffb547', fillOpacity: 0.08, interactive: true,
+      }).bindPopup(
+        `<div class="pop"><h4>Possible patrol car, not yet reviewed</h4>`
+        + `<div class="sub">${c.n} sighting${c.n === 1 ? '' : 's'} in this area `
+        + `the detector called police or government, waiting on a person.</div>`
+        + `<div class="sub dim">The area is deliberately rough and the exact `
+        + `position is not published: nobody has checked these yet, and about `
+        + `one in twenty will not be a patrol car.</div></div>`
+      ).addTo(pendingLayer);
+    });
+  } catch (err) { /* the map is fine without it */ }
+}
+
 /* The opening view, drawn before the live data can possibly arrive.
  *
  * 🚨 THE MAP USED TO OPEN EMPTY FOR ABOUT 0.7s ON EVERY VISIT. Two live API
@@ -1738,6 +1780,7 @@ async function refresh() {
 // _liveArrived and does nothing - see drawSnapshot.
 drawSnapshot();
 refresh();
+loadPending();
 loadCameras();
 // Towns are independent of the watched-roads toggle: they are what the map
 // shows INSTEAD of spans when zoomed out, not a second copy of them, so they
@@ -1746,6 +1789,9 @@ loadPlaces();
 loadStats();
 applyConfiguredView();
 policyBanner();
+// Pending is a slow signal - a human deciding takes minutes, not seconds - so
+// it is polled far less often than the map data it sits beside.
+setInterval(loadPending, 60000);
 setInterval(refresh, CACHE_BUCKET_S * 1000);  // new sightings; matches the cache window
 // 🚨 30s, HIS CALL, AND IT IS ALSO TEN TIMES LESS LOAD.
 // Every open tab was asking for the counters every three seconds. On an
