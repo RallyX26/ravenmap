@@ -122,5 +122,5 @@ desktop/*.spec
 # site-packages, not this project's code.
 desktop/.buildenv/
 tools/measure_public_cams.py
-static/snapshot.json
+public/snapshot.json
 camsurvey/

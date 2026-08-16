@@ -38,7 +38,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import db                       # noqa: E402
 import privacy                  # noqa: E402
 
-OUT = Path(__file__).resolve().parent.parent / "public" / "static" / "snapshot.json"
+# ⚠️ public/, NOT public/static/. The hub maps /static/<name> to
+# PUBLIC/<name> and takes only the BASENAME (hub.py: PUBLIC / Path(p[8:]).name),
+# so a file in a subdirectory is served as a 404 - which is exactly what
+# happened on the first attempt.
+OUT = Path(__file__).resolve().parent.parent / "public" / "snapshot.json"
 
 # What the map asks for on boot, so the snapshot answers the same questions.
 # ⚠️ Keep in step with load() in public/app.js - a snapshot of something the
