@@ -1638,12 +1638,35 @@ async function drawSnapshot() {
   } catch (err) { /* the live path is the real one; this is a head start */ }
 }
 
+/* 🚨 A FETCH WITH NO TIMEOUT CAN HANG FOREVER, AND A HUNG FETCH IS WORSE THAN A
+   FAILED ONE. It never resolves and never rejects, so refresh() stays awaiting,
+   `state.online` stays null, and the pill sits on "connecting" for as long as
+   the tab is open - with no retry, because the next tick is still waiting on
+   the last one. Reported from a phone on a VPN, where the snapshot had drawn
+   144 sightings and the header still claimed it was connecting.
+
+   A timeout converts that into a normal failure: the dot says "reconnecting",
+   which is TRUE, and the next tick tries again. */
+const FETCH_TIMEOUT_MS = 12000;
+
+function fetchJSON(url, ms = FETCH_TIMEOUT_MS) {
+  // AbortSignal.timeout is not on older iOS Safari, which is exactly the
+  // audience here, so drive an AbortController by hand.
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), ms);
+  return fetch(url, { signal: ac.signal })
+    .then((r) => {
+      if (!r.ok) throw new Error(url + ' -> ' + r.status);
+      return r.json();
+    })
+    .finally(() => clearTimeout(t));
+}
+
 async function load() {
   const trafficCut = bucketed(Date.now() / 1000 - TRAFFIC_FADE_S);
   const [pub, live] = await Promise.all([
-    fetch(`/api/sightings?since=${windowCut()}&vclass=public&limit=2000`)
-      .then((r) => r.json()),
-    fetch(`/api/sightings?since=${trafficCut}&limit=400`).then((r) => r.json()),
+    fetchJSON(`/api/sightings?since=${windowCut()}&vclass=public&limit=2000`),
+    fetchJSON(`/api/sightings?since=${trafficCut}&limit=400`),
   ]);
   // ⚠️ The clear() is why drawSnapshot must never run after this: live data
   // replaces the snapshot wholesale rather than merging with it.
@@ -1802,7 +1825,15 @@ This camera reads none, so the sightings above cannot be told apart.">&mdash;</b
    the briefly edge-cached /api/sightings, so the crowd is served by Cloudflare
    and the origin sees ~one fetch per window. The `#live` dot now reflects
    whether the last refresh succeeded rather than a socket's state. */
+let _refreshing = false;
+
 async function refresh() {
+  // ⚠️ ONE AT A TIME. The timer fires every cache bucket regardless of whether
+  // the last one finished, so on a slow link the ticks stack and each new
+  // request competes with the ones already queued - which makes a struggling
+  // connection worse rather than recovering it.
+  if (_refreshing) return;
+  _refreshing = true;
   const dot = $('#live');
   try {
     await load();
@@ -1815,6 +1846,8 @@ async function refresh() {
   } catch (e) {
     state.online = false;
     if (dot) dot.classList.remove('on');
+  } finally {
+    _refreshing = false;
   }
   paintLive();
 }
