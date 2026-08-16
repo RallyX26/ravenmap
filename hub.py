@@ -3050,7 +3050,69 @@ class Handler(BaseHTTPRequestHandler):
                                        "note": "this camera is not active, so "
                                                "its sightings are refused"})
                 db.heartbeat(nd["id"])
-                return self._json({"ok": True, "posting": True, "ts": now()})
+                # 🚨 ASK FOR THE GOOD PICTURE HERE. Everything a camera uploads
+                # is capped at 200px so a private plate cannot survive the trip,
+                # and that must never change. But once the head decides a
+                # vehicle IS a government one it belongs in the public tier,
+                # where the plate is legible on purpose - and the only copy the
+                # server has by then is the deliberately ruined one.
+                #
+                # The camera that took it is the only device that ever had the
+                # original, so it has to be asked, and this beat is already
+                # going back to exactly that device every few seconds.
+                want = []
+                try:
+                    want = db.wants_fullres(nd["id"])
+                except Exception as exc:
+                    print(f"[beat] wants_fullres failed for {nd['id']}: {exc}")
+                return self._json({"ok": True, "posting": True, "ts": now(),
+                                   "want_full": want})
+
+            if p == "/api/sighting/fullres":
+                # 🚨 THE ANSWER TO want_full. The camera hands back the picture
+                # it still holds for a sighting the hub has already PUBLISHED.
+                #
+                # ⚠️ EVERY CONDITION HERE IS A GUARD, NOT A FORMALITY:
+                #   - the node's own token, so nobody else can attach a picture;
+                #   - the sighting must BELONG to that node, so a camera cannot
+                #     overwrite another camera's evidence;
+                #   - the row must already be tier='public', so this can never
+                #     put a legible plate on a private-tier vehicle - which is
+                #     the entire promise the 200px cap exists to keep.
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                try:
+                    sid = int(b.get("id") or 0)
+                except (TypeError, ValueError):
+                    return self._err(400, "bad id")
+                row = db.sighting(sid)
+                if not row or row.get("node_id") != nd["id"]:
+                    return self._err(404, "not this camera's sighting")
+                if row.get("tier") != "public":
+                    return self._err(403, "not published; the small crop stands")
+                if row.get("snap_full"):
+                    return self._json({"ok": True, "already": True})
+                if not b.get("snap_b64"):
+                    return self._err(400, "no image")
+                try:
+                    full = snapshot.decode_bytes(str(b["snap_b64"]))
+                    name = review_api.attach_confirmed_photo(
+                        sid, row, full, ts=row.get("ts"),
+                        node_name=nd.get("name") or "a camera",
+                        vclass=("police" if row.get("vclass") == "police"
+                                else "gov"))
+                    if name:
+                        db.mark_fullres(sid, name)
+                    return self._json({"ok": bool(name), "snap": name})
+                except Exception as exc:
+                    # ⚠️ The vehicle is on the map either way. A rejected
+                    # picture must never un-publish it.
+                    print(f"[fullres] {sid}: {exc}")
+                    return self._err(400, "image rejected")
 
             if p == "/api/heartbeat/bulk":
                 # 🚨 ONE PROCESS, THOUSANDS OF CAMERAS, ONE REQUEST.

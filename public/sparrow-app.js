@@ -434,6 +434,12 @@ async function sendBeat() {
     });
     if (r.ok) {
       net('on', 'LIVE on the map');
+      // The hub only asks for pictures of vehicles it has already published.
+      try {
+        const d = await r.json();
+        reapFull();
+        if (d && d.want_full && d.want_full.length) sendHeldFull(d.want_full);
+      } catch (e) { /* an older hub answers without want_full */ }
       say($('#watchMsg'), 'Watching — this camera is LIVE on the map.', true);
     } else if (r.status === 401) {
       net('warn', 'not signed in');
@@ -572,7 +578,7 @@ function drawOverlay(hits, vw, vh) {
 /* The crop is shrunk below plate legibility HERE, on the device. This is the
    privacy control, not a bandwidth saving - and the server measures it rather
    than believing this page. */
-function cropOf(video, box) {
+function cropOf(video, box, maxEdge) {
   const [x0, y0, x1, y1] = box;
   // Asymmetric: a roof light bar sits just outside the detector's box, and a
   // crop that clips it removes the feature the decision rests on. Nothing
@@ -582,12 +588,68 @@ function cropOf(video, box) {
   const sx = Math.max(0, x0-padX), sy = Math.max(0, y0-padTop);
   const sw = Math.min(video.videoWidth - sx, bw + 2*padX);
   const sh = Math.min(video.videoHeight - sy, bh + padTop + padBot);
-  const s = Math.min(1, SEND_EDGE / Math.max(sw, sh));
+  const s = Math.min(1, (maxEdge || SEND_EDGE) / Math.max(sw, sh));
   cropCv.width = Math.max(1, Math.round(sw * s));
   cropCv.height = Math.max(1, Math.round(sh * s));
   cropCv.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, cropCv.width, cropCv.height);
   return cropCv.toDataURL('image/jpeg', 0.82);
 }
+
+/* 🚨 THE FULL PICTURE, HELD ON THE DEVICE THAT TOOK IT.
+ *
+ * What gets UPLOADED stays capped at SEND_EDGE (200px) - that cap is the plate
+ * guarantee for every private vehicle and it does not move. But the hub cannot
+ * improve a picture it never received, and by the time the head decides a
+ * vehicle was a police one, the only copy on the server is the ruined one.
+ * Confirming on /rv cannot fix it either: that reviewer is looking at somebody
+ * else's sighting and never had the original.
+ *
+ * So the camera keeps a better copy of its OWN sightings for a while, and hands
+ * it over only when the hub says that sighting was PUBLISHED. Nothing is sent
+ * on the strength of this phone's opinion.
+ *
+ * ⚠️ BOUNDED HARD. A phone holding pictures indefinitely is a memory leak on
+ * the device least able to afford one: at most FULL_KEEP entries, each dropped
+ * after FULL_TTL_MS whether or not it was ever asked for. */
+const FULL_EDGE = 900, FULL_KEEP = 12, FULL_TTL_MS = 15 * 60 * 1000;
+const heldFull = new Map();          // sighting id -> { data, at }
+
+function holdFull(id, data) {
+  if (!id || !data) return;
+  heldFull.set(id, { data: data, at: Date.now() });
+  // Oldest out first, so a busy road cannot grow this without limit.
+  while (heldFull.size > FULL_KEEP) heldFull.delete(heldFull.keys().next().value);
+}
+
+function reapFull() {
+  const cut = Date.now() - FULL_TTL_MS;
+  for (const [id, v] of heldFull) if (v.at < cut) heldFull.delete(id);
+}
+
+/* Answer the hub's want_full list. One at a time and only for what we still
+   hold - a phone that has already forgotten simply says nothing. */
+async function sendHeldFull(ids) {
+  if (!Array.isArray(ids) || !node) return;
+  for (const id of ids) {
+    const held = heldFull.get(id);
+    if (!held) continue;
+    try {
+      const r = await fetch('/api/sighting/fullres', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json',
+                   'Authorization': 'Bearer ' + node.token },
+        body: JSON.stringify({ node_id: node.id, id: id, snap_b64: held.data }),
+      }).then((x) => x.json());
+      // Drop it whether accepted or refused: a refusal will not become an
+      // acceptance on the next beat, and retrying forever is how a phone ends
+      // up uploading the same rejected picture all day.
+      heldFull.delete(id);
+      if (r && r.ok) fullSent++;
+    } catch (e) { /* offline; it will be asked again while we still hold it */ }
+  }
+}
+
+let fullSent = 0;
 
 async function submit(tr) {
   try {
@@ -605,6 +667,7 @@ async function submit(tr) {
     net('on', 'sending');
     // The hub has just told us a human is being asked about this crop. Ask the
     // one who is standing here, while the vehicle may still be in sight.
+    if (r.id && tr.fullBest) holdFull(r.id, tr.fullBest);
     if (r.parked && r.id) askNow(r.id, tr.best, r.vclass);
   } catch (e) { net('busy', 'hub unreachable'); }
 }
@@ -759,7 +822,14 @@ async function loop() {
     tr.box = h.box; tr.last = now; tr.seen++; tr.cls = h.cls; tr.score = h.score;
     // Keep the BIGGEST view, not the first: a car is smallest as it enters.
     const area = (h.box[2]-h.box[0]) * (h.box[3]-h.box[1]);
-    if (area > tr.bestArea) { tr.bestArea = area; tr.best = cropOf(v, h.box); }
+    if (area > tr.bestArea) {
+      tr.bestArea = area;
+      tr.best = cropOf(v, h.box);              // 200px: the only thing UPLOADED
+      // ⚠️ The better copy never leaves the device unless the hub later says
+      // this sighting was published. Same crop, same padding, just not thrown
+      // away yet - see holdFull.
+      tr.fullBest = cropOf(v, h.box, FULL_EDGE);
+    }
   }
   reap(now);
   drawOverlay(hits, v.videoWidth, v.videoHeight);

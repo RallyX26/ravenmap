@@ -306,6 +306,10 @@ MIGRATIONS = [
     ("sightings", "tag_conf", "REAL"),
     ("sightings", "tag_why", "TEXT"),
     ("sightings", "tag_rev", "TEXT"),
+    # 🚨 THE GOOD PICTURE, ONCE THE CAMERA HAS SENT IT. Separate from `snap` so
+    # the record still says which crop was the plate-illegible one, and so a
+    # camera is never asked twice for a picture it has already handed over.
+    ("sightings", "snap_full", "TEXT"),
 ]
 
 # The setup funnel, in order. Progress only ever moves FORWARD through this
@@ -806,6 +810,47 @@ def track_for(plate_hash: str, limit: int = 500) -> list[dict]:
 def sighting(sid: int) -> Optional[dict]:
     r = connect().execute("SELECT * FROM sightings WHERE id = ?", (sid,)).fetchone()
     return dict(r) if r else None
+
+
+# How long after a sighting the camera may still be asked for the full picture.
+# Long enough to survive a review that waits for a human, short enough that a
+# phone is not holding pictures around indefinitely.
+FULLRES_WINDOW_S = 3600.0
+
+
+def wants_fullres(node_id: str, limit: int = 5) -> list[int]:
+    """Published sightings from this camera that are still only the small crop.
+
+    🚨 THIS EXISTS BECAUSE THE ONLY DEVICE THAT EVER HAD THE FULL PICTURE IS THE
+    ONE THAT TOOK IT. Everything uploaded is capped at 200px so a private plate
+    cannot survive the trip. That is the right default and it must not change.
+    But when the head later decides a vehicle IS a government one, it belongs in
+    the public tier where the plate is legible ON PURPOSE - and by then the only
+    copy the server has is the deliberately ruined one.
+
+    Confirming on /rv cannot fix it either: a reviewer is looking at somebody
+    else's sighting and never had the original. So the camera has to be ASKED,
+    and the heartbeat it already sends is the place to ask.
+
+    ⚠️ PUBLISHED ONLY. Never ask for a better picture of a private-tier vehicle;
+    that is the whole guarantee. `tier = 'public'` is the state machine's own
+    answer, not the label somebody typed.
+    """
+    cur = connect().execute(
+        """SELECT id FROM sightings
+            WHERE node_id = ? AND tier = 'public' AND ts > ?
+              AND snap IS NOT NULL AND snap != ''
+              AND (snap_full IS NULL OR snap_full = '')
+            ORDER BY ts DESC LIMIT ?""",
+        (node_id, now() - FULLRES_WINDOW_S, int(limit)))
+    return [int(r["id"]) for r in cur.fetchall()]
+
+
+def mark_fullres(sid: int, name: str) -> None:
+    """Remember that the good picture arrived, so it is never asked for twice."""
+    c = connect()
+    c.execute("UPDATE sightings SET snap_full = ? WHERE id = ?", (name, int(sid)))
+    c.commit()
 
 
 def nodes(active_only: bool = True, include_superseded: bool = False) -> list[dict]:
