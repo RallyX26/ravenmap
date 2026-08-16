@@ -79,7 +79,14 @@
   }
 
   var CSS = [
-    ".instwrap{position:fixed;right:12px;z-index:1250;bottom:calc(70px + env(safe-area-inset-bottom));",
+    // 🚨 IT WAS SITTING ON TOP OF THE STATS ROW. At 70px this floated over
+    // "PUBLIC SIGHTINGS · N" and the road status, so a prompt about adding a
+    // bookmark covered live data. Cleared to above the whole bottom bar.
+    //
+    // ⚠️ z-index stays BELOW the two picker menus (1300). This is a suggestion;
+    // they are controls, and a suggestion must never cover a control. See the
+    // seven overlap reports in [[sparrow-no-floating-controls]].
+    ".instwrap{position:fixed;right:12px;z-index:1250;bottom:calc(150px + env(safe-area-inset-bottom));",
     "  display:flex;align-items:center;gap:8px;background:#141c28;color:#e8eef6;",
     "  border:1px solid #2a3547;border-radius:999px;padding:9px 8px 9px 14px;",
     "  box-shadow:0 10px 30px rgba(0,0,0,.45);font:600 13px system-ui,sans-serif}",

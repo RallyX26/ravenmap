@@ -444,8 +444,11 @@ nav .addcam{color:var(--cam);font-weight:600}
 .viewbtn b{font-weight:700}
 .viewbtn .car{opacity:.6;margin-left:2px}
 /* Open: a real menu over the map rather than a row that pushes it down. */
+/* ⚠️ OPENS UPWARD AND ABOVE THE INSTALL BANNER, for the same reasons as
+   .layerpick below - these two sit side by side in the bottom bar and the
+   whole point of them sharing a shape is that they also behave the same. */
 .viewpick .filters{
-  position:absolute;top:calc(100% + 6px);left:0;z-index:1100;
+  position:absolute;bottom:calc(100% + 6px);left:0;z-index:1300;
   display:flex;flex-direction:column;gap:0;min-width:170px;
   background:#0f1520;border:1px solid var(--line2);border-radius:12px;
   padding:5px;box-shadow:0 14px 34px rgba(0,0,0,.5)
@@ -481,8 +484,18 @@ nav .addcam{color:var(--cam);font-weight:600}
    Nothing floats over the header. See the seven overlap reports that rule
    came from. */
 .layerpick{position:relative}
+/* 🚨 IT OPENS UPWARD, BECAUSE THE BUTTON LIVES AT THE BOTTOM OF THE SCREEN.
+   With top:calc(100% + 6px) the panel dropped DOWNWARD into the controls
+   underneath it, so on a phone the open menu was clipped behind the view
+   selector and the stats row - the button worked, you just could not see what
+   it opened.
+
+   ⚠️ z-index is above the install banner (1250). The banner is fixed and sits
+   in the same corner, so at 1100 the panel opened correctly and was then
+   covered by a prompt about adding to the home screen. Being underneath
+   something is indistinguishable from not opening. */
 .layerpick .layers{
-  position:absolute;top:calc(100% + 6px);left:0;z-index:1100;
+  position:absolute;bottom:calc(100% + 6px);left:0;z-index:1300;
   display:flex;flex-direction:column;gap:2px;min-width:200px;
   background:#0f1520;border:1px solid var(--line2);border-radius:12px;
   padding:6px;box-shadow:0 14px 34px rgba(0,0,0,.5)
