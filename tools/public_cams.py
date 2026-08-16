@@ -211,8 +211,123 @@ def iowa_index() -> list:
     return out
 
 
+def ontario_index() -> list:
+    """Ontario 511 (MTO), under the Open Government Licence – Ontario.
+
+    🚨 THIS SOURCE MUST BE PROBED, AND REFUSES TO BE GUESSED AT.
+
+    Ontario publishes 948 stations carrying 1,670 enabled views and says
+    NOTHING about their resolution, and measuring found the network split
+    almost three ways: 1920x1080 and 1280x720 alongside 800x450, 752x480 and
+    704x480. So roughly a third can see a vehicle at the 120px bar and the rest
+    cannot, and there is no way to tell which from the metadata.
+
+    ⚠️ Its neighbour on the SAME 511 software is the argument for measuring
+    every time: Alberta 511 publishes 599 views and every single one sampled
+    was 840x630 or smaller. Same vendor, same API shape, opposite answer. The
+    platform tells you nothing about the optics.
+
+    So this reads `data/cam_probe.json` and returns only what was MEASURED past
+    the bar. No cache, no cameras - deliberately. Enrolling 1,670 to find 500
+    would put a thousand nodes on the map that can never produce a sighting,
+    and duplicate-and-useless nodes are the hardest thing here to take back.
+    """
+    probe = load_probe()
+    d = _get_json("https://511on.ca/api/v2/get/cameras")
+    out, unprobed = [], 0
+    for st in d:
+        lat, lon = st.get("Latitude"), st.get("Longitude")
+        if lat in (None, 0) or lon in (None, 0):
+            continue
+        for v in (st.get("Views") or []):
+            if v.get("Status") != "Enabled" or not v.get("Url"):
+                continue
+            w = probe.get(v["Url"])
+            if w is None:
+                unprobed += 1
+                continue
+            if w < MIN_HD_WIDTH:
+                continue
+            desc = (v.get("Description") or "").strip()
+            name = (st.get("Location") or st.get("Roadway") or "Ontario camera")
+            if desc:
+                name = f"{name} ({desc})"
+            out.append({"src": "on", "ref": str(v["Id"]),
+                        "name": name[:60], "lat": float(lat), "lon": float(lon),
+                        "url": v["Url"]})
+    if unprobed:
+        print(f"  ⚠ {unprobed} Ontario view(s) never measured - run "
+              f"`public_cams.py probe --source on` or they stay out")
+    if not out and unprobed:
+        raise RuntimeError("no Ontario cameras are measured yet; run `probe` first")
+    return out
+
+
 SOURCES = {"nyc": nyc_index, "fi": finland_index,
-           "atx": austin_index, "ia": iowa_index}
+           "atx": austin_index, "ia": iowa_index, "on": ontario_index}
+
+# Networks that publish their own resolution and therefore need no probing.
+# Finland is the only one so far, and it is why Finland was worth 2,160 cameras
+# for the cost of 809 small metadata requests.
+SELF_DESCRIBING = {"fi"}
+
+
+# --------------------------------------------------------------------------
+# the resolution probe
+# --------------------------------------------------------------------------
+# 🚨 CACHED ON DISK BECAUSE IT IS SOMEBODY ELSE'S BANDWIDTH. Measuring a
+# network means downloading one image per camera, which is a thing to do once
+# and remember - not on every restart of a service that restarts on failure.
+PROBE = ROOT / "data" / "cam_probe.json"
+
+
+def load_probe() -> dict:
+    if PROBE.exists():
+        try:
+            return json.loads(PROBE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def cmd_probe(args) -> int:
+    """Measure a network's actual image width, once, and remember it."""
+    if args.source in SELF_DESCRIBING:
+        print(f"{args.source} publishes its own resolutions - nothing to probe")
+        return 0
+    known = load_probe()
+    # Build the raw view list WITHOUT the probe filter, or this can never
+    # bootstrap: the index refuses to return unmeasured cameras by design.
+    if args.source == "on":
+        d = _get_json("https://511on.ca/api/v2/get/cameras")
+        urls = [v["Url"] for st in d for v in (st.get("Views") or [])
+                if v.get("Status") == "Enabled" and v.get("Url")]
+    else:
+        urls = [c["url"] for c in SOURCES[args.source]()]
+    todo = [u for u in urls if u not in known]
+    print(f"{len(urls)} camera(s), {len(known)} already measured, "
+          f"{len(todo)} to do")
+
+    def one(u):
+        try:
+            return u, Image.open(io.BytesIO(fetch(u, timeout=20))).size[0]
+        except Exception:
+            return u, 0            # 0 = measured and unusable, not unmeasured
+
+    done = 0
+    with cf.ThreadPoolExecutor(max_workers=16) as pool:
+        for u, w in pool.map(one, todo):
+            known[u] = w
+            done += 1
+            if done % 200 == 0:
+                print(f"  ...{done}/{len(todo)}", flush=True)
+    PROBE.parent.mkdir(parents=True, exist_ok=True)
+    PROBE.write_text(json.dumps(known), encoding="utf-8")
+    good = sum(1 for u in urls if known.get(u, 0) >= MIN_HD_WIDTH)
+    dead = sum(1 for u in urls if known.get(u, 0) == 0)
+    print(f"\n{good} of {len(urls)} clear the {MIN_HD_WIDTH}px bar "
+          f"({dead} would not load at all) -> {PROBE}")
+    return 0
 
 
 # --------------------------------------------------------------------------
@@ -747,6 +862,14 @@ def cmd_run(args) -> int:
                 print(f"  -- beat failed for {len(chunk)}: "
                       f"{type(exc).__name__}: {str(exc)[:60]}")
 
+    # 🚨 SEPARATE THE TWO COSTS OR YOU CANNOT TUNE EITHER. Chunk times swung
+    # from 5s to 68s at a constant worker count and a constant 192 images, and
+    # "cameras per second" cannot tell you whether that is a slow network or a
+    # slow classifier - which is the difference between raising --workers and
+    # parallelising inference. Two accumulators, reported per chunk.
+    t_fetch = [0.0]
+    t_infer = [0.0]
+
     def grab(c):
         """Fetch one camera. Returns (cam, image or None, error).
 
@@ -759,8 +882,11 @@ def cmd_run(args) -> int:
             # measuring. A sweep is not: every second spent waiting on one
             # camera is a second the other 4,411 are not being looked at, and
             # the next sweep is along in five minutes anyway.
+            _t = time.time()
             raw = fetch(c["url"], conditional=True, timeout=POLL_TIMEOUT_S)
-            return c, Image.open(io.BytesIO(raw)).convert("RGB"), None
+            img = Image.open(io.BytesIO(raw)).convert("RGB")
+            t_fetch[0] += time.time() - _t
+            return c, img, None
         except NotModified:
             return c, None, "304"
         except Exception as exc:
@@ -808,7 +934,9 @@ def cmd_run(args) -> int:
                         print(f"  {c['name'][:34]:<36} unreachable ({err})")
                         continue
                     reached.append(c)
+                    _t = time.time()
                     boxes = detect(sess, size, img)
+                    t_infer[0] += time.time() - _t
                     # 🚨 ONLY VEHICLES BIG ENOUGH TO BE JUDGED. A snapshot of a
                     # motorway holds dozens of 30px blobs; posting them would bury
                     # the review queue in things no human could rule on either.
@@ -859,8 +987,10 @@ def cmd_run(args) -> int:
                 _done += len(_batch)
                 _el = time.time() - _t0
                 print(f"  .. {_done}/{len(cams)} swept in {_el:.0f}s "
-                      f"({len(_batch) / max(0.01, time.time() - _bt):.0f} cam/s, "
-                      f"{unchanged} unchanged, {sent} sent)", flush=True)
+                      f"({len(_batch) / max(0.01, time.time() - _bt):.0f} cam/s"
+                      f" | fetch {t_fetch[0]:.0f}s across {workers} threads,"
+                      f" infer {t_infer[0]:.0f}s serial"
+                      f" | {unchanged} unchanged, {sent} sent)", flush=True)
             beat(reached)
             took = time.time() - cycle_started
             if unchanged:
@@ -885,6 +1015,9 @@ def main() -> int:
     s.add_argument("--limit", type=int, default=200); s.set_defaults(fn=cmd_survey)
     e = sub.add_parser("enrol"); e.add_argument("--limit", type=int, default=5)
     e.set_defaults(fn=cmd_enrol)
+    pr = sub.add_parser("probe")
+    pr.add_argument("--source", required=True)
+    pr.set_defaults(fn=cmd_probe)
     t = sub.add_parser("tokens")
     t.add_argument("--out", default=str(ROOT / "data" / "cam_tokens.json"))
     t.set_defaults(fn=cmd_tokens)
