@@ -1910,7 +1910,7 @@ const HeatControl = L.Control.extend({
     const d = L.DomUtil.create('button', 'heatctl');
     d.id = 'heatBtn';
     d.title = 'Show everywhere patrols have been (hotspots)';
-    d.textContent = '🔥';
+    d.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 3s5 4.2 5 8.6a5 5 0 0 1-10 0C7 9.4 9 7.6 9 7.6s.4 2 1.6 2.6C11 8.2 12 5.6 12 3z"/></svg>';
     // 🚨 ROUND AND 44px, MATCHING THE BUG AND REFRESH BUTTONS DIRECTLY BELOW.
     // This was a 40px rounded SQUARE sitting at the top of a column of round
     // 44px circles, which reads as a control that arrived from somewhere else.
@@ -1990,13 +1990,13 @@ function showIntro() {
     fontWeight: '600', fontSize: '12.5px', textDecoration: 'none',
     textAlign: 'center', cursor: 'pointer', whiteSpace: 'nowrap',
     minWidth: '0' };
-  const drive = mk('a', '🚗 Driving', secondary);
+  const drive = mk('a', 'Driving', secondary);
   drive.href = '/drive';
   // A shop with a camera already on the street is coverage that costs nobody a
   // spare phone. It was reachable only from a paragraph inside /app.
-  const biz = mk('a', '📷 IP Camera', secondary);
+  const biz = mk('a', 'IP Camera', secondary);
   biz.href = '/IPCamera';
-  const signin = mk('a', '🔑 Sign in', secondary);
+  const signin = mk('a', 'Sign in', secondary);
   signin.href = '/signin';
   row.append(drive, biz, signin);
 

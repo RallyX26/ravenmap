@@ -24,18 +24,18 @@
   // Transparency entries as in-place panes rather than links, which is what
   // `mode` marks - see PANES below.
   var ITEMS = [
-    { href: "/",             icon: "🗺", label: "Map",          mode: "map" },
-    { href: "/drive",        icon: "🚗", label: "Driving" },
-    { href: "/app",          icon: "📷", label: "Add a camera" },
+    { href: "/",             icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6.5v13L9 17l6 3 6-2.5v-13L15 7z"/><path d="M9 4v13M15 7v13"/></svg>', label: "Map",          mode: "map" },
+    { href: "/drive",        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 16v2a1 1 0 0 1-1 1H3.5A1.5 1.5 0 0 1 2 17.5V12l2.2-5.1A2 2 0 0 1 6 5.6h12a2 2 0 0 1 1.8 1.3L22 12v5.5a1.5 1.5 0 0 1-1.5 1.5H20a1 1 0 0 1-1-1v-2"/><path d="M2 12h20"/><circle cx="6.5" cy="15" r="1"/><circle cx="17.5" cy="15" r="1"/></svg>', label: "Driving" },
+    { href: "/app",          icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2l1.2-2h8.2l1.2 2h2.2A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/><circle cx="12" cy="13" r="3.2"/></svg>', label: "Add a camera" },
     // Businesses already pointing a camera at a street are the cheapest
     // coverage this project can get - the hardware and the sightline are
     // already paid for. It was reachable only from a paragraph inside
     // /app and a link near the bottom of the landing page.
-    { href: "/IPCamera",     icon: "📷", label: "Add an IP Camera" },
-    { href: "/rv",           icon: "✅",       label: "Review" },
-    { href: "/about",        icon: "ℹ",       label: "About",        mode: "about" },
-    { href: "/transparency", icon: "👁", label: "Transparency", mode: "transparency" },
-    { href: "/status",       icon: "📶", label: "Status" }
+    { href: "/IPCamera",     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h11a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H4z"/><path d="M17 10.5 21 8v7l-4-2.5z"/><path d="M8 15v4M5 19h6"/></svg>', label: "Add an IP Camera" },
+    { href: "/rv",           icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5 9.5 18 20 6.5"/></svg>',       label: "Review" },
+    { href: "/about",        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.8" r=".9" fill="currentColor" stroke="none"/></svg>',       label: "About",        mode: "about" },
+    { href: "/transparency", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.8-6.5 10-6.5S22 12 22 12s-3.8 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/></svg>', label: "Transparency", mode: "transparency" },
+    { href: "/status",       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19v-4M9.3 19V11M14.7 19V7M20 19V4"/></svg>', label: "Status" }
   ];
 
   // Self-contained styling, so this works on a page that does not load
@@ -195,7 +195,8 @@
     "  -webkit-tap-highlight-color:transparent}",
     "nav.sitenav a{color:#5fb3a1}",
     "nav.sitenav .on,nav.sitenav a.on{color:#e8eef6;border-top-color:#ff3b47;background:#111621}",
-    "nav.sitenav .ic{display:block;font-size:15px;margin-bottom:2px;letter-spacing:0}"
+    "nav.sitenav .ic{display:block;margin-bottom:3px;line-height:0}",
+    "nav.sitenav .ic svg{width:19px;height:19px;display:inline-block;vertical-align:middle}"
   ].join("\n");
 
   function build(panes) {
@@ -584,7 +585,7 @@
     var a = document.createElement("a");
     a.className = "swtoplink";
     a.href = has ? "/app" : "/signin";
-    a.textContent = has ? "📷 My camera" : "🔑 Sign in";
+    a.textContent = has ? "My camera" : "Sign in";
     a.title = has ? "Open your camera"
                   : "Already set up a camera? Sign in with your key";
 
@@ -624,7 +625,7 @@
     var b = document.createElement("button");
     b.type = "button";
     b.className = "swbug";
-    b.textContent = "🐞";
+    b.innerHTML = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 8a4 4 0 0 1 4 4v3a4 4 0 0 1-8 0v-3a4 4 0 0 1 4-4z"/><path d="M9.5 8.5 8 6.5M14.5 8.5 16 6.5M8 12H4.5M16 12h3.5M8.4 16 5.5 18M15.6 16l2.9 2"/></svg>';
     b.title = "Report a problem";
     b.setAttribute("aria-label", "report a problem");
     b.addEventListener("click", openBugSheet);
@@ -650,7 +651,7 @@
     ta.placeholder = "What were you doing, and what happened?";
     var pick = document.createElement("label");
     pick.className = "swbugpick";
-    pick.textContent = "📷 Attach a screenshot";
+    pick.textContent = "Attach a screenshot";
     var input = document.createElement("input");
     input.type = "file"; input.accept = "image/*"; input.hidden = true;
     pick.appendChild(input);
