@@ -263,8 +263,130 @@ def ontario_index() -> list:
     return out
 
 
+# --------------------------------------------------------------------------
+# the generic ArcGIS source: ONE adapter, many agencies
+# --------------------------------------------------------------------------
+# 🚨 THE REASON THIS EXISTS. Dozens of transport agencies publish their camera
+# list as an ArcGIS FeatureServer - the same shape Iowa already reaches us
+# through. Written one at a time that is forty scrapers to maintain; written
+# once it is a table of four strings per agency, and adding a state is a data
+# change rather than a code change.
+#
+# ⚠️ WHAT IS NOT SHARED IS THE FIELD NAMES, and there is no convention
+# whatsoever. The image URL is `ImageURL` in Iowa, `URL` in Seattle, `snapshot`
+# in Kentucky, `Image_URL` in Alabama, `IMAGEURL` in Toronto, `feed_url` in
+# Utah, `IMAGE_` in Kirkland. Guessing one silently returns zero cameras from a
+# feed with hundreds - which this project has already been bitten by once, on
+# Iowa's own `ImageURL` vs `IMAGEURL`.
+#
+# ⚠️ EVERY ONE OF THESE WAS MEASURED BEFORE IT WAS ADDED. The counts below are
+# what the agency OFFERS; the HD subset is what survives `probe`, and for most
+# of these networks that is a minority. Never add a row here from a camera
+# count alone - Georgia offers 7,083 and every one measured 450-540px.
+ARCGIS = {
+    "sea": {"name": "Seattle DOT",
+            "url": "https://services.arcgis.com/ZOyb2t4B0UYuYNYH/arcgis/rest"
+                   "/services/Traffic_Cameras_CDL/FeatureServer/0",
+            "img": "URL", "label": ("NAME", "LOCATION"), "ref": "COMPKEY"},
+    "wsd": {"name": "WSDOT storm-response cameras",
+            "url": "https://services.arcgis.com/ZOyb2t4B0UYuYNYH/arcgis/rest"
+                   "/services/StormResponse_TrafficCameras/FeatureServer/0",
+            "img": "URL", "label": ("NAME", "LOCATION"), "ref": "COMPKEY"},
+    "kytc": {"name": "Kentucky TC",
+             "url": "https://services2.arcgis.com/CcI36Pduqd0OR4W9/arcgis/rest"
+                    "/services/trafficCamerasCur_Prd/FeatureServer/0",
+             "img": "snapshot", "label": ("name", "description"), "ref": "id"},
+    "aldot": {"name": "Alabama DOT",
+              "url": "https://services7.arcgis.com/33Tmvrm3G2UZLFK9/arcgis/rest"
+                     "/services/AL_DOT_roadway_cameras/FeatureServer/0",
+              "img": "Image_URL", "label": ("Camera_Name", "Primary_Road"),
+              "ref": "Device_ID"},
+    "tor": {"name": "City of Toronto",
+            "url": "https://services1.arcgis.com/DwLTn0u9VBSZvUPe/arcgis/rest"
+                   "/services/Traffic_Camera_List/FeatureServer/0",
+            "img": "IMAGEURL", "label": ("MAINROAD", "CROSSROAD"),
+            "ref": "REC_ID"},
+    "kc": {"name": "King County WA",
+           "url": "https://services.arcgis.com/Ej0PsM5Aw677QF1W/arcgis/rest"
+                  "/services/TRAFFICCAMERA_POINT_2029/FeatureServer/0",
+           "img": "ImageURL", "label": ("Location", "Description"),
+           "ref": "AssetID"},
+    "nl": {"name": "Newfoundland and Labrador",
+           "url": "https://services8.arcgis.com/aCyQID5qQcyrJMm2/arcgis/rest"
+                  "/services/TI_HighwayCamera/FeatureServer/0",
+           "img": "url", "label": ("location",), "ref": "objectid"},
+    "kirk": {"name": "Kirkland WA",
+             "url": "https://services2.arcgis.com/loGMwowmR0OPlOQb/arcgis/rest"
+                    "/services/TRN_TrafficCams_10032022/FeatureServer/0",
+             "img": "IMAGE_", "label": ("LOCATION", "DESCRIPTIO"),
+             "ref": "TRAFCAM_ID"},
+}
+
+
+def arcgis_index(key: str, measured_only: bool = True) -> list:
+    """Every camera in one ArcGIS FeatureServer, paged.
+
+    ⚠️ `measured_only` is the same rule Ontario follows and for the same
+    reason: none of these agencies publish resolution, most of their cameras
+    are below the bar, and enrolling the whole list to find the usable third
+    would put thousands of nodes on the map that can never produce a sighting.
+    Only `probe` passes False, because it is the thing that does the measuring.
+
+    ⚠️ PAGED, BECAUSE THESE SERVERS LIE BY OMISSION. A FeatureServer caps what
+    one query returns (commonly 1,000 or 2,000) and says so only in
+    `exceededTransferLimit` - which is easy not to read. A single unpaged query
+    against a 5,000-camera layer returns 2,000 and looks completely successful.
+    """
+    cfg = ARCGIS[key]
+    probe = load_probe() if measured_only else {}
+    out, offset, unmeasured, small = [], 0, 0, 0
+    while True:
+        q = (cfg["url"] + "/query?where=1%3D1&outFields=*&f=geojson"
+             f"&resultRecordCount=1000&resultOffset={offset}")
+        d = _get_json(q, timeout=60)
+        feats = d.get("features") or []
+        if not feats:
+            break
+        for f in feats:
+            pr = f.get("properties") or {}
+            geo = (f.get("geometry") or {}).get("coordinates") or []
+            if len(geo) < 2 or not geo[0] or not geo[1]:
+                continue
+            url = pr.get(cfg["img"])
+            if not isinstance(url, str) or not url.lower().startswith("http"):
+                continue
+            ref = str(pr.get(cfg["ref"]) or "").strip()
+            if not ref:
+                continue
+            if measured_only:
+                w = probe.get(url)
+                if w is None:
+                    unmeasured += 1
+                    continue
+                if w < MIN_HD_WIDTH:
+                    small += 1
+                    continue
+            bits = [str(pr.get(k) or "").strip() for k in cfg["label"]]
+            name = " ".join(b for b in bits if b) or cfg["name"]
+            out.append({"src": key, "ref": ref, "name": name[:60],
+                        "lat": float(geo[1]), "lon": float(geo[0]), "url": url})
+        if not d.get("exceededTransferLimit") and len(feats) < 1000:
+            break
+        offset += len(feats)
+        if offset > 60000:               # a runaway guard, not a real limit
+            break
+    if unmeasured:
+        print(f"  ⚠ {key}: {unmeasured} camera(s) never measured - run "
+              f"`public_cams.py probe --source {key}` or they stay out")
+    if measured_only and not out and unmeasured:
+        raise RuntimeError(f"no {key} cameras are measured yet; run `probe` first")
+    return out
+
+
 SOURCES = {"nyc": nyc_index, "fi": finland_index,
            "atx": austin_index, "ia": iowa_index, "on": ontario_index}
+for _k in ARCGIS:
+    SOURCES[_k] = (lambda k: lambda: arcgis_index(k))(_k)
 
 # Networks that publish their own resolution and therefore need no probing.
 # Finland is the only one so far, and it is why Finland was worth 2,160 cameras
@@ -296,12 +418,15 @@ def cmd_probe(args) -> int:
         print(f"{args.source} publishes its own resolutions - nothing to probe")
         return 0
     known = load_probe()
-    # Build the raw view list WITHOUT the probe filter, or this can never
-    # bootstrap: the index refuses to return unmeasured cameras by design.
+    # 🚨 THE RAW LIST, NOT THE FILTERED ONE, OR THIS CAN NEVER BOOTSTRAP.
+    # Every probe-gated index refuses to return unmeasured cameras by design,
+    # so asking it what to measure would answer "nothing" for ever.
     if args.source == "on":
         d = _get_json("https://511on.ca/api/v2/get/cameras")
         urls = [v["Url"] for st in d for v in (st.get("Views") or [])
                 if v.get("Status") == "Enabled" and v.get("Url")]
+    elif args.source in ARCGIS:
+        urls = [c["url"] for c in arcgis_index(args.source, measured_only=False)]
     else:
         urls = [c["url"] for c in SOURCES[args.source]()]
     todo = [u for u in urls if u not in known]
