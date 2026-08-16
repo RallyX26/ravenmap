@@ -619,6 +619,80 @@ def arizona_index(measured_only: bool = True) -> list:
     return probe_filter(out, "az") if measured_only else out
 
 
+def utah_index(measured_only: bool = True) -> list:
+    """UDOT. The largest single state in the survey - 1,720 clear the bar.
+
+    ⚠️ UDOT SERVES ITS OFFLINE CARD AT 1280x720, so it passes the width test
+    while being a dead camera. A width histogram alone overcounts Utah by 43.
+    The content hash catches it; do not remove that check to "simplify" this.
+    """
+    out = _castlerock_index("ut", "www.udottraffic.utah.gov")
+    return probe_filter(out, "ut") if measured_only else out
+
+
+def idaho_index(measured_only: bool = True) -> list:
+    """Idaho 511. Mostly 800px; 53 real HD cameras is a small but real haul."""
+    out = _castlerock_index("id", "511.idaho.gov")
+    return probe_filter(out, "id") if measured_only else out
+
+
+def alaska_index(measured_only: bool = True) -> list:
+    """AKDOT road weather cameras.
+
+    🚨 NOT THE 511 LAYER, WHICH IS A ZOMBIE. Alaska's ArcGIS `511_Cameras`
+    still answers with 457 features and 431 of them are ONE byte-identical
+    "no live feed" card with LastUpdated fields from 2024. The live 511 door
+    caps every image at 1000px, so it reads as a network that just misses the
+    bar - which is a different and wrong conclusion.
+
+    The real cameras are on a different system. Measured on the same camera in
+    the same minute: 511 gave 1000x563, roadweather gave 1280x720. That is a
+    genuine downsampling proxy, unlike Arizona and Idaho where the equivalent
+    path passes through untouched.
+
+    🚨 NOT WIRED, AND THE REASON IS ARCHITECTURAL RATHER THAN A BUG.
+    Alaska's image URLs carry a TIMESTAMP - Vid-000351001-00-00-2026-08-16-
+    03-09.jpg - so they rotate every few minutes. This whole pipeline assumes a
+    camera has a durable URL, and three separate things break without one:
+      * the ref is derived from the URL, so a node's NAME would change every
+        cycle and orphan itself (see cars_index for what that costs);
+      * the probe cache is keyed on the URL, so nothing would ever be measured
+        twice and every sweep would re-measure the fleet;
+      * conditional requests are keyed on the URL, so every fetch downloads.
+
+    Wyoming and Montana have the same property. Together that is ~1,081
+    measured-HD cameras waiting on ONE change: identify a camera by a stable
+    key (site + view) and RESOLVE its URL from the index each cycle. That is
+    worth doing and is not a small edit, so it is written down rather than
+    half-built.
+
+    ⚠️ Covers AKDOT's own RWIS sites only (79). Roughly 46 other-agency sites
+    exist nowhere but behind the 1000px cap, so they are simply out of reach.
+    """
+    sites = _get_json("https://roadweather.alaska.gov/api/sites", timeout=60)
+    rows = sites if isinstance(sites, list) else (sites.get("sites") or [])
+    out = []
+    for s in rows:
+        lat, lon = s.get("latitude"), s.get("longitude")
+        sid = s.get("id") or s.get("siteId")
+        if not sid or not lat or not lon:
+            continue
+        try:
+            imgs = _get_json(
+                f"https://roadweather.alaska.gov/api/images/{sid}", timeout=30)
+        except Exception:
+            continue
+        for i, im in enumerate(imgs if isinstance(imgs, list) else []):
+            url = im.get("downloadUrl")
+            if not url:
+                continue
+            out.append({"src": "ak", "ref": _url_ref(url),
+                        "name": (s.get("name") or im.get("name")
+                                 or "Alaska camera")[:60],
+                        "lat": float(lat), "lon": float(lon), "url": url})
+    return probe_filter(out, "ak") if measured_only else out
+
+
 def indiana_index(measured_only: bool = True) -> list:
     """INDOT, via the CARS platform. Only reachable from the US box.
 
@@ -877,7 +951,7 @@ SOURCES = {"nyc": nyc_index, "fi": finland_index, "atx": austin_index,
            "in": indiana_index, "al": alabama_index,
            "ne_511": newengland_index, "nc": northcarolina_index,
            "il": illinois_index, "sd": southdakota_index,
-           "az": arizona_index}
+           "az": arizona_index, "ut": utah_index, "id": idaho_index}
 for _k in ARCGIS:
     SOURCES[_k] = (lambda k: lambda: arcgis_index(k))(_k)
 
@@ -1074,7 +1148,7 @@ def cmd_probe(args) -> int:
     elif args.source in ARCGIS:
         urls = [c["url"] for c in arcgis_index(args.source, measured_only=False)]
     elif (args.source in ("oh", "nm", "mo", "ny", "mi", "in", "tx", "al",
-                          "ne_511", "nc", "il", "sd", "az")
+                          "ne_511", "nc", "il", "sd", "az", "ut", "id")
           or args.source in CARS):
         urls = [c["url"] for c in SOURCES[args.source](measured_only=False)]
     else:
