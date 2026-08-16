@@ -84,13 +84,30 @@ main{position:absolute; inset:52px 0 57px 0; display:flex}
 .chip[data-c="fleet"].on{background:var(--fleet)}
 .chip[data-c="civilian"].on{background:var(--civilian); color:#e6ecf5}
 
-.win{display:flex; align-items:center; gap:9px; padding:8px 10px; border-bottom:1px solid var(--line);
+/* 🚨 IT WRAPS. Without flex-wrap this row laid the window selector and the
+   Layers button on one line and simply ran off the right edge of a phone, so
+   the Layers button was permanently half cut off - reported twice. Fixing the
+   MENU direction did nothing for it, because the thing being clipped was the
+   BUTTON, not what it opened.
+
+   Same fix as the header in [[sparrow-no-floating-controls]]: let it wrap and
+   stop children refusing to shrink. A control that is off-screen is not a
+   control. */
+.win{display:flex; align-items:center; flex-wrap:wrap; gap:9px 10px;
+     padding:8px 10px; border-bottom:1px solid var(--line);
      font-size:11.5px; color:var(--dim)}
+/* ⚠️ min-width:0 is the half people forget: a flex child defaults to
+   min-width:auto and refuses to shrink below its content, which is what pushes
+   a sibling off the edge even once wrapping is allowed. */
+.win > *{min-width:0}
 .win select{
   background:#0d121c; color:var(--ink); border:1px solid var(--line2);
   border-radius:6px; padding:4px 6px; font:inherit;
 }
-.win .cams{margin-left:auto; display:flex; align-items:center; gap:5px; cursor:pointer}
+/* ⚠️ No margin-left:auto here. Pushing this to the far right is what made the
+   row need more width than a phone has; once the row wraps, an auto margin just
+   strands the control on its own line against the edge. */
+.win .cams{display:flex; align-items:center; gap:5px; cursor:pointer}
 
 /* ---------- detail card ---------- */
 .detail{border-bottom:1px solid var(--line); padding:11px 12px; background:#0d1420}
