@@ -304,6 +304,54 @@ def ohio_index(measured_only: bool = True) -> list:
     return probe_filter(out, "oh") if measured_only else out
 
 
+def newmexico_index(measured_only: bool = True) -> list:
+    """NMRoads.
+
+    ⚠️ TAKE `snapshotFile` AND NEVER THE SITE'S OWN IMAGE PROXY. NMRoads offers
+    a `GetCameraImage` endpoint that re-encodes EVERYTHING to 360x240. Routing
+    through the obvious, official-looking URL would silently destroy the entire
+    source - every one of its 42 HD cameras would measure as unusable and the
+    network would be written off as standard definition. The direct file is
+    1920 or 1280.
+    """
+    rows = _get_json("https://servicev5.nmroads.com/RealMapWAR/GetCameraInfo",
+                     timeout=60)
+    # ⚠️ The list is under `cameraInfo`. Guessing `cameras` returns an empty
+    # list from a 183-camera feed and looks like a network that went away.
+    if isinstance(rows, dict):
+        rows = rows.get("cameraInfo") or []
+    out = []
+    for c in rows:
+        url, lat, lon = c.get("snapshotFile"), c.get("lat"), c.get("lon")
+        if not url or not lat or not lon:
+            continue
+        ref = str(c.get("name") or url)[-24:]
+        out.append({"src": "nm", "ref": ref,
+                    "name": (c.get("title") or c.get("name")
+                             or "New Mexico camera")[:60],
+                    "lat": float(lat), "lon": float(lon), "url": url})
+    return probe_filter(out, "nm") if measured_only else out
+
+
+def missouri_index(measured_only: bool = True) -> list:
+    """MoDOT. Thirteen cameras, nine of them HD - small, and it is still a state."""
+    d = _get_json("https://traveler.modot.org/map/js/snapshot.json", timeout=45)
+    rows = d if isinstance(d, list) else (d.get("cameras") or [])
+    out = []
+    for c in rows:
+        loc = c.get("location") or {}
+        lat, lon = loc.get("y"), loc.get("x")
+        url = c.get("url")
+        if not url or lat is None or lon is None:
+            continue
+        if url.startswith("/"):
+            url = "https://traveler.modot.org" + url
+        out.append({"src": "mo", "ref": str(c.get("id") or url)[-24:],
+                    "name": (c.get("caption") or "Missouri camera")[:60],
+                    "lat": float(lat), "lon": float(lon), "url": url})
+    return probe_filter(out, "mo") if measured_only else out
+
+
 # --------------------------------------------------------------------------
 # the generic ArcGIS source: ONE adapter, many agencies
 # --------------------------------------------------------------------------
@@ -421,7 +469,8 @@ def arcgis_index(key: str, measured_only: bool = True) -> list:
 
 
 SOURCES = {"nyc": nyc_index, "fi": finland_index, "atx": austin_index,
-           "ia": iowa_index, "on": ontario_index, "oh": ohio_index}
+           "ia": iowa_index, "on": ontario_index, "oh": ohio_index,
+           "nm": newmexico_index, "mo": missouri_index}
 for _k in ARCGIS:
     SOURCES[_k] = (lambda k: lambda: arcgis_index(k))(_k)
 
@@ -505,8 +554,8 @@ def cmd_probe(args) -> int:
                 if v.get("Status") == "Enabled" and v.get("Url")]
     elif args.source in ARCGIS:
         urls = [c["url"] for c in arcgis_index(args.source, measured_only=False)]
-    elif args.source == "oh":
-        urls = [c["url"] for c in ohio_index(measured_only=False)]
+    elif args.source in ("oh", "nm", "mo"):
+        urls = [c["url"] for c in SOURCES[args.source](measured_only=False)]
     else:
         urls = [c["url"] for c in SOURCES[args.source]()]
     todo = [u for u in urls if u not in known]
