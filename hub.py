@@ -479,7 +479,7 @@ def _resolve_hash(h: str) -> str:
 
 # The packaged desktop app. Hosted on GitHub releases rather than here - see the
 # /download route for why - and CHECKED rather than assumed: the button on
-# /business appears only when the asset really exists, so the page never offers
+# /IPCamera appears only when the asset really exists, so the page never offers
 # a download that 404s. Cached, because this is a third-party round trip on a
 # path a crowd may hit.
 DOWNLOAD_URL = CONFIG.get(
@@ -710,7 +710,7 @@ class Handler(BaseHTTPRequestHandler):
                 return "public, max-age=4"    # live map: fresh within a few s
             return "public, max-age=15"
         if p == "/" or p.endswith(".html") or p in (
-                "/about", "/transparency", "/status", "/business", "/app",
+                "/about", "/transparency", "/status", "/IPCamera", "/app",
                 "/node", "/key"):
             return "public, max-age=60"        # page shells: reuse, revalidate
         # /api/plate search, /api/track, /api/sighting/<id>, operator routes,
@@ -1365,12 +1365,35 @@ class Handler(BaseHTTPRequestHandler):
             # else. This page exists so the reply is a link rather than an
             # argument: if they can read it, they reached the server.
             if p == "/status":          return self._file(PUBLIC / "status.html")
-            # 🚨 THE ROUTE A BUSINESS IS SENT TO. Everything it needs is already
-            # public (enrol, aim, review); what did not exist was one page that
-            # walks somebody who owns a shop - not a terminal - from "I have a
-            # camera outside" to a running relay without them having to know
-            # which of these pages to visit in which order.
-            if p == "/business":        return self._file(PUBLIC / "business.html")
+            # 🚨 THE ROUTE SOMEBODY WITH THEIR OWN CAMERA IS SENT TO. Everything
+            # it needs is already public (enrol, aim, review); what did not exist
+            # was one page that walks somebody who owns a shop - not a terminal -
+            # from "I have a camera outside" to a running relay without them
+            # having to know which of these pages to visit in which order.
+            #
+            # ⚠️ IT WAS CALLED /business AND THE NAME WAS THE PROBLEM. People
+            # read "business" as "the paid tier" or "not for me", and asked. It
+            # describes who we imagined using it rather than what it does, so it
+            # is /IPCamera now - which is the thing they actually have.
+            #
+            # 🚨 /business STILL ANSWERS, FOREVER. It is printed in a viral reel's
+            # comments, in DMs and in older builds of the desktop app, and none of
+            # those can be edited. A rename that breaks them costs more than the
+            # rename gains. Accept the lower-case spelling too: nobody types
+            # capitals in the middle of a URL from memory.
+            if p in ("/business", "/ipcamera"):
+                # ⚠️ 301 SO SEARCH MOVES THE PAGE ACROSS, BUT WITH A SHORT
+                # Cache-Control. A bare 301 is cached by browsers indefinitely
+                # and this name has already changed twice; an hour is plenty for
+                # search engines and leaves us able to change our minds without
+                # having poisoned every visitor's browser.
+                self._status = 301
+                self.send_response(301)
+                self.send_header("Location", "/IPCamera")
+                self.send_header("Cache-Control", "public, max-age=3600")
+                self.end_headers()
+                return
+            if p == "/IPCamera":        return self._file(PUBLIC / "ipcamera.html")
             # 🚨 THE RELAY, AS ONE FILE. It imports nothing from this project
             # and fetches its own model, so a business needs this file and three
             # pip packages - not a git checkout. Telling somebody to clone a
@@ -1380,7 +1403,7 @@ class Handler(BaseHTTPRequestHandler):
             # The packaged desktop app, when a build has been placed here. Kept
             # OUT of git (it is a 60 MB derived artefact full of absolute build
             # paths - preflight caught exactly that), so this 404s cleanly until
-            # somebody uploads one, and /business hides its button accordingly.
+            # somebody uploads one, and /IPCamera hides its button accordingly.
             if p == "/download":
                 # 🚨 REDIRECTED TO A GITHUB RELEASE, NOT SERVED FROM HERE.
                 # The app is 76 MB. This box is 2 vCPUs on a 13 Mbps uplink and
@@ -1452,7 +1475,7 @@ class Handler(BaseHTTPRequestHandler):
                 # ALSO WHY /vendor/images/* 404d. Leaflet asks for
                 # /vendor/images/marker-icon.png; `.name` turned that into
                 # vendor/marker-icon.png, which does not exist - so the marker
-                # on /business rendered as a broken-image box, on the one
+                # on /IPCamera rendered as a broken-image box, on the one
                 # control the page asks a business to drag.
                 #
                 # The guard stays. One subdirectory is allowed and it is named

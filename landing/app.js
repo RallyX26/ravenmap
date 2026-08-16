@@ -90,7 +90,7 @@ const CONTACT_EMAIL = "sparrowmap@icloud.com";
   const drive = mk("a", "🚗 Driving", SEC);
   drive.href = "https://map.sparrowmap.com/drive"; drive.rel = "noopener";
   const biz = mk("a", "🏪 Business", SEC);
-  biz.href = "https://map.sparrowmap.com/business"; biz.rel = "noopener";
+  biz.href = "https://map.sparrowmap.com/IPCamera"; biz.rel = "noopener";
   const signin = mk("a", "🔑 Sign in", SEC);
   signin.href = "https://map.sparrowmap.com/signin"; signin.rel = "noopener";
   row.append(drive, biz, signin);

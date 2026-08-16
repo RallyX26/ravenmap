@@ -239,7 +239,7 @@ class App(tk.Tk):
         self.e_lon = self._entry(r2, str(self.cfg.get("lon", ""))); self.e_lon.pack(fill="x", ipady=5)
 
         tk.Button(body, text="I don't have a camera id yet  —  set one up",
-                  command=lambda: self._open("/business"), bg="#141c28", fg=INK,
+                  command=lambda: self._open("/IPCamera"), bg="#141c28", fg=INK,
                   relief="flat", font=("Segoe UI", 9), cursor="hand2",
                   activebackground="#1b2432", activeforeground=INK
                   ).pack(fill="x", pady=(10, 0), ipady=6)

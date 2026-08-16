@@ -31,7 +31,7 @@
     // coverage this project can get - the hardware and the sightline are
     // already paid for. It was reachable only from a paragraph inside
     // /app and a link near the bottom of the landing page.
-    { href: "/business",     icon: "🏪", label: "Add IP Cameras" },
+    { href: "/IPCamera",     icon: "📷", label: "Add an IP Camera" },
     { href: "/rv",           icon: "✅",       label: "Review" },
     { href: "/about",        icon: "ℹ",       label: "About",        mode: "about" },
     { href: "/transparency", icon: "👁", label: "Transparency", mode: "transparency" },

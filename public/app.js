@@ -1995,7 +1995,7 @@ function showIntro() {
   // A shop with a camera already on the street is coverage that costs nobody a
   // spare phone. It was reachable only from a paragraph inside /app.
   const biz = mk('a', '🏪 Business', secondary);
-  biz.href = '/business';
+  biz.href = '/IPCamera';
   const signin = mk('a', '🔑 Sign in', secondary);
   signin.href = '/signin';
   row.append(drive, biz, signin);
