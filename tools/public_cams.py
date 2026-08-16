@@ -349,8 +349,18 @@ def arcgis_index(key: str, measured_only: bool = True) -> list:
             break
         for f in feats:
             pr = f.get("properties") or {}
-            geo = (f.get("geometry") or {}).get("coordinates") or []
-            if len(geo) < 2 or not geo[0] or not geo[1]:
+            g = f.get("geometry") or {}
+            geo = g.get("coordinates") or []
+            # ⚠️ NOT EVERY LAYER IS A Point. Toronto publishes MultiPoint, so
+            # its coordinates are [[lon, lat]] and the obvious geo[0] is a LIST
+            # rather than a number - which silently produced zero cameras from
+            # a 498-camera layer rather than raising anything. Same class of
+            # failure as the field names: the shape is agency-specific and
+            # assuming one is how a whole network disappears without a message.
+            if geo and isinstance(geo[0], (list, tuple)):
+                geo = geo[0]
+            if len(geo) < 2 or not isinstance(geo[0], (int, float)) \
+                    or not isinstance(geo[1], (int, float)):
                 continue
             url = pr.get(cfg["img"])
             if not isinstance(url, str) or not url.lower().startswith("http"):
