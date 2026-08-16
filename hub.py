@@ -167,6 +167,34 @@ CACHE_BUCKET_S = 4
 
 MAX_REQUESTS = 200
 
+# 🚨 A SECOND CAP, BECAUSE MAX_REQUESTS COUNTS THE WRONG NOUN AND THE KERNEL
+# KILLED US FOR IT.
+#
+# MAX_REQUESTS bounds how many requests may run at once. It says nothing about
+# how BIG they are, and that was fine while the largest answer on this server
+# was ~90 kB. Then the traffic cameras landed and /api/nodes became 3.4 MB of
+# JSON, built from a list of dicts that costs several times that again while it
+# is being serialised. 200 permits therefore authorised something like 2-3 GB
+# of simultaneous allocation on a 3.8 GB box, and on 2026-08-16 the OOM killer
+# took the hub FOUR TIMES while every health check still answered 200, because
+# systemd restarted it within seconds each time.
+#
+# So the heavy routes - the ones that materialise the whole map - get their own
+# much smaller permit pool. Eight is not a memory limit dressed up as a number:
+# there are two cores and a GIL, so more than a handful of simultaneous builds
+# buys no throughput whatsoever, it only buys peak memory.
+#
+# ⚠️ ADD A ROUTE HERE THE DAY ITS ANSWER GETS BIG, not the day it falls over.
+# The test is the size of the body, not how often it is called.
+HEAVY_ROUTES = frozenset({"/api/nodes", "/api/sightings"})
+MAX_HEAVY = 8
+
+# How long a heavy request waits for a permit before giving up. Long enough to
+# outlast the leader it is almost certainly queued behind (a build is well
+# under a second), short enough that a wedged leader cannot pile up a queue
+# that outlives the reader's patience.
+HEAVY_WAIT_S = 12.0
+
 # The most cameras one /api/heartbeat/bulk request may beat. Sized against
 # MAX_BODY rather than taste: an entry is a node id and a token, ~80 bytes of
 # JSON, so a thousand is ~80 KB and comfortably inside the body cap. The
@@ -175,9 +203,21 @@ MAX_REQUESTS = 200
 BULK_BEAT_MAX = 1000
 
 # How coarsely a viewport box is snapped before it is used as a cache key or a
-# filter. ~11 km: far finer than any decision made from it, coarse enough that
-# ordinary panning keeps landing on a key that already exists.
-BOX_SNAP = 0.1
+# filter.
+#
+# 🚨 THIS IS A CACHE-KEY CARDINALITY KNOB, NOT AN ACCURACY KNOB, AND 0.1 COST
+# US THE BOX. At ~11 km, two people looking at the same city from slightly
+# different scroll positions produced DIFFERENT keys, so the single-flight
+# below collapsed almost nothing and the edge missed almost every time. During
+# the 2026-08-16 spike that meant a crowd of readers each triggered their own
+# 3.4 MB build. At ~55 km a whole city is one key, so a thousand readers of the
+# same place become one build and 999 cache hits - which is the entire point of
+# having a key at all.
+#
+# The cost is that the superset returned is larger, so a phone viewport carries
+# some points just off its edges. That is invisible on a map and cheap; the
+# alternative was measured and it was an out-of-memory kill.
+BOX_SNAP = 0.5
 
 
 def _snap_box(raw: str) -> str:
@@ -501,6 +541,9 @@ class Handler(BaseHTTPRequestHandler):
     # Named, module-level, so tools/test_overload.py can size its flood off the
     # real number instead of a copy that silently drifts out of step.
     _INFLIGHT = threading.Semaphore(MAX_REQUESTS)
+    # The byte-shaped cap. See MAX_HEAVY.
+    _HEAVY = threading.Semaphore(MAX_HEAVY)
+    _HEAVY_ROUTES = HEAVY_ROUTES
     # Who is holding a permit right now, and the worst hold time seen per path.
     # Both are published by /api/health so the cap can be tuned from evidence.
     _INFLIGHT_PATHS: dict = {}
@@ -1043,33 +1086,45 @@ class Handler(BaseHTTPRequestHandler):
         holding permits. A limiter that cannot say who is using it can only be
         tuned by argument, and argument lost three times.
         """
-        if not Handler._INFLIGHT.acquire(blocking=False):
+        # ⚠️ HEAVY PERMIT FIRST, AND IT QUEUES RATHER THAN REFUSES. A heavy
+        # request that waits a moment nearly always finds the answer already
+        # built by the leader it was queued behind; one that is refused sends a
+        # reader an error for work that was about to be free.
+        heavy = label in Handler._HEAVY_ROUTES
+        if heavy and not Handler._HEAVY.acquire(timeout=HEAVY_WAIT_S):
             return self._too_busy()
-        started = time.time()
-        with Handler._INFLIGHT_LOCK:
-            Handler._INFLIGHT_PATHS[id(self)] = (label, started)
         try:
-            return inner()
-        finally:
-            Handler._INFLIGHT.release()
+            if not Handler._INFLIGHT.acquire(blocking=False):
+                return self._too_busy()
+            started = time.time()
             with Handler._INFLIGHT_LOCK:
-                Handler._INFLIGHT_PATHS.pop(id(self), None)
-                held = time.time() - started
-                if held > Handler._SLOW_S:
-                    # A permit held this long is the shape of every outage so
-                    # far: something waiting on a third party, not working.
-                    #
-                    # ⚠️ BOUNDED. The label is a route, but a route can be
-                    # unbounded - /api/tile/{z}/{x}/{y} alone is millions of
-                    # distinct strings - so an unbounded dict here is a slow
-                    # memory leak fed by exactly the traffic that causes an
-                    # outage. Keep the worst offenders; the tail is noise.
-                    Handler._SLOW_HELD[label] = round(
-                        max(held, Handler._SLOW_HELD.get(label, 0)), 1)
-                    if len(Handler._SLOW_HELD) > 40:
-                        for k, _ in sorted(Handler._SLOW_HELD.items(),
-                                           key=lambda kv: kv[1])[:20]:
-                            Handler._SLOW_HELD.pop(k, None)
+                Handler._INFLIGHT_PATHS[id(self)] = (label, started)
+            try:
+                return inner()
+            finally:
+                Handler._INFLIGHT.release()
+                with Handler._INFLIGHT_LOCK:
+                    Handler._INFLIGHT_PATHS.pop(id(self), None)
+                    held = time.time() - started
+                    if held > Handler._SLOW_S:
+                        # A permit held this long is the shape of every outage
+                        # so far: something waiting on a third party, not
+                        # working.
+                        #
+                        # ⚠️ BOUNDED. The label is a route, but a route can be
+                        # unbounded - /api/tile/{z}/{x}/{y} alone is millions of
+                        # distinct strings - so an unbounded dict here is a slow
+                        # memory leak fed by exactly the traffic that causes an
+                        # outage. Keep the worst offenders; the tail is noise.
+                        Handler._SLOW_HELD[label] = round(
+                            max(held, Handler._SLOW_HELD.get(label, 0)), 1)
+                        if len(Handler._SLOW_HELD) > 40:
+                            for k, _ in sorted(Handler._SLOW_HELD.items(),
+                                               key=lambda kv: kv[1])[:20]:
+                                Handler._SLOW_HELD.pop(k, None)
+        finally:
+            if heavy:
+                Handler._HEAVY.release()
 
     # 🚨 THE EDGE CACHE THIS SERVER WAS DESIGNED AROUND IS NOT SWITCHED ON.
     #
