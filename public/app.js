@@ -1994,7 +1994,7 @@ function showIntro() {
   drive.href = '/drive';
   // A shop with a camera already on the street is coverage that costs nobody a
   // spare phone. It was reachable only from a paragraph inside /app.
-  const biz = mk('a', '🏪 Business', secondary);
+  const biz = mk('a', '📷 IP Camera', secondary);
   biz.href = '/IPCamera';
   const signin = mk('a', '🔑 Sign in', secondary);
   signin.href = '/signin';

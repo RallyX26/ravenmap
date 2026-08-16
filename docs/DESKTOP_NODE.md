@@ -6,7 +6,7 @@ and which one you want depends on what you need.
 
 ## Three ways to run a camera, and why they differ
 
-| | **Browser camera** | **SparrowMap4Biz** | **Desktop node** (this guide) |
+| | **Browser camera** | **Add an IP Camera** | **Desktop node** (this guide) |
 |---|---|---|---|
 | Your camera is | the phone or laptop itself | an **IP / RTSP camera** you already own | a webcam on that PC |
 | Install | none — a web page | one 76 MB app, or one Python file | ~2.5 GB of models and Python |
@@ -15,7 +15,7 @@ and which one you want depends on what you need.
 | Flags government vehicles | no — a human decides later | no — scored on SparrowMap's hardware | **yes, on the machine** |
 | Reads plates | no | no | yes (retroreflective plates, daylight or with IR) |
 | Runs on | any phone or laptop | any PC, no graphics card | a PC left on, ideally with an NVIDIA GPU |
-| Get it | *Add a camera* on the map | [/business](https://map.sparrowmap.com/business) | this guide |
+| Get it | *Add a camera* on the map | [/IPCamera](https://map.sparrowmap.com/IPCamera) | this guide |
 
 The browser camera is deliberately tiny so it runs on any phone with nothing to
 install. It finds vehicles and sends a crop, but it cannot run CLIP or the
@@ -24,7 +24,7 @@ node runs the real models locally and makes that call before it sends anything.
 
 **If you just want to contribute a camera, use the browser** — open the site,
 press *Add a camera*. **If a camera already points at the street outside your
-business, use SparrowMap4Biz** — it is the same light detector as the browser
+shop or house, use [Add an IP Camera](https://map.sparrowmap.com/IPCamera)** — it is the same light detector as the browser
 one, pointed at an RTSP stream instead of a webcam, so it costs your machine
 almost nothing and needs no models. Use a **desktop node** when you want
 accurate classification, plate reading, or you are running the camera that does
@@ -32,7 +32,8 @@ the government-vehicle calls for a whole instance.
 
 ⚠️ **Two installers, and they are not versions of each other.**
 `SparrowMapCameraSetup.exe` is *this* guide's node: a webcam, the full models,
-about 2.5 GB. `SparrowMap4Biz.exe` is the light relay for an IP camera. Neither
+about 2.5 GB. The **Add an IP Camera** app (still filed as `SparrowMap4Biz.exe`
+on the release) is the light relay for an IP camera. Neither
 replaces the other — see [Which download?](https://github.com/SparrowMap/sparrowmap/releases/tag/v0.1.0)
 
 Everything still holds to the same rule: **recognition happens on your machine,
