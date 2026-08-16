@@ -32,10 +32,16 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 def main() -> int:
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="sparrow-fullres-"))
-    import os
-    os.environ["SPARROW_DB"] = str(tmp / "t.db")
-
+    # 🚨 PATCH db.DB_PATH, NOT AN ENV VAR. core.DB_PATH is a plain constant and
+    # nothing reads SPARROW_DB, so setting that environment variable did
+    # NOTHING and this test quietly wrote into the real local database. It
+    # passed the first time and failed the second on a UNIQUE constraint, which
+    # is the only reason it was ever noticed. db.connect() resolves DB_PATH from
+    # the module namespace at call time, so rebinding it here really does
+    # isolate the run.
     import db
+    db.DB_PATH = str(tmp / "t.db")
+
     db.init()
     conn = db.connect()
 

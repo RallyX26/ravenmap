@@ -152,6 +152,47 @@ CREATE TABLE IF NOT EXISTS driver_reports (
     expires  REAL
 );
 CREATE INDEX IF NOT EXISTS ix_driver_reports_exp ON driver_reports(expires);
+
+-- 🚨 SIGNAL PARTNERS: OUTSIDE SENSORS THAT REPORT WHAT A VEHICLE BROADCASTS.
+--
+-- A partner runs their own sensors (sub-GHz, LoRaWAN, whatever) and tells us
+-- "at this time and place I heard signature X". They do NOT tell us what the
+-- vehicle was, and they cannot write to `sightings` at all. Correlating an
+-- observation with a published government vehicle is OUR job, on OUR data,
+-- and every result of it is INFERRED - see db.tag_sighting, which refuses to
+-- link anything that is not already public tier.
+--
+-- Why a separate token table rather than reusing review_tokens: these grant a
+-- completely different power (write an observation) and must be revocable on
+-- their own. Mixing them would mean revoking a partner also revoked a
+-- reviewer, or worse, that one leaked credential did both.
+CREATE TABLE IF NOT EXISTS signal_tokens (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash   TEXT UNIQUE,
+    label        TEXT,           -- who this belongs to, in words
+    created_at   REAL,
+    created_by   TEXT,
+    revoked_at   REAL,
+    last_used_at REAL,
+    posted       INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_sigtok_hash ON signal_tokens(token_hash);
+
+-- One observation. Deliberately dumb: a time, a place, a band, an opaque
+-- signature string. No vehicle id, no plate, no claim about who or what.
+CREATE TABLE IF NOT EXISTS signal_obs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    partner    INTEGER,          -- signal_tokens.id
+    ts         REAL,             -- when the partner heard it
+    lat        REAL, lon REAL,
+    band       TEXT,             -- 'sub-ghz', 'lorawan', 'gnss', ...
+    signature  TEXT,             -- opaque; whatever fingerprint they compute
+    conf       REAL,
+    note       TEXT,
+    received   REAL              -- when WE got it
+);
+CREATE INDEX IF NOT EXISTS ix_sigobs_ts ON signal_obs(ts);
+CREATE INDEX IF NOT EXISTS ix_sigobs_sig ON signal_obs(signature);
 """
 
 
@@ -851,6 +892,122 @@ def mark_fullres(sid: int, name: str) -> None:
     c = connect()
     c.execute("UPDATE sightings SET snap_full = ? WHERE id = ?", (name, int(sid)))
     c.commit()
+
+
+# ---------------------------------------------------------------------------
+# Signal partners
+# ---------------------------------------------------------------------------
+# 🚨 EVERY ONE OF THESE IS TOKEN-GATED AND INDIVIDUALLY REVOCABLE. His reason,
+# and it is the right one: "we could gate the endpoint for them sending data
+# with tokens so we can cut off bad actors directly. that way we don't have to
+# blame shin for anyone using his system."
+#
+# One partner, one token. If somebody downstream of them abuses it, that token
+# dies and nobody else notices.
+
+SIGNAL_MAX_BATCH = 500          # per request
+SIGNAL_MAX_AGE_S = 7 * 86400    # refuse observations older than a week
+
+
+def add_signal_token(token_hash: str, label: str,
+                     created_by: str = "operator") -> int:
+    c = connect()
+    cur = c.execute(
+        "INSERT INTO signal_tokens (token_hash, label, created_at, created_by) "
+        "VALUES (?,?,?,?)", (token_hash, label, now(), created_by))
+    c.commit()
+    return int(cur.lastrowid)
+
+
+def signal_token(token_hash: str) -> Optional[dict]:
+    """The live partner behind this token, or None. Revoked reads as None."""
+    r = connect().execute(
+        "SELECT * FROM signal_tokens WHERE token_hash = ? AND revoked_at IS NULL",
+        (token_hash,)).fetchone()
+    return dict(r) if r else None
+
+
+def list_signal_tokens(include_revoked: bool = True) -> list[dict]:
+    sql = "SELECT * FROM signal_tokens"
+    if not include_revoked:
+        sql += " WHERE revoked_at IS NULL"
+    return [dict(r) for r in connect().execute(sql + " ORDER BY id").fetchall()]
+
+
+def revoke_signal_token(tid: int) -> bool:
+    c = connect()
+    cur = c.execute(
+        "UPDATE signal_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+        (now(), int(tid)))
+    c.commit()
+    return cur.rowcount > 0
+
+
+def add_signal_obs(partner: int, rows: list[dict]) -> int:
+    """Store observations. Returns how many were kept.
+
+    ⚠️ THIS NEVER TOUCHES `sightings`. A partner reports what they heard; what
+    it MEANS is decided here, later, against our own published rows only.
+    """
+    c = connect()
+    t = now()
+    kept = 0
+    for r in rows[:SIGNAL_MAX_BATCH]:
+        try:
+            ts = float(r.get("ts") or 0)
+            lat = float(r.get("lat"))
+            lon = float(r.get("lon"))
+        except (TypeError, ValueError):
+            continue
+        sig = str(r.get("signature") or "").strip()[:200]
+        if not sig or not ts:
+            continue
+        # ⚠️ A stale or future timestamp cannot be correlated with anything and
+        # is the shape a replayed or fabricated batch takes.
+        if ts < t - SIGNAL_MAX_AGE_S or ts > t + 300:
+            continue
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            continue
+        c.execute(
+            "INSERT INTO signal_obs (partner, ts, lat, lon, band, signature, "
+            "conf, note, received) VALUES (?,?,?,?,?,?,?,?,?)",
+            (int(partner), ts, lat, lon,
+             str(r.get("band") or "")[:32], sig,
+             float(r.get("conf") or 0), str(r.get("note") or "")[:300], t))
+        kept += 1
+    c.execute("UPDATE signal_tokens SET last_used_at = ?, posted = posted + ? "
+              "WHERE id = ?", (t, kept, int(partner)))
+    c.commit()
+    return kept
+
+
+def signal_matches(signature: str, window_s: float = 120.0,
+                   radius_deg: float = 0.003, limit: int = 50) -> list[dict]:
+    """Published government sightings near this signature's observations.
+
+    🚨 `tier = 'public'` IS NOT OPTIONAL AND IS NOT A FILTER ADDED BY THE
+    CALLER. Correlating a signature against a PRIVATE row would build exactly
+    the thing this project argues against: a way to follow an ordinary person
+    by something their car emits. The predicate lives in the SQL so no caller
+    can forget it.
+
+    Everything this returns is a COINCIDENCE IN TIME AND PLACE, not proof.
+    """
+    rows = connect().execute(
+        """SELECT o.id AS obs_id, o.ts AS obs_ts, o.band, o.signature,
+                  s.id AS sighting_id, s.ts AS sighting_ts,
+                  s.vclass, s.lat, s.lon
+             FROM signal_obs o
+             JOIN sightings s
+               ON s.tier = 'public'
+              AND ABS(s.ts - o.ts) <= ?
+              AND ABS(s.lat - o.lat) <= ?
+              AND ABS(s.lon - o.lon) <= ?
+            WHERE o.signature = ?
+            ORDER BY ABS(s.ts - o.ts)
+            LIMIT ?""",
+        (window_s, radius_deg, radius_deg, signature, int(limit))).fetchall()
+    return [dict(r) for r in rows]
 
 
 def nodes(active_only: bool = True, include_superseded: bool = False) -> list[dict]:

@@ -3068,6 +3068,43 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "posting": True, "ts": now(),
                                    "want_full": want})
 
+            if p == "/api/signals":
+                # 🚨 AN OUTSIDE SENSOR NETWORK REPORTING WHAT A VEHICLE
+                # BROADCASTS. It reports what it HEARD - a time, a place, a
+                # band, an opaque signature. It never says what the vehicle
+                # was, and it cannot write to `sightings`. What an observation
+                # MEANS is decided here, later, against published rows only.
+                #
+                # ⚠️ TOKEN-GATED PER PARTNER, revocable on its own. One
+                # partner, one token: if somebody downstream of them abuses it,
+                # that token dies and nobody else is affected. That is the
+                # whole point - it means a partner is never blamed for a third
+                # party using their system.
+                auth = self.headers.get("Authorization", "")
+                tok = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+                # ⚠️ review_auth._hash, not a second sha256 here. One
+                # definition of how a token becomes a stored hash; two
+                # would drift and the drift would look like a bad token.
+                partner = (db.signal_token(review_auth._hash(tok))
+                           if tok else None)
+                if not partner:
+                    return self._err(401, "a signal partner token is required")
+
+                b = self._body()
+                rows = b.get("observations")
+                if not isinstance(rows, list) or not rows:
+                    return self._err(400, "send {\"observations\": [ ... ]}")
+                if len(rows) > db.SIGNAL_MAX_BATCH:
+                    return self._err(
+                        400, f"at most {db.SIGNAL_MAX_BATCH} observations per request")
+                kept = db.add_signal_obs(int(partner["id"]), rows)
+                # ⚠️ Report BOTH numbers. Silently dropping malformed rows and
+                # answering "ok" is how a partner spends a week sending
+                # something we never stored.
+                return self._json({"ok": True, "received": len(rows),
+                                   "stored": kept,
+                                   "dropped": len(rows) - kept})
+
             if p == "/api/sighting/fullres":
                 # 🚨 THE ANSWER TO want_full. The camera hands back the picture
                 # it still holds for a sighting the hub has already PUBLISHED.

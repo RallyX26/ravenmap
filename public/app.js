@@ -865,37 +865,23 @@ if (navigator.geolocation) {
 
 /* A way to get back to yourself, because the automatic choice is made once and
  * a map you have panned is a map that will not re-centre (_userMovedMap). */
-const MeControl = L.Control.extend({
-  options: { position: 'topleft' },
-  onAdd() {
-    const d = L.DomUtil.create('button', '');
-    d.type = 'button';
-    d.title = 'Show my area';
-    d.textContent = '◎';
-    Object.assign(d.style, {
-      width: '40px', height: '40px', borderRadius: '10px',
-      border: '1px solid var(--line2)', background: '#0d1219cc',
-      color: '#fff', fontSize: '18px', cursor: 'pointer', lineHeight: '1' });
-    L.DomEvent.disableClickPropagation(d);
-    L.DomEvent.on(d, 'click', (e) => {
-      L.DomEvent.stop(e);
-      if (_geoLoc) { map.setView(_geoLoc, 13, { animate: false }); return; }
-      if (!navigator.geolocation) return;
-      d.textContent = '…';
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          _geoLoc = [pos.coords.latitude, pos.coords.longitude];
-          _geoDone = true;
-          d.textContent = '◎';
-          map.setView(_geoLoc, 13, { animate: false });
-        },
-        () => { d.textContent = '◎'; },
-        { enableHighAccuracy: true, timeout: 10000 });
-    });
-    return d;
-  },
-});
-map.addControl(new MeControl());
+/* MeControl removed: it was one of the three floating map buttons. Its
+   behaviour lives on in the Layers menu. */
+// 🚨 NOT ADDED TO THE MAP ANY MORE. Three floating round buttons collided
+// with the Sign in pill on a phone. The behaviour is kept and moved into the
+// Layers menu, which is already in normal flow - see [[sparrow-no-floating-controls]].
+function goMyArea() {
+  if (_geoLoc) { map.setView(_geoLoc, 13, { animate: false }); return; }
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      _geoLoc = [pos.coords.latitude, pos.coords.longitude];
+      _geoDone = true;
+      map.setView(_geoLoc, 13, { animate: false });
+    },
+    () => {},
+    { enableHighAccuracy: true, timeout: 10000 });
+}
 
 /* 🎯 SHOW THE WHOLE NETWORK.
  *
@@ -910,35 +896,20 @@ map.addControl(new MeControl());
  * except this one, which is the mistake that opened the map on Lansing for a
  * volunteer in Florida.
  */
-const AllControl = L.Control.extend({
-  options: { position: 'topleft' },
-  onAdd() {
-    const d = L.DomUtil.create('button', '');
-    d.type = 'button';
-    d.title = 'Show the whole map';
-    d.textContent = '⤢';
-    Object.assign(d.style, {
-      width: '40px', height: '40px', borderRadius: '10px',
-      border: '1px solid var(--line2)', background: '#0d1219cc',
-      color: '#fff', fontSize: '18px', cursor: 'pointer', lineHeight: '1' });
-    L.DomEvent.disableClickPropagation(d);
-    L.DomEvent.on(d, 'click', (e) => {
-      L.DomEvent.stop(e);
-      // A deliberate move by a person, so it must stick: mark the map as
-      // user-moved or the next automatic choice would pull them back.
-      _userMovedMap = true;
-      const pts = [];
-      if (_spanBounds) { pts.push(_spanBounds.getNorthEast(), _spanBounds.getSouthWest()); }
-      state.sightings.forEach((s) => {
-        if (s.tier === 'public' && s.lat != null && s.lon != null) pts.push([s.lat, s.lon]);
-      });
-      if (!pts.length) return;
-      map.fitBounds(L.latLngBounds(pts).pad(0.15), { maxZoom: 12, animate: false });
-    });
-    return d;
-  },
-});
-map.addControl(new AllControl());
+/* AllControl removed: it was one of the three floating map buttons. Its
+   behaviour lives on in the Layers menu. */
+function goEverything() {
+  // A deliberate move by a person, so it must stick: mark the map as
+  // user-moved or the next automatic choice would pull them back.
+  _userMovedMap = true;
+  const pts = [];
+  if (_spanBounds) { pts.push(_spanBounds.getNorthEast(), _spanBounds.getSouthWest()); }
+  state.sightings.forEach((s2) => {
+    if (s2.tier === 'public' && s2.lat != null && s2.lon != null) pts.push([s2.lat, s2.lon]);
+  });
+  if (!pts.length) return;
+  map.fitBounds(L.latLngBounds(pts).pad(0.15), { maxZoom: 12, animate: false });
+}
 
 /* A camera is drawn as ONE thing: the stretch of road it watches.
  *
@@ -1924,43 +1895,34 @@ async function loadHeat() {
     }).addTo(state.heatLayer);
   }
 }
+/* ⚠️ THE CHECKBOX IS THE STATE NOW, not a button's background colour. This
+ * used to tint #heatBtn, which no longer exists - the control moved into the
+ * Layers menu. Keeping the box in sync matters because the menu can be closed
+ * and reopened, and a switch that shows the wrong position is worse than no
+ * switch. */
 function toggleHeat() {
   state.heatOn = !state.heatOn;
-  const b = document.getElementById('heatBtn');
   if (state.heatOn) {
     loadHeat();
     state.heatLayer.addTo(map);
-    if (b) { b.style.background = '#ff3b3033'; b.style.color = '#ff6b60'; }
   } else {
     map.removeLayer(state.heatLayer);
     state.heatLayer.clearLayers();
-    if (b) { b.style.background = '#0d1219cc'; b.style.color = '#fff'; }
   }
+  const box = document.getElementById('showheat');
+  if (box && box.checked !== state.heatOn) box.checked = state.heatOn;
 }
-const HeatControl = L.Control.extend({
-  options: { position: 'topright' },
-  onAdd() {
-    const d = L.DomUtil.create('button', 'heatctl');
-    d.id = 'heatBtn';
-    d.title = 'Show everywhere patrols have been (hotspots)';
-    d.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 3s5 4.2 5 8.6a5 5 0 0 1-10 0C7 9.4 9 7.6 9 7.6s.4 2 1.6 2.6C11 8.2 12 5.6 12 3z"/></svg>';
-    // 🚨 ROUND AND 44px, MATCHING THE BUG AND REFRESH BUTTONS DIRECTLY BELOW.
-    // This was a 40px rounded SQUARE sitting at the top of a column of round
-    // 44px circles, which reads as a control that arrived from somewhere else.
-    // Same shape, same size, same edge - see sitenav.js, which lays the rest of
-    // that stack out.
-    Object.assign(d.style, {
-      width: '44px', height: '44px', borderRadius: '50%',
-      border: '1px solid #2a3547', background: '#111621ee',
-      color: '#fff', fontSize: '18px', cursor: 'pointer', lineHeight: '1',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      backdropFilter: 'blur(6px)' });
-    L.DomEvent.disableClickPropagation(d);
-    L.DomEvent.on(d, 'click', (e) => { L.DomEvent.stop(e); toggleHeat(); });
-    return d;
-  },
-});
-map.addControl(new HeatControl());
+/* HeatControl removed: it was one of the three floating map buttons. Its
+   behaviour lives on in the Layers menu. */
+// 🔥 The heat toggle is a LAYER, so it lives with the layers now.
+(function wireMenuControls() {
+  const heat = document.getElementById('showheat');
+  if (heat) heat.addEventListener('change', () => toggleHeat());
+  const mine = document.getElementById('gomine');
+  if (mine) mine.addEventListener('click', goMyArea);
+  const all = document.getElementById('goall');
+  if (all) all.addEventListener('click', goEverything);
+})();
 
 /* First-visit nudge: people were not finding the "Add a camera" link, so on a
  * first visit put the invitation front and centre. Shown once per browser

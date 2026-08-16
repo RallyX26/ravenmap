@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
-<link rel="stylesheet" href="/static/style.css?v=102">
+<link rel="stylesheet" href="/static/style.css?v=103">
 </head>
 <body>
 
@@ -170,6 +170,22 @@
           <!-- Other government registrations, plus anything CIRCLING whoever owns
                it - behaviour is worth seeing even when ownership says nothing. -->
           <label class="cams"><input type="checkbox" id="showairgov"> other gov / circling</label>
+          <!-- 🚨 THE HEATMAP LIVES HERE NOW, NOT ON THE MAP. It was a floating
+               round button in the top-right that collided with the Sign in
+               pill on a phone. It IS a layer, so it belongs with the layers.
+               Same id, so the existing handler binds unchanged. -->
+          <label class="cams"><input type="checkbox" id="showheat"> patrol hotspots</label>
+
+          <!-- ⚠️ Navigation, not layers - but they were the other two floating
+               buttons, and deleting a working control to fix an overlap loses
+               something for nothing. Kept as actions at the foot of the menu. -->
+          <div style="border-top:1px solid var(--line2);margin:5px 0 3px"></div>
+          <button type="button" class="cams" id="gomine"
+                  style="background:none;border:0;text-align:left;color:inherit;font:inherit;cursor:pointer">
+            go to my area</button>
+          <button type="button" class="cams" id="goall"
+                  style="background:none;border:0;text-align:left;color:inherit;font:inherit;cursor:pointer">
+            zoom out to everything</button>
             </div>
       </div>
 </div>
@@ -213,7 +229,7 @@
 <script src="/static/transparency.js?v=20"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
 <script src="/static/sitenav.js?v=27"></script>
-<script src="/static/app.js?v=106"></script>
+<script src="/static/app.js?v=107"></script>
 <script src="/static/refresh.js?v=18"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->
