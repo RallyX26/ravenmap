@@ -444,6 +444,30 @@ ARCGIS = {
            "url": "https://services8.arcgis.com/aCyQID5qQcyrJMm2/arcgis/rest"
                   "/services/TI_HighwayCamera/FeatureServer/0",
            "img": "url", "label": ("location",), "ref": "objectid"},
+    # 🚨 THE FOUR BELOW WERE REJECTED ON A 12-IMAGE SAMPLE AND ARE HERE TO BE
+    # MEASURED PROPERLY. A sample lies: Virginia looked uniformly 320x240 at
+    # n=25 and a full 1,648-camera scan found 87 units at 1920x1080. These are
+    # the largest networks in the survey, so even a 2% HD tail is hundreds of
+    # cameras - which is more than most states contribute in total. `probe`
+    # walks all of them; the ones that stay empty stay out, on evidence rather
+    # than on a sample.
+    "ga": {"name": "Georgia DOT 511",
+           "url": "https://services1.arcgis.com/2iUE8l8JKrP2tygQ/arcgis/rest"
+                  "/services/GDOT_511_Traffic_Cameras_Updated/FeatureServer/0",
+           "img": "Url", "label": ("Description", "Roadway"), "ref": "Id"},
+    "fl": {"name": "Florida 511",
+           "url": "https://services.arcgis.com/3wFbqsFPLeKqOlIK/arcgis/rest"
+                  "/services/FL511_Traffic_Cameras/FeatureServer/0",
+           "img": "IMAGE", "label": ("DESCRIPT", "HIGHWAY"), "ref": "ID"},
+    "ca": {"name": "Caltrans",
+           "url": "https://gisdata.dot.ca.gov/arcgis/rest/services/CHhighway"
+                  "/CCTV/FeatureServer/0",
+           "img": "currentImageURL", "label": ("locationName", "nearbyPlace"),
+           "ref": "index_"},
+    "or": {"name": "Oregon TripCheck / WSDOT travel info",
+           "url": "https://data.wsdot.wa.gov/arcgis/rest/services"
+                  "/TravelInformation/TravelInfoCamerasWeather/FeatureServer/0",
+           "img": "ImageURL", "label": ("CameraTitle",), "ref": "OBJECTID"},
     "kirk": {"name": "Kirkland WA",
              "url": "https://services2.arcgis.com/loGMwowmR0OPlOQb/arcgis/rest"
                     "/services/TRN_TrafficCams_10032022/FeatureServer/0",
