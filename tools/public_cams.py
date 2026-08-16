@@ -870,6 +870,34 @@ def cmd_run(args) -> int:
     t_fetch = [0.0]
     t_infer = [0.0]
 
+    def post_one(c, b, crop) -> str:
+        """Send one sighting. Runs in the pool, never in the sweep loop."""
+        body = {"node_id": c["node_id"], "ts": time.time(),
+                "source": "phone_node", "body": b["cls"],
+                "det_conf": round(b["conf"], 3), "plate_text": "",
+                "plate_conf": 0, "evidence": {}, "snap_b64": crop,
+                "lat": c["lat"], "lon": c["lon"]}
+        req = urllib.request.Request(
+            args.hub.rstrip("/") + "/api/sightings", method="POST",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer " + c["token"],
+                     "User-Agent": UA_NODE})
+        try:
+            with urllib.request.urlopen(req, timeout=25) as r:
+                out = json.loads(r.read() or b"{}")
+            return (f"  sent  {c['name'][:34]:<36} {b['cls']:<6} "
+                    f"{b['w']:>5.0f}px  id={out.get('id')}")
+        except urllib.error.HTTPError as e:
+            return f"  {e.code}   {c['name'][:34]:<36} {e.read()[:80]}"
+        except Exception as exc:
+            # 🚨 ONE SLOW CAMERA MUST NOT KILL THE FLEET. This once caught
+            # HTTPError only, so an ordinary read timeout escaped the loop and
+            # took the whole poller down on its first cycle. A fleet runner
+            # treats every per-item failure as data, never as an exit.
+            return (f"  ERR   {c['name'][:34]:<36} "
+                    f"{type(exc).__name__}: {str(exc)[:50]}")
+
     def grab(c):
         """Fetch one camera. Returns (cam, image or None, error).
 
@@ -897,6 +925,7 @@ def cmd_run(args) -> int:
             cycle_started = time.time()
             unchanged = 0
             reached = []
+            posts = []
             # 🚨 CHUNKED, AND THE CHUNK IS THE MEMORY BOUND. MEASURED: 15.8 GB
             # AND CLIMBING BEFORE THIS EXISTED.
             #
@@ -954,36 +983,23 @@ def cmd_run(args) -> int:
                     if time.time() - seen_last.get(key, 0) < interval * 0.9:
                         continue
                     seen_last[key] = time.time()
-                    body = {"node_id": c["node_id"], "ts": time.time(),
-                            "source": "phone_node", "body": b["cls"],
-                            "det_conf": round(b["conf"], 3), "plate_text": "",
-                            "plate_conf": 0, "evidence": {}, "snap_b64": crop,
-                            "lat": c["lat"], "lon": c["lon"]}
-                    req = urllib.request.Request(
-                        args.hub.rstrip("/") + "/api/sightings", method="POST",
-                        data=json.dumps(body).encode(),
-                        headers={"Content-Type": "application/json",
-                                 "Authorization": "Bearer " + c["token"],
-                                 "User-Agent": UA_NODE})
-                    try:
-                        with urllib.request.urlopen(req, timeout=25) as r:
-                            out = json.loads(r.read() or b"{}")
-                        sent += 1
-                        print(f"  sent  {c['name'][:34]:<36} {b['cls']:<6} "
-                              f"{b['w']:>5.0f}px  id={out.get('id')}")
-                    except urllib.error.HTTPError as e:
-                        print(f"  {e.code}   {c['name'][:34]:<36} {e.read()[:80]}")
-                    except Exception as exc:
-                        # 🚨 ONE SLOW CAMERA MUST NOT KILL THE FLEET.
-                        # This caught HTTPError only, so a read timeout - the most
-                        # ordinary failure there is when talking to six public
-                        # cameras and a box over the internet - escaped the loop and
-                        # took the whole poller down on its first cycle. A fleet
-                        # runner has to treat every per-item failure as data, never
-                        # as an exit.
-                        print(f"  ERR   {c['name'][:34]:<36} {type(exc).__name__}: {str(exc)[:50]}")
-                    if args.once:
-                        continue
+                    # 🚨 POSTING IS THE THIRD COST AND IT WAS THE HIDDEN ONE.
+                    #
+                    # Measured: one chunk took 63s wall while fetch contributed
+                    # 121s of THREAD time (~1.3s wall across 96 threads) and
+                    # inference 4s. The missing ~54s was eighteen sighting POSTs
+                    # run one after another in this loop, each waiting on the hub
+                    # to ingest a base64 JPEG - and the hub does real work per
+                    # sighting, so ~3s each is normal, not slow.
+                    #
+                    # ⚠️ AND IT SCALES WITH SUCCESS. Every extra camera that
+                    # actually SEES something makes the sweep slower, so the
+                    # fleet would get further behind precisely as it started
+                    # working. That is the worst possible shape for this.
+                    #
+                    # Handed to the same pool the fetches use, and drained at the
+                    # end of the cycle so nothing is silently dropped.
+                    posts.append(pool.submit(post_one, c, b, crop))
                 _done += len(_batch)
                 _el = time.time() - _t0
                 print(f"  .. {_done}/{len(cams)} swept in {_el:.0f}s "
@@ -991,6 +1007,14 @@ def cmd_run(args) -> int:
                       f" | fetch {t_fetch[0]:.0f}s across {workers} threads,"
                       f" infer {t_infer[0]:.0f}s serial"
                       f" | {unchanged} unchanged, {sent} sent)", flush=True)
+            # ⚠️ DRAINED, NOT ABANDONED. Submitting and walking away would make
+            # "sent" a count of things we hoped for. Every result is collected
+            # and printed before the cycle claims a number.
+            for f in posts:
+                line = f.result()
+                if line.startswith("  sent"):
+                    sent += 1
+                print(line)
             beat(reached)
             took = time.time() - cycle_started
             if unchanged:
