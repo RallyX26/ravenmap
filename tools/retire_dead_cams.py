@@ -42,6 +42,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", required=True)
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--orphans", action="store_true",
+                    help="also pause nodes whose name the source no longer "
+                         "produces at all")
     a = ap.parse_args()
 
     probe = pc.load_probe()
@@ -69,7 +72,20 @@ def main() -> int:
     for n in rows:
         c = by_name.get(n["name"])
         if not c:
-            unmeasured += 1
+            # 🚨 AN ORPHAN CANNOT EVER BE POLLED AGAIN, AND THAT IS DIFFERENT
+            # FROM UNMEASURED. The poller finds a node by rebuilding its NAME
+            # from the live index; a name the source no longer produces will
+            # never be rebuilt, so the node sits registered and unreachable for
+            # ever. It happened to 580 Minnesota cameras when MnDOT rotated the
+            # internal ids their names had been built on.
+            #
+            # Still opt-in, because "the source did not offer it today" can also
+            # mean a feed hiccup, and pausing a live camera for a transient is
+            # its own kind of wrong.
+            if a.orphans:
+                doomed.append((n, -1))
+            else:
+                unmeasured += 1
             continue
         w = probe.get(c["url"])
         if w is None:

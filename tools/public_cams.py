@@ -529,7 +529,19 @@ def cars_index(state: str, measured_only: bool = True) -> list:
             url = v.get("videoPreviewUrl") or v.get("url")
             if not url or not str(url).lower().startswith("http"):
                 continue
-            out.append({"src": state, "ref": f"{c.get('id')}-{i}",
+            # 🚨 THE REF COMES FROM THE URL, NOT THE ID, BECAUSE THE ID MOVES.
+            #
+            # MnDOT's `id` is an internal key it REGENERATES: the hub enrolled
+            # 580 cameras with ids in the 493xxx range and hours later the same
+            # feed served 496xxx for the same fleet. Every node name built on
+            # those ids became unmatchable - 0 of 580 reached the poller, while
+            # Indiana, Nebraska, Kansas and Colorado matched 100% because their
+            # ids happened to hold still.
+            #
+            # "Happened to hold still" is not an identifier. The image URL is
+            # what actually names a camera feed, and it was stable across every
+            # fetch and both machines: 1,940 of 1,940 in common.
+            out.append({"src": state, "ref": _url_ref(url),
                         "name": (v.get("name") or c.get("name")
                                  or f"{label} camera")[:60],
                         "lat": float(lat), "lon": float(lon), "url": url})
@@ -964,6 +976,17 @@ def cached_index(src: str, build):
               f"({type(exc).__name__}) - using the shipped copy")
         return json.loads(cached.read_text(encoding="utf-8"))
     return []
+
+
+def _url_ref(url: str) -> str:
+    """A short, stable id for a camera derived from its image URL.
+
+    ⚠️ Used where an agency's own id is not durable - see cars_index. It has to
+    be SHORT because it goes in the node name, which is capped, and the human
+    part of the name is what gets truncated to make room.
+    """
+    import hashlib
+    return hashlib.blake2b(url.encode(), digest_size=5).hexdigest()
 
 
 def content_hash(raw: bytes) -> str:
