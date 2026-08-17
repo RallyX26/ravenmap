@@ -443,7 +443,7 @@ function redrawAll() {
   state.markers.clear();
   // None also clears the live-traffic layer (its dots are added outside this
   // pass and would otherwise linger until they faded on their own).
-  // "Traffic only" deliberately does NOT clear it - those dots are the view.
+  // "Traffic" deliberately does NOT clear it - those dots are the view.
   if (state.filter === 'none') {
     state.trafficLayer.clearLayers();
     state.traffic.clear();
@@ -508,7 +508,7 @@ function renderList() {
     }
   }
 
-  // Under "Traffic only" the list is empty BY DESIGN, and an empty list under a
+  // Under "Traffic" the list is empty BY DESIGN, and an empty list under a
   // map full of moving dots reads as broken. Say why instead: a private pass has
   // no plate, no id and no detail page, so there has never been anything to put
   // in a row - which is the same point the tier itself is making.

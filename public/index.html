@@ -85,7 +85,7 @@
 
   <aside class="panel" id="panel">
     <!-- 🚨 FIVE CHIPS BECAME ONE BUTTON. HIS CALL.
-         All / Government / Gov plate / Traffic only / None wrapped onto two
+         All / Gov / Gov plate / Traffic / None wrapped onto two
          rows on a phone and ate the top of the map - and four of the five are
          showing the state you are NOT in, which is a lot of permanent screen
          for a choice most people make once. A button that says what you are
@@ -119,14 +119,22 @@
                 aria-expanded="false">View: <b id="viewnow">All</b> <span class="car">▾</span></button>
         <div class="filters" id="filters" hidden>
           <button class="chip on" data-f="all">All</button>
-          <button class="chip" data-f="police"   data-c="police">Government</button>
+          <!-- 🚨 SHORT ON PURPOSE, AND THE KEY IS data-f, NOT THE WORD.
+               "Government" and "Traffic only" are copied into the View button
+               when you pick one (app.js: `now.textContent = chip.textContent`),
+               so the longest label sets the width of a control sitting in a row
+               with the window selector and Layers - and "View: Traffic only"
+               was long enough to wrap that row onto two lines the moment it was
+               chosen. Renaming a chip is safe precisely because the label is a
+               readout: every filter still routes on data-f. -->
+          <button class="chip" data-f="police"   data-c="police">Gov</button>
           <button class="chip" data-f="gov"      data-c="gov">Gov plate</button>
           <!-- The inverse of "Government": the live road, with the records taken
                off it. Nothing new is revealed - these are the same inert dots
                already drawn under "All" - it just stops a handful of red records
                being the only thing the eye lands on when what you want to know
                is whether the street is actually moving. -->
-          <button class="chip" data-f="traffic"  data-c="civilian">Traffic only</button>
+          <button class="chip" data-f="traffic"  data-c="civilian">Traffic</button>
           <button class="chip" data-f="none">None</button>
         </div>
       </div>
@@ -238,7 +246,7 @@
 <script src="/static/transparency.js?v=20"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
 <script src="/static/sitenav.js?v=30"></script>
-<script src="/static/app.js?v=111"></script>
+<script src="/static/app.js?v=112"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->
 <script src="/static/updates.js?v=2"></script>
