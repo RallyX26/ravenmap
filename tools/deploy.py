@@ -210,11 +210,27 @@ def sync_local(a) -> None:
             else:
                 say(" ok ", f"restarted {name} (verified running)")
             continue
+        # 🚨 RESTART WITH THE INTERPRETER IT WAS ALREADY USING, NOT OURS.
+        #
+        # This used `sys.executable` - the python running THIS script - and it
+        # took the local hub down twice. The services run under
+        # D:\LLM\.venv\Scripts\python.exe; deploy.py was invoked with the
+        # system python. So the stop worked, the start ran hub.py under an
+        # interpreter without the dependencies, it died immediately, and the
+        # deploy reported "did NOT come back" with no clue as to why.
+        #
+        # The running process already knows the right answer, so ask it before
+        # stopping it. sys.executable stays only as the fallback for a service
+        # that was not running to begin with.
+        cmd = _ps(f"(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+                  f"Where-Object {{ $_.CommandLine -like '{spec['match']}' -and "
+                  f"$_.CommandLine -notlike '*Get-CimInstance*' }} | "
+                  f"Select-Object -First 1).CommandLine")
+        exe = sys.executable
+        if cmd:
+            head = cmd.split(".exe", 1)[0] + ".exe"
+            exe = head.strip().strip('"')
         if args is None:      # the detector carries its node token in argv
-            cmd = _ps(f"(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
-                      f"Where-Object {{ $_.CommandLine -like '{spec['match']}' -and "
-                      f"$_.CommandLine -notlike '*Get-CimInstance*' }} | "
-                      f"Select-Object -First 1).CommandLine")
             if not cmd:
                 say("info", f"{name} not running")
                 continue
@@ -226,7 +242,7 @@ def sync_local(a) -> None:
             f"$_.CommandLine -notlike '*Get-CimInstance*' }} | "
             f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}")
         _ps("Start-Sleep -Seconds 3; Start-Process -FilePath "
-            f"'{sys.executable}' -ArgumentList '{args}' "
+            f"'{exe}' -ArgumentList '{args}' "
             f"-WorkingDirectory '{ROOT}' -WindowStyle Minimized")
         # 🚨 ISSUING THE COMMAND IS NOT THE SAME AS THE THING RUNNING, AND THIS
         # LINE USED TO CLAIM OTHERWISE.
