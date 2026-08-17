@@ -864,6 +864,27 @@
   // The vehicle must be at least this wide IN THE SOURCE FRAME before it is
   // worth uploading - see the gate in dloop(). Measured bar, not a guess.
   var MIN_SEND_PX=120;
+  /* 🚨 A VEHICLE IS WORTH SENDING ONCE, NOT ONCE EVERY FIVE SECONDS.
+   *
+   * Measured on his 2026-08-17 drive: thirty consecutive uploads carried
+   * byte-identical scores (conf=0.55 margin=0.26). That was not thirty cars,
+   * it was ONE car - the one he was following - winning the "largest vehicle"
+   * contest every window for two and a half minutes. The cost is paid three
+   * times over: his data, the box's ingest budget, and the review queue, where
+   * one innocent car becomes thirty separate "is this a cop" questions and
+   * makes the false-positive rate look thirty times worse than it is.
+   *
+   * It also causes MISSES, which is the serious half. A vehicle only gets
+   * uploaded if it is the biggest thing on screen when a window closes, so the
+   * car in front permanently outranks the one being overtaken - and a patrol
+   * car is very often exactly the one being overtaken. The head cannot rule on
+   * a crop that was never sent.
+   *
+   * So a track is sent once, and again only if it has grown enough that the
+   * second look is materially better evidence than the first (a vehicle 1.8x
+   * wider is roughly half the distance away, which is the difference between
+   * unreadable and readable livery). */
+  var RESEND_WIDTH=1.8;
   var SEND_EVERY_MS=5000, VEHICLE={2:'car',3:'motorcycle',5:'bus',7:'truck'};
   var camOn=false, camStream=null, session=null, ortLoading=null;
   var dtracks=[], dnextId=1, winBest=null, lastSend=0, dsent=0, driveNode=null, driveNodePending=false;
@@ -1200,10 +1221,15 @@ function redactPlateBand(cv, geom) {
         // improvement, and there may not be another. Take one the first frame
         // it qualifies instead of publishing the smudge.
         else if(tr.seen>=MIN_FRAMES && !tr.full) tr.full=fullCropOf(v,h.box);
-        // Track the largest STABLE vehicle since the last send (the window best).
-        if(tr.seen>=MIN_FRAMES && tr.best && (!winBest||area>winBest.area))
+        // Track the largest STABLE vehicle since the last send (the window
+        // best), IGNORING any track already sent at this size - see RESEND_WIDTH.
+        // `tr` rides along so the sender can mark the vehicle rather than the
+        // window; marking the window is what let one car win every window.
+        var trW = tr.bestBox ? (tr.bestBox[2]-tr.bestBox[0]) : 0;
+        var unsent = !tr.sentW || trW >= tr.sentW*RESEND_WIDTH;
+        if(tr.seen>=MIN_FRAMES && tr.best && unsent && (!winBest||area>winBest.area))
           winBest={crop:tr.best,full:tr.full,cls:tr.cls,score:tr.score,area:area,
-                   box:tr.bestBox,vw:v.videoWidth};
+                   box:tr.bestBox,vw:v.videoWidth,tr:tr};
       }
       dtracks=dtracks.filter(function(t){return now-t.last<GONE_MS;});
       // If the camera started before a GPS fix or a node was ready, grab the
@@ -1227,6 +1253,9 @@ function redactPlateBand(cv, geom) {
       var wBest = winBest ? (winBest.box[2]-winBest.box[0]) : 0;
       if(now-lastSend>=SEND_EVERY_MS && winBest && me && driveNode){
         if(wBest >= MIN_SEND_PX){
+          // Mark the VEHICLE, not the window, and mark it before the POST so a
+          // slow network cannot let the same car win the next window too.
+          if(winBest.tr) winBest.tr.sentW=wBest;
           submitCrop(winBest); lastSend=now; winBest=null;
         } else {
           winBest=null;          // let a closer pass replace it
