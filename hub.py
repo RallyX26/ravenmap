@@ -1476,6 +1476,12 @@ class Handler(BaseHTTPRequestHandler):
             # What a node costs in compute, and how to measure your own board
             # rather than take this page's word for it.
             if p == "/hardware":         return self._file(PUBLIC / "hardware.html")
+            # Building a long-lens node from salvaged CCTV optics: the range
+            # geometry against this project's own two thresholds (120px of
+            # vehicle, ~60px of plate), and the assembly order. Public because
+            # the interesting half is the arithmetic, which applies to any lens
+            # somebody already owns - not just the one this was written for.
+            if p == "/build16":          return self._file(PUBLIC / "build16.html")
             # One program, three modes. /node and /key are kept as aliases
             # because keys, QR codes and bookmarks already point at them - a
             # link a volunteer printed must not stop working because the pages

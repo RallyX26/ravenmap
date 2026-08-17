@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Build a 16mm SparrowMap camera</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/static/style.css?v=106">
+<style>
+  body{overflow:auto}
+  .doc{max-width:760px; margin:0 auto; padding:30px 18px 90px}
+  .doc h1{font-size:26px; letter-spacing:-.01em; margin:0 0 4px}
+  .doc h2{font-size:13px; letter-spacing:.14em; text-transform:uppercase;
+          color:var(--dim2); margin:34px 0 10px; font-weight:600}
+  .doc p{color:#c3ccda; margin:0 0 12px}
+  .doc li{color:#c3ccda; margin:0 0 7px}
+  .doc strong{color:var(--ink)}
+  code{font:12.5px var(--mono); background:#0f1420; border:1px solid var(--line2);
+       border-radius:5px; padding:1px 5px; color:#9fd2ff}
+  pre{background:#0a0e15; border:1px solid var(--line2); border-radius:8px;
+      padding:12px 13px; overflow-x:auto; margin:0 0 12px}
+  pre code{background:none; border:0; padding:0; color:#b8d8f5; font-size:12px}
+  table{border-collapse:collapse; width:100%; margin:0 0 14px; font-size:13px}
+  th,td{border:1px solid var(--line2); padding:7px 9px; text-align:left}
+  th{color:var(--dim2); font:600 11px var(--mono); letter-spacing:.08em;
+     text-transform:uppercase; background:#0d1219}
+  td{color:#c3ccda}
+  td b{color:var(--ink)}
+  .ok{color:#3ddc97} .no{color:#ff5c6c} .warn{color:#ffb547}
+  .step{border-left:2px solid var(--police); padding:2px 0 2px 14px; margin:0 0 20px}
+  .step h3{margin:0 0 7px; font-size:15px; color:var(--ink)}
+  .note{border-left:2px solid var(--fleet); background:#0f1420; padding:12px 14px;
+        border-radius:0 7px 7px 0; margin:0 0 16px}
+  .note b{color:var(--ink)}
+  .kill{border-left-color:#ff5c6c}
+  .back{display:inline-block; margin-bottom:18px; font:11px var(--mono);
+        letter-spacing:.12em; text-transform:uppercase; color:var(--dim); text-decoration:none}
+  .buy{background:#0d1420; border:1px solid var(--police); border-radius:9px;
+       padding:14px 16px; margin:0 0 16px}
+  .buy h3{margin:0 0 8px; color:var(--police); font-size:14px}
+</style>
+</head>
+<body>
+<div class="doc">
+  <a class="back" href="/">&larr; back to the map</a>
+  <h1>Building a 16mm camera from the salvaged parts</h1>
+  <p style="color:var(--dim2)">The lens is the part worth having. Everything below
+     is about getting it pointed at a road and proving what it can actually read.</p>
+
+  <h2>What you have</h2>
+  <table>
+    <tr><th>Part</th><th>Verdict</th><th>Why</th></tr>
+    <tr><td><b>16mm M12 lens</b>, IR-corrected, 1/2"</td><td class="ok">KEEP</td>
+        <td>The whole reason to do this. Four times the reach of a webcam.</td></tr>
+    <tr><td><b>IR illuminator ring</b> (6 LED)</td><td class="ok">KEEP</td>
+        <td>Buys night, which the network does not have at all today.</td></tr>
+    <tr><td><b>Taoglas AP.17E</b> GPS patch</td><td class="ok">KEEP</td>
+        <td>Standard U.FL. Useful on any node that needs a fix.</td></tr>
+    <tr><td><b>NimbeLink Skywire</b> LTE CAT 1</td><td class="warn">MAYBE</td>
+        <td>Only if the site has no WiFi. Needs an active SIM, may be carrier-locked.</td></tr>
+    <tr><td><b>Intrinsyc SD624 SOM</b></td><td class="no">SKIP</td>
+        <td>2017 board, vendor acquired, BSP behind registration, proprietary
+            camera ribbon. Weeks of work that answers none of our questions.</td></tr>
+    <tr><td><b>Original sensor board</b></td><td class="no">SKIP</td>
+        <td>Its ribbon only talks to that SOM. The lens unscrews; keep the lens.</td></tr>
+  </table>
+
+  <h2>What 16mm actually buys</h2>
+  <p>Horizontal field of view is <b>22.6&deg;</b> on a 1/2" sensor. At 1080p, against
+     our two real thresholds &mdash; <b>120px of vehicle</b> for the classifier to
+     have a chance, and <b>~60px of plate</b> before OCR can read characters:</p>
+  <table>
+    <tr><th>Distance</th><th>Scene width</th><th>Vehicle</th><th>Plate</th><th></th></tr>
+    <tr><td>15 m</td><td>6.0 m</td><td><b>576 px</b></td><td>98 px</td><td class="ok">plate readable</td></tr>
+    <tr><td>25 m</td><td>10.0 m</td><td><b>346 px</b></td><td>59 px</td><td class="ok">plate at the limit</td></tr>
+    <tr><td>40 m</td><td>16.0 m</td><td><b>216 px</b></td><td>37 px</td><td class="ok">vehicle easily judged</td></tr>
+    <tr><td>60 m</td><td>24.0 m</td><td><b>144 px</b></td><td>24 px</td><td class="warn">above the bar, just</td></tr>
+    <tr><td>72 m</td><td>28.8 m</td><td><b>120 px</b></td><td>20 px</td><td class="warn">the bar exactly</td></tr>
+  </table>
+  <p>For comparison: the reference camera medians <b>460px</b> of vehicle, and every
+     phone crop measured came in at <b>52&ndash;90px</b>. This lens holds
+     reference-camera quality out to roughly <b>25&ndash;30m</b>, and stays useful
+     to about <b>70m</b>.</p>
+
+  <div class="note">
+    <b>Narrower is not free.</b> 22.6&deg; covers only 12m of scene at 30m. This is a
+    watch-one-stretch-of-road lens, not a watch-the-whole-intersection lens. Pick the
+    stretch before you mount anything.
+  </div>
+
+  <h2>The one part to buy</h2>
+  <div class="buy">
+    <h3>A USB camera board with an M12 holder and NO IR-cut filter</h3>
+    <p style="margin:0">Three requirements, and the third is the one people miss:</p>
+    <ul style="margin:8px 0 0">
+      <li><b>M12 / S-mount lens holder</b> &mdash; so the 16mm screws straight on.</li>
+      <li><b>USB UVC output</b> &mdash; <code>camctl</code> is already a console for a
+          USB camera. A MIPI/Pi build means re-solving problems that are solved here.</li>
+      <li><b>No IR-cut filter</b> (a "NoIR" board, or day/night with a removable
+          filter) &mdash; <span class="warn">an ordinary camera blocks 850nm and the
+          IR ring will do nothing at all.</span></li>
+    </ul>
+  </div>
+  <p>Arducam and ELP both sell 1080p USB M12 boards in NoIR versions. A smaller sensor
+     crops the same lens <em>narrower</em>, which buys range at the cost of low-light
+     performance: 1/2" &rarr; ~72m, 1/2.7" &rarr; ~86m, 1/3" &rarr; ~96m at the 120px bar.</p>
+
+  <h2>Putting it together</h2>
+
+  <div class="step">
+    <h3>1. Lens onto the board</h3>
+    <p>Screw the 16mm into the M12 holder. Leave it loose &mdash; focus is set in
+       step 4 and the lens has to turn.</p>
+  </div>
+
+  <div class="step">
+    <h3>2. IR ring in front</h3>
+    <p>The ring has a centre hole for the lens to pass through; that is what it was
+       built for. Feed the lens through and stand the ring off the board so it does
+       not touch the barrel.</p>
+    <p><b>Check the voltage before powering it.</b> The carrier board is silkscreened
+       <code>12V LED</code>, so 12V is likely, but read the ring itself. Wrong polarity
+       kills IR LEDs instantly.</p>
+    <p>The round component next to the LEDs is probably a light sensor for automatic
+       day/night. If it is, the ring switches itself on at dusk and needs no wiring
+       beyond power.</p>
+  </div>
+
+  <div class="step">
+    <h3>3. Plug it in and confirm the machine sees it</h3>
+    <pre><code>python tools\probe_camera.py</code></pre>
+    <p><b>Use CAP_MSMF, not CAP_DSHOW.</b> DirectShow silently gives a lower
+       resolution on this machine and the difference does not show up until crops
+       arrive too small to judge.</p>
+  </div>
+
+  <div class="step">
+    <h3>4. Focus at the working distance, then lock it</h3>
+    <p>Depth of field at 16mm is far less forgiving than a webcam. Focus on a car at
+       the distance you actually care about, not on the far end of the street.</p>
+    <pre><code>python tools\focus_sweep.py</code></pre>
+    <p>Then tighten the grub screw on the M12 holder. <b>Never leave autofocus on
+       behind glass</b> &mdash; it hunts between the pane and the street and every
+       re-hunt is a second of blur that lands on the vehicle you wanted.</p>
+  </div>
+
+  <div class="step">
+    <h3>5. Aim it</h3>
+    <p>At 22.6&deg; you can miss a road entirely. Aim live:</p>
+    <pre><code>python camctl\camctl.py     &rarr;  http://sparrow-box:8160/</code></pre>
+  </div>
+
+  <div class="step">
+    <h3>6. Prove it before trusting it</h3>
+    <p>This is the step that decides whether the node is worth installing, and the
+       numbers above are geometry &mdash; they assume perfect focus and no motion blur.
+       Measure the real thing:</p>
+    <pre><code>python tools\aim.py              # how far can THIS camera read a plate
+python tools\resolution_floor.py # where recognition actually breaks
+python tools\zoom_check.py       # in daylight: is any zoom real or fake</code></pre>
+    <p>If <code>aim.py</code> disagrees with the table, believe <code>aim.py</code>.</p>
+  </div>
+
+  <div class="step">
+    <h3>7. Expose it for the light it has</h3>
+    <pre><code>python tools\auto_exposure.py</code></pre>
+    <p>A fixed exposure is a daylight exposure. Measured at 23:00 on the reference
+       camera: <b>83% of the frame near-black</b>, and the detector posted 1&ndash;4
+       vehicles an hour against 200&ndash;300 in the afternoon. The map did not go
+       quiet because traffic stopped.</p>
+  </div>
+
+  <h2>About the night half</h2>
+  <div class="note">
+    <b>Six LEDs will not light 70m.</b> Expect useful IR out to roughly 15&ndash;30m,
+    so night range is a fraction of day range rather than the same number. Mount for
+    the daytime stretch and accept a shorter night one, or add a second illuminator.
+  </div>
+  <p>IR does not weaken the privacy guarantee. <code>SEND_EDGE</code> still caps every
+     uploaded crop at 200px, so a private plate is exactly as illegible lit as unlit.
+     What IR buys is <em>seeing a vehicle at all</em> after dark, plus readable
+     government plates at close range, which is the tier that is public on purpose.</p>
+
+  <h2>If the site has no WiFi</h2>
+  <p>Only then is the Skywire worth the trouble. It is an AT-command modem in an XBee
+     footprint, so it needs a carrier board, an activated SIM and a data plan, and CAT 1
+     modules are often locked to one carrier. Check the lock before buying a SIM.</p>
+
+  <p style="color:var(--dim2); font-size:12.5px; margin-top:30px">
+     Geometry assumes a 1.8m vehicle, a 0.305m plate and a 1920px frame.
+     Thresholds are the project's own measured ones: 120px of vehicle for the
+     classifier, ~60px of plate for OCR.</p>
+</div>
+<script src="/static/sitenav.js?v=30"></script>
+</body>
+</html>
