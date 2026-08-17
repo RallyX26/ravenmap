@@ -379,32 +379,45 @@ def sighting_position(nd: dict, lat: Optional[float] = None,
     import math
 
     if lat is not None and lon is not None:
-        # A mobile node reported its own GPS. That is the contributor's
-        # position, so it gets the same jitter budget rather than being
-        # published to the metre.
-        jl, jo = jitter_position(float(lat), float(lon),
-                                 float(CONFIG.get("node_position_jitter_m", 60)))
-        # 🚨 THEN PUT IT ON THE ROAD.
-        # A fixed camera gets a watched span at enrolment and its sightings are
-        # placed along it. A phone has no span - it moves - so this branch
-        # published the jittered GPS and nothing else, and 60 m in a random
-        # direction lands off the road often: a park, a back garden, the middle
-        # of a block. Reported as "park police dot NOT on the road", and it was
-        # never the road snapping failing - snapping had simply never applied
-        # to mobile contributors at all.
+        # 🚨 SNAP FROM THE TRUE POINT. JITTERING FIRST PUT DOTS ON THE WRONG
+        # STREET, WHICH IS A FALSE CLAIM RATHER THAN A VAGUE ONE.
         #
-        # Snapping AFTER the jitter, deliberately. The displacement is already
-        # applied, so this redistributes it ALONG the road rather than undoing
-        # it - which is also the more honest shape, since what is known is "a
-        # vehicle passed on this street", not "a vehicle was in this garden".
+        # This used to jitter by 60 m and snap the DISPLACED point. Snapping
+        # after the jitter was a deliberate choice and it was wrong, for a
+        # reason only the map showed: 60 m in a random direction is further
+        # than the gap between streets, so near a junction the nearest road to
+        # the jittered point is a DIFFERENT road. snap_point then places the
+        # dot at a seeded position along an 80 m stretch of that wrong road.
+        #
+        # Measured on eight of his dashcam sightings in Linden: five sat within
+        # 2 m of a road and were still wrong, because they were spread across
+        # Hickory Street, East Broad Street and South Main Street when the car
+        # had been on one of them. Reported as "there are 8 sightings that
+        # aren't on bridge street... they all should be on the road", with a
+        # screenshot marking where the car actually was.
+        #
+        # ⚠️ THE PRIVACY BUDGET IS KEPT, IT JUST MOVES ALONG THE ROAD.
+        # snap_point does not return the nearest point; it returns a stable
+        # position along an 80 m stretch of the matched road. So the reader
+        # still cannot tell WHERE ALONG the street the contributor was, which
+        # is the protection that matters for somebody driving past. What they
+        # no longer get is a confident dot on a street nobody drove down.
+        #
+        # "A vehicle passed on this street" is only the more honest shape while
+        # it is the RIGHT street. Vague is fine; wrong is not.
         try:
             import road
-            snapped = road.snap_point(jl, jo, seed or f"{nd.get('id','')}:{now()}")
+            snapped = road.snap_point(float(lat), float(lon),
+                                      seed or f"{nd.get('id','')}:{now()}")
             if snapped:
                 return snapped
         except Exception:
-            pass          # road lookup down: an off-road dot beats no dot
-        return (jl, jo)
+            pass          # road lookup down: fall through to the jitter below
+        # No road matched, or the lookup is down. NOW jitter - an unsnapped
+        # true position is the one thing that must never be published, and a
+        # dot slightly off the road beats no dot at all.
+        return jitter_position(float(lat), float(lon),
+                               float(CONFIG.get("node_position_jitter_m", 60)))
 
     span = span_of(nd)
     if span:

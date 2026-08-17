@@ -465,6 +465,7 @@ def span_nearest(lat: float, lon: float, ways: list) -> Optional[dict]:
     """
     px, py = 0.0, 0.0
     best, bestd, bestname = None, 1e9, ""
+    bestseg = None
     for name, geom in ways:
         for i in range(len(geom) - 1):
             a = _to_xy(geom[i][0], geom[i][1], lat, lon)
@@ -472,20 +473,33 @@ def span_nearest(lat: float, lon: float, ways: list) -> Optional[dict]:
             for qx, qy in _seg_points(a, b):
                 d = math.hypot(qx - px, qy - py)
                 if d < bestd:
+                    # 🚨 REMEMBER WHICH SEGMENT WON, NOT JUST THE POINT.
+                    # See the orientation note below - without this the span is
+                    # drawn at the wrong angle through the right place.
                     bestd, best, bestname = d, (qx, qy), name
+                    bestseg = (a, b)
     if best is None or bestd > 120.0:
         return None            # nothing driveable close enough to be honest about
     # A span, not a point: a bare point would re-publish the camera's own spot.
     half = SPAN_MIN_M / 2.0
-    # Orient along the road that won, so the span lies on it.
-    ax = (best[0] + 1.0, best[1])
-    for name, geom in ways:
-        if name == bestname and len(geom) > 1:
-            a = _to_xy(geom[0][0], geom[0][1], lat, lon)
-            b = _to_xy(geom[1][0], geom[1][1], lat, lon)
-            n = math.hypot(b[0] - a[0], b[1] - a[1]) or 1.0
-            ax = ((b[0] - a[0]) / n, (b[1] - a[1]) / n)
-            break
+    # 🚨 ORIENT ALONG THE SEGMENT THAT WON, NOT THE WAY'S FIRST TWO POINTS.
+    #
+    # This used to look the road up again by NAME and take the bearing of
+    # geom[0] -> geom[1]. On a short straight way those are the same thing. On a
+    # long or curving one they are not: East Broad Street in Linden runs most of
+    # a mile and bends, so a span centred correctly on the nearest point was
+    # drawn at the bearing of a segment hundreds of metres away, and points
+    # placed along it landed 16-21 m off the centreline - in the yards and
+    # parking lots either side.
+    #
+    # Matching by NAME made it worse, because a name is not unique: several
+    # distinct ways share "East Broad Street" here, and the loop took whichever
+    # came first. The winning segment is already known at the point it wins;
+    # carrying it is both cheaper and correct.
+    if bestseg is not None:
+        (sa, sb) = bestseg
+        n = math.hypot(sb[0] - sa[0], sb[1] - sa[1]) or 1.0
+        ax = ((sb[0] - sa[0]) / n, (sb[1] - sa[1]) / n)
     else:
         ax = (1.0, 0.0)
     p1 = _to_ll(best[0] - ax[0] * half, best[1] - ax[1] * half, lat, lon)
