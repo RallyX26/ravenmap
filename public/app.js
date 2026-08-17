@@ -1640,8 +1640,40 @@ async function loadPending() {
         + `one in twenty will not be a patrol car.</div></div>`
       ).addTo(pendingLayer);
     });
-  } catch (err) { /* the map is fine without it */ }
+  } catch (err) {
+    /* 🚨 A FAILED REFRESH MUST TAKE THE PULSE DOWN, NOT LEAVE IT UP.
+     *
+     * This used to swallow the error and return, which left whatever was
+     * drawn last still on the map. The layer is only cleared AFTER the fetch
+     * resolves, so one failed call froze the pulse until a later one
+     * succeeded - and on a phone that can be a very long time (see the
+     * visibility handler below).
+     *
+     * Leaving it up is the wrong failure direction for THIS layer in
+     * particular. Every other layer shows something a human already
+     * confirmed; this one asserts "a machine thinks there is an unreviewed
+     * patrol car here", and the queue behind it empties as soon as somebody
+     * presses a button. A stale pulse therefore points at a place where
+     * nothing is pending, which is the one claim this layer must never make.
+     * Reported from the map: a pulse with an empty review queue behind it. */
+    if (pendingLayer) pendingLayer.clearLayers();
+  }
 }
+
+/* 🚨 A BACKGROUNDED PHONE DOES NOT RUN setInterval, SO IT COMES BACK LYING.
+ *
+ * The pending pulse refreshes on a 60s timer. iOS suspends timers the moment
+ * the tab or PWA goes to the background, so a phone that was put in a pocket
+ * with the map open shows the pulse it had when it was locked - minutes or
+ * hours later - and the timer does not necessarily fire promptly on return.
+ * The review queue is usually emptied within a couple of minutes, so the
+ * stale state is not an edge case: it is the normal case for a phone user.
+ *
+ * Refreshing on visibility costs one small request per return to the app, and
+ * `/api/pending` answers `no-store` with an empty body in the common case. */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') loadPending();
+});
 
 /* The opening view, drawn before the live data can possibly arrive.
  *
