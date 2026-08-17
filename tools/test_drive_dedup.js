@@ -118,6 +118,26 @@ for (let w = 0; w < 5; w++) {
 }
 check('a vehicle under MIN_SEND_PX is never uploaded', tinySends, 0);
 
+// ---- 5. opening the page must not mint a camera ------------------------------
+// 426 of 570 enrolled volunteer cameras had never sent a crop, because /drive
+// enrolled on a GPS fix alone. Enrolment must wait for a vehicle worth sending.
+const enrolExpr = need(/if\(!driveNode && !driveNodePending && me && ([^)]+)\)\{/,
+                       'the enrolment gate')[1];
 console.log();
-if (fails) { console.error('%d check(s) FAILED', fails); process.exit(1); }
+console.log('  enrolment gate: ' + enrolExpr);
+console.log();
+
+function wouldEnrol(winBest) {
+  const wCand = winBest ? (winBest.box[2] - winBest.box[0]) : 0;
+  return eval(enrolExpr);                               // eslint-disable-line no-eval
+}
+
+check('parked with the page open enrols nothing', wouldEnrol(null), false);
+check('a distant vehicle under the floor enrols nothing',
+      wouldEnrol({ box: [0, 0, MIN_SEND_PX - 30, 40] }), false);
+check('a vehicle worth uploading does enrol',
+      wouldEnrol({ box: [0, 0, MIN_SEND_PX + 60, 90] }), true);
+
+console.log();
+if (fails) { console.error(fails + ' check(s) FAILED'); process.exit(1); }
 console.log('all checks passed');

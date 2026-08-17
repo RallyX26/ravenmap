@@ -1232,9 +1232,31 @@ function redactPlateBand(cv, geom) {
                    box:tr.bestBox,vw:v.videoWidth,tr:tr};
       }
       dtracks=dtracks.filter(function(t){return now-t.last<GONE_MS;});
-      // If the camera started before a GPS fix or a node was ready, grab the
-      // node lazily once we have a fix, so auto-started dashcams still submit.
-      if(!driveNode && !driveNodePending && me){
+      /* 🚨 DO NOT MINT A CAMERA BECAUSE SOMEBODY OPENED THIS PAGE.
+       *
+       * This used to enrol as soon as there was a GPS fix, so merely opening
+       * /drive with location on created a permanent camera - and every browser
+       * context creates its own, because the node lives in localStorage and an
+       * installed PWA does not share storage with Safari.
+       *
+       * Measured 2026-08-17: 189 drive nodes exist and 143 of them never sent
+       * a single crop. 73 were minted on 08-15 alone, of which 20 ever
+       * uploaded anything. Across all volunteer kinds, 426 of 570 enrolled
+       * cameras have never produced one crop.
+       *
+       * That is not only clutter. /support publishes the enrolled count, and
+       * the honest reading of "enrolled" has to be "somebody set up a camera",
+       * not "somebody opened a page while parked". The page's own explanation
+       * for the gap - people set a camera up and stop - is charitable to this
+       * bug and wrong about the cause, and a number on a donations page must
+       * not be flattered by a page load.
+       *
+       * So: enrol on the first vehicle actually worth uploading. Enrolment is
+       * async and takes a moment, which is why this fires on a qualifying
+       * candidate rather than waiting for the window to close - the node is
+       * then ready by the time the send happens. */
+      var wCand = winBest ? (winBest.box[2]-winBest.box[0]) : 0;
+      if(!driveNode && !driveNodePending && me && wCand >= MIN_SEND_PX){
         driveNodePending=true; getDriveNode(function(nn){driveNode=nn; driveNodePending=false;});
       }
       /* 🚨 ONLY SEND A VEHICLE BIG ENOUGH TO BE JUDGED.
