@@ -442,8 +442,9 @@ main{position:absolute; inset:52px 0 57px 0; display:flex}
 /* A place is not a sighting. The plate colour on this map means "a government
    vehicle was recorded here", so a town name must not borrow it - same list,
    visibly different claim. */
-.plateresults .hit.place b{color:var(--ink);font:600 13px inherit}
-.plateresults .hit.place{border-left:2px solid #2a3547}
+/* The .hit.place rules went with the place search (his call: plates only).
+   Removed rather than left behind - dead CSS for an element nothing emits is
+   how a later reader concludes the feature still exists. */
 .detail .why.scanner{border-left:2px solid #3d8cff}
 .detail .why.scanner a{color:#7fd1ff;font-weight:600}
 .detail .why.scanner .sub{display:block;margin-top:4px;opacity:.7;font-size:11px}

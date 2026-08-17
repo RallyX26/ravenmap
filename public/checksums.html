@@ -1,0 +1,36 @@
+<!doctype html><meta charset="utf-8">
+<title>SparrowMap - checksums</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/static/style.css?v=105">
+<style>
+  body{padding:0} .wrap{max-width:820px;margin:0 auto;padding:18px}
+  code{font:12px var(--mono);word-break:break-all}
+  table{width:100%;border-collapse:collapse;margin:14px 0}
+  td,th{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);
+        vertical-align:top;font-size:13px}
+  th{color:var(--dim);font-weight:600}
+  .n{color:var(--dim2)}
+</style>
+<div class="wrap">
+<h1>Checksums</h1>
+<p>SHA-256 for every published installer. Checked 2026-08-16.</p>
+<p class="n">These are served from <b>sparrowmap.com</b> while the installers
+are hosted on <b>GitHub</b>. That is deliberate: two different places to
+compromise rather than one.</p>
+<table>
+<tr><th>File</th><th>SHA-256</th></tr>
+<tr><td><b>SparrowMap4Biz.exe</b><br><span class='n'>v0.1.0 &middot; 79.5 MB</span></td><td><code>2da853b7242995849d42fb2ac5dc8ee5cbe9d70ec2b8ae984d664513bd3e057f</code></td></tr>
+<tr><td><b>SparrowMapCameraSetup.exe</b><br><span class='n'>v0.1.0 &middot; 2.1 MB</span></td><td><code>35900162f98ba4d2c6533280bc061c18b1c22df74b0bf8ce93b0ceeea88fff1c</code></td></tr>
+</table>
+<h3>Verify a download</h3>
+<p>Windows PowerShell:</p>
+<p><code>Get-FileHash -Algorithm SHA256 .\FILENAME.exe</code></p>
+<p>Linux or macOS:</p>
+<p><code>sha256sum FILENAME.exe</code></p>
+<p class="n">If the hash does not match what is on this page, do not run the
+file, and please <a href="/bugs">tell us</a>.</p>
+<p class="n">You do not need any binary to take part: the browser camera needs
+nothing installed, and the IP-camera relay is a single Python file that fetches
+its own model and verifies it by SHA-256 on every run.</p>
+<p><a href="/">&larr; back to the map</a></p>
+</div>

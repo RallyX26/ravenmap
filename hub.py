@@ -728,7 +728,7 @@ class Handler(BaseHTTPRequestHandler):
             return "public, max-age=15"
         if p == "/" or p.endswith(".html") or p in (
                 "/about", "/transparency", "/status", "/IPCamera", "/app",
-                "/node", "/key"):
+                "/node", "/key", "/checksums"):
             return "public, max-age=60"        # page shells: reuse, revalidate
         # /api/plate search, /api/track, /api/sighting/<id>, operator routes,
         # /api/live, /api/audit - anything per-user or a lookup - is never cached.
@@ -1382,6 +1382,11 @@ class Handler(BaseHTTPRequestHandler):
             # else. This page exists so the reply is a link rather than an
             # argument: if they can read it, they reached the server.
             if p == "/status":          return self._file(PUBLIC / "status.html")
+            # SHA-256 for every published installer. Asked for on Hacker News,
+            # and the honest answer at the time was that no checksum existed to
+            # check against. Served from THIS host while the binaries live on
+            # GitHub, so verifying means trusting two places rather than one.
+            if p == "/checksums":       return self._file(PUBLIC / "checksums.html")
             # 🚨 THE ROUTE SOMEBODY WITH THEIR OWN CAMERA IS SENT TO. Everything
             # it needs is already public (enrol, aim, review); what did not exist
             # was one page that walks somebody who owns a shop - not a terminal -

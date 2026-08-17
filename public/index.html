@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
-<link rel="stylesheet" href="/static/style.css?v=104">
+<link rel="stylesheet" href="/static/style.css?v=105">
 </head>
 <body>
 
@@ -45,12 +45,21 @@
     <div class="pmodal-card" role="dialog" aria-modal="true"
          aria-label="Search plates">
       <form class="plateform" id="plateform" autocomplete="off">
-        <input id="plateq" type="search" placeholder="search a plate, town or road"
+        <!-- 🚨 PLATES ONLY, AND THE LABEL NOW SAYS SO. HIS CALL.
+             This read "search a plate, town or road" and the place lookup
+             really did work - but the input is maxlength=12 (a plate's
+             length), so "Grand River Ave" could not physically be typed, and
+             autocapitalize=characters shouted every town name back in caps.
+             Then a road search answered "Plate search only finds government
+             vehicles", which reads as a refusal. A box that asks for three
+             things, accepts one, and scolds you for the other two is worse
+             than a box that asks for one. -->
+        <input id="plateq" type="search" placeholder="search a plate"
                maxlength="12" autocapitalize="characters" spellcheck="false"
-               aria-label="Search a plate, town or road">
+               aria-label="Search a plate">
         <button type="submit" aria-label="Search">Search</button>
       </form>
-      <p class="pmodal-hint">A plate, a town, or a road name.</p>
+      <p class="pmodal-hint">Government plates only.</p>
     </div>
   </div>
 
@@ -229,7 +238,7 @@
 <script src="/static/transparency.js?v=20"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
 <script src="/static/sitenav.js?v=28"></script>
-<script src="/static/app.js?v=109"></script>
+<script src="/static/app.js?v=110"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->
 <script src="/static/updates.js?v=2"></script>

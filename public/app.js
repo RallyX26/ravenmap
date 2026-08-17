@@ -2187,25 +2187,26 @@ setInterval(ageTraffic, 1000);    // the live traffic view
 
   const close = () => { box.style.display = 'none'; box.innerHTML = ''; };
 
-  // A place result is deliberately a DIFFERENT shape from a sighting: no
-  // image, no plate, an arrow instead. Someone skimming must never mistake
-  // "here is that town" for "here is a vehicle we recorded".
-  const placesHtml = (places) => !places.length ? '' :
-    `<h4>${places.length} place${places.length === 1 ? '' : 's'}</h4>`
-    + places.map((p) => `
-        <div class="hit place" data-lat="${p.lat}" data-lon="${p.lon}" data-zoom="13">
-          <div>
-            <b>&rarr; ${esc(p.name.split(',')[0])}</b>
-            <div class="sub">${esc(p.name.split(',').slice(1).join(',').trim())}</div>
-          </div>
-        </div>`).join('');
-
-  function render(q, rows, places) {
-    places = places || [];
+  /* 🚨 PLATES ONLY. HIS CALL, and the place half is gone rather than hidden.
+   *
+   * This box searched plates AND geocoded towns and roads, and the geocode
+   * genuinely worked. What did not work was TYPING one: the input is
+   * maxlength=12 - a plate's length - so "Grand River Ave" was truncated to
+   * "Grand River " before it was ever sent, and autocapitalize=characters
+   * shouted every place name back in caps. Then a road search led with "Plate
+   * search only finds government vehicles", which reads as a flat refusal even
+   * though place results were being rendered above it.
+   *
+   * His instruction: "just keep it plates on that to keep it simple." So the
+   * promise is withdrawn instead of half-kept. One box, one question.
+   *
+   * ⚠️ /api/geocode STAYS - ipcamera.html uses it to place a camera, and it is
+   * a privacy proxy worth keeping. Only this box stopped calling it.
+   */
+  function render(q, rows) {
     if (!rows.length) {
-      box.innerHTML = placesHtml(places)
-        + `<h4>No plate matches ${esc(q)}</h4>
-        <div class="none"><b>Plate search only finds government vehicles.</b><br>
+      box.innerHTML = `<h4>No plate matches ${esc(q)}</h4>
+        <div class="none"><b>Only government plates are searchable.</b><br>
         A plate appears here only when a camera published the vehicle as
         a government vehicle <i>and</i> an operator confirmed it.
         Private vehicles are never searched &mdash; their plates are destroyed
@@ -2223,7 +2224,7 @@ setInterval(ageTraffic, 1000);    // the live traffic view
             <div class="sub">${esc(r.vclass || '')} &middot; ${ago(r.ts)}</div>
             <div class="sub">${esc(r.node_id || '')}</div>
           </div>
-        </div>`).join('') + placesHtml(places);
+        </div>`).join('');
     box.style.display = '';
   }
 
@@ -2235,38 +2236,26 @@ setInterval(ageTraffic, 1000);    // the live traffic view
       box.style.display = '';
       return;
     }
-    /* One box, two questions. People type a town into a search field on a map
-     * because that is what search fields on maps do, and getting back "no
-     * plates match Champaign" is the box telling them they used it wrong.
-     *
-     * Both are asked at once and both are shown, plates first: this box is
-     * labelled for plates, and a place result must never look like a sighting.
-     * The geocode is PROXIED (see /api/geocode) so a visitor of a site about
-     * being watched never hands a third party their IP and the name of the
-     * place they were curious about. */
+    /* One box, ONE question - see the note on render(). The place lookup that
+     * used to run alongside this was removed at his request; the box asks for
+     * a plate and answers about plates. */
     try {
-      const [plates, places] = await Promise.all([
-        fetch('/api/plate?q=' + encodeURIComponent(q))
-          .then((x) => x.json()).catch(() => ({ results: [] })),
-        fetch('/api/geocode?q=' + encodeURIComponent(q))
-          .then((x) => x.json()).catch(() => ({ results: [] })),
-      ]);
+      const plates = await fetch('/api/plate?q=' + encodeURIComponent(q))
+        .then((x) => x.json()).catch(() => ({ results: [] }));
       // 🚨 AN ERROR IS NOT AN EMPTY RESULT SET.
-      // The server answers a failed place lookup with {"error": ...} and no
-      // `results`, and this rendered that as "no matches" - so a Nominatim ban,
-      // a rate-limit or an upstream outage looked exactly like "that town isn't
-      // on the map". A person searching their own town would conclude the
-      // project does not cover them, and nothing anywhere would record a
-      // failure. The whole class of bug this codebase keeps finding: something
-      // broke, and the UI reported a confident, wrong answer instead.
-      const err = places.error || plates.error;
-      if (err && !(places.results || []).length && !(plates.results || []).length) {
+      // The server answers a failed lookup with {"error": ...} and no
+      // `results`, and this rendered that as "no matches" - so a rate-limit or
+      // an outage looked exactly like "that plate is not on the map". Somebody
+      // searching a plate would conclude it had never been seen, and nothing
+      // anywhere would record a failure. The class of bug this codebase keeps
+      // finding: something broke, and the UI reported a confident wrong answer.
+      if (plates.error && !(plates.results || []).length) {
         box.innerHTML = `<div class="none">Search is temporarily unavailable`
-          + ` &mdash; ${esc(String(err).slice(0, 80))}</div>`;
+          + ` &mdash; ${esc(String(plates.error).slice(0, 80))}</div>`;
         box.style.display = '';
         return;
       }
-      render(q, plates.results || [], places.results || []);
+      render(q, plates.results || []);
     } catch (err) {
       box.innerHTML = `<div class="none">Search unavailable.</div>`;
       box.style.display = '';
@@ -2279,12 +2268,8 @@ setInterval(ageTraffic, 1000);    // the live traffic view
     const hit = e.target.closest('.hit');
     if (!hit) return;
     const lat = parseFloat(hit.dataset.lat), lon = parseFloat(hit.dataset.lon);
-    if (hit.classList.contains('place')) {
-      // A town, not a vehicle: fly there and close, no marker and no claim.
-      map.setView([lat, lon], parseInt(hit.dataset.zoom, 10) || 13);
-      close();
-      return;
-    }
+    // The `.place` branch that used to live here went with the place search
+    // itself - nothing emits a .place hit any more.
     // `map` is the module-level Leaflet instance declared above; this IIFE is
     // in the same file and the same scope, so no global is needed.
     if (!isNaN(lat) && !isNaN(lon)) map.setView([lat, lon], 17);
