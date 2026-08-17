@@ -41,6 +41,7 @@ sys.path.insert(0, str(ROOT))
 
 OUT = ROOT / "public" / "support.html"
 COSTS = ROOT / "data" / "costs.json"
+GOALS = ROOT / "data" / "goals.json"
 DAY = 86400.0
 
 # Anything that is not this is a person's camera.
@@ -144,6 +145,27 @@ def capacity() -> dict:
     return out
 
 
+def goals() -> dict:
+    """Hardware the project needs, or an honest blank.
+
+    🚨 HIS IDEA CAME FROM A VOLUNTEER (John Rigler, 2026-08-17): list specific
+    hardware with a goal against each, rather than asking for money. It is a
+    better frame for a reason worth writing down - a donor can see exactly what
+    their money bought, and the ask stops being "support us" and becomes "this
+    $70 board answers a question we cannot otherwise answer".
+
+    ⚠️ `raised` IS HAND-ENTERED. There is no API read of the coffee balance, so
+    the page prints the figure WITH the date it was entered. It must never render
+    a total it cannot source.
+    """
+    if GOALS.exists():
+        try:
+            return json.loads(GOALS.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
 def costs() -> dict:
     """Real monthly costs, or an honest blank."""
     if COSTS.exists():
@@ -154,7 +176,7 @@ def costs() -> dict:
     return {}
 
 
-def render(s: dict, c: dict, cap: dict) -> str:
+def render(s: dict, c: dict, cap: dict, g: dict) -> str:
     e = html.escape
     gb = 1024.0 ** 3
 
@@ -197,10 +219,46 @@ is the honest answer to "what would money buy".</p>"""
         gauges, need = "", ("<p class=n>Live capacity is only readable when this "
                             "page is generated on the server itself.</p>")
 
-    return _page(s, c, gauges, need)
+    # ---- hardware goals -------------------------------------------------
+    gl = g.get("goals") or []
+    if gl:
+        rows = []
+        for it in gl:
+            usd = float(it.get("usd") or 0)
+            got = float(it.get("raised") or 0)
+            pct = min(100.0, (100.0 * got / usd) if usd else 0.0)
+            rows.append(
+                f'<div class=goal><div class=gh><b>{e(str(it.get("what","")))}</b>'
+                f'<span class=num>${usd:,.0f}</span></div>'
+                f'<div class=gt><span style="width:{pct:.0f}%"></span></div>'
+                f'<div class=n>{"$%,.0f of $%,.0f" % (got, usd) if got else "not funded yet"}'
+                f'{" &middot; " + e(str(it.get("unlocks",""))) if it.get("unlocks") else ""}</div>'
+                f'<p>{e(str(it.get("why","")))}</p></div>')
+        tot = sum(float(x.get("usd") or 0) for x in gl)
+        got = sum(float(x.get("raised") or 0) for x in gl)
+        later = "".join(
+            f"<li><b>{e(str(x.get('what','')))}</b> {e(str(x.get('why','')))}</li>"
+            for x in (g.get("later") or []))
+        goals_block = f"""
+<p>Rather than asking for support in the abstract, here is the actual hardware
+this needs and what each piece would answer. Prices checked
+{e(str(g.get('priced_on','')))}, not remembered: they moved a long way this year.</p>
+{''.join(rows)}
+<p class=n><b>${got:,.0f} of ${tot:,.0f}</b> toward the list.
+{('Figure entered by hand on ' + e(str(g.get('raised_updated'))) + '.') if g.get('raised_updated') else 'Nothing received toward it yet.'}
+There is no automatic read of the donation balance, so this is updated manually
+rather than shown as something it is not.</p>
+{f'<h3>After that, and deliberately unpriced</h3><ul>{later}</ul>' if later else ''}
+<p class=n>If none of it arrives, the project carries on. Everything above makes it
+faster or answers a question sooner; none of it is keeping the lights on. The
+running costs below are the part that does that.</p>"""
+    else:
+        goals_block = ""
+
+    return _page(s, c, gauges, need, goals_block)
 
 
-def _page(s: dict, c: dict, gauges: str, need: str) -> str:
+def _page(s: dict, c: dict, gauges: str, need: str, goals_block: str) -> str:
     e = html.escape
     days = (time.time() - s["first_ts"]) / DAY if s["first_ts"] else 0
     items = c.get("items") or []
@@ -281,6 +339,13 @@ the map is public and stays public either way.</p>"""
  .gt{{height:8px;background:var(--bg2);border:1px solid var(--line);
    border-radius:5px;overflow:hidden}}
  .gt span{{display:block;height:100%}}
+ .goal{{border:1px solid var(--line);border-radius:11px;padding:14px 16px;margin:11px 0;
+   background:var(--bg2)}}
+ .gh{{display:flex;justify-content:space-between;align-items:baseline;gap:12px}}
+ .gh b{{font-size:15px}} .gh .num{{color:var(--cam);font-weight:600}}
+ .goal .gt{{margin:8px 0 6px}}
+ .goal .gt span{{background:var(--cam)}}
+ .goal p{{margin:8px 0 0;font-size:13.5px}}
 </style>
 <div class=wrap>
 <p><a href="/" class=n>&larr; back to the map</a></p>
@@ -327,6 +392,8 @@ deliberate: those rows carry no plate text, are not searchable, and exist only s
 the map can show that a road is busy. The government-vehicle count is the small
 one because publishing one takes a human confirming it.</p>
 
+{('<h2>What this needs, and what each piece unlocks</h2>' + goals_block) if goals_block else ''}
+
 <h2>What it is running on right now</h2>
 {gauges}
 {need}
@@ -359,6 +426,7 @@ def main() -> int:
     s = stats()
     c = costs()
     cap = capacity()
+    g = goals()
     print(f"volunteer cameras   {s['vol_enrolled']:,} enrolled, "
           f"{s['vol_live_24h']:,} live 24h, {s['vol_produced']:,} ever produced")
     print(f"scraped traffic cams {s['cam_enrolled']:,} enrolled, "
@@ -367,6 +435,10 @@ def main() -> int:
           f"= {s['ret_pct']:.1f}%")
     print(f"published           {s['public_all']:,} all time, "
           f"{s['public_24h']:,} in 24h")
+    print(f"goals               "
+          + (f"{len(g.get('goals') or [])} item(s), "
+             f"${sum(float(x.get('usd') or 0) for x in (g.get('goals') or [])):,.0f} total"
+             if g.get("goals") else "NOT PUBLISHED (data/goals.json missing)"))
     print(f"costs               "
           + (f"${sum(float(i.get('usd_month') or 0) for i in (c.get('items') or [])):,.2f}/mo"
              if c.get("items") else "NOT PUBLISHED (data/costs.json missing)"))
@@ -378,7 +450,7 @@ def main() -> int:
         print("capacity            not readable (run this ON the server)")
     if a.show:
         return 0
-    OUT.write_text(render(s, c, cap), encoding="utf-8")
+    OUT.write_text(render(s, c, cap, goals()), encoding="utf-8")
     print(f"\nwrote {OUT}")
     return 0
 
