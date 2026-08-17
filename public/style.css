@@ -563,7 +563,18 @@ nav .addcam{color:var(--cam);font-weight:600}
   -webkit-tap-highlight-color:transparent
 }
 .viewbtn:hover{border-color:var(--police);color:var(--police)}
-.viewbtn b{font-weight:700}
+/* 🚨 CAP THE READOUT, BECAUSE IT IS THE ONLY PART OF THIS ROW THAT GROWS.
+   `.viewbtn` is white-space:nowrap, so a long view name never wraps INSIDE the
+   button - it just makes the button wider, and `.win` is flex-wrap:wrap, so the
+   Layers button gets pushed onto a second line. That is the reported bug: the
+   controls stack only AFTER you pick a view, because picking one copies the
+   chip's text into here.
+   Shortening the two long labels fixed the instances; this fixes the class. At
+   the current five names nothing is truncated, so it changes nothing today and
+   means the next label nobody measures cannot break the row either.
+   ⚠️ Needs a display that respects width - a plain inline <b> would ignore it. */
+.viewbtn b{font-weight:700; display:inline-block; max-width:8.5em;
+           overflow:hidden; text-overflow:ellipsis; vertical-align:bottom}
 .viewbtn .car{opacity:.6;margin-left:2px}
 /* Open: a real menu over the map rather than a row that pushes it down. */
 /* ⚠️ OPENS UPWARD AND ABOVE THE INSTALL BANNER, for the same reasons as
