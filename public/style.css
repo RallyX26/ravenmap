@@ -5,12 +5,27 @@
 
 :root{
   --bg:#0a0d12; --bg2:#111621; --line:#1e2634; --line2:#2a3547;
-  --ink:#e6ecf5; --dim:#8794a8; --dim2:#5c6879;
+  /* 🔬 MEASURED, NOT CHOSEN BY EYE - tools/contrast.py prints the whole table.
+     --dim2 was #5c6879, which is 3.20:1 on --bg2 and therefore below the 4.5:1
+     bar for normal text. It paints tags, timestamps, list metadata and input
+     placeholders, so "dark gray on black" (Hacker News) was describing real
+     arithmetic and not a preference. #728093 keeps the hue and saturation and
+     only raises lightness, so the palette still looks like itself: 4.50:1 on
+     --bg2, 4.84:1 on --bg. */
+  --ink:#e6ecf5; --dim:#8794a8; --dim2:#728093;
 
   --police:#ff3b47;      /* the subject - publicly owned, so it is red */
   --gov:#ff3b47;
   --fleet:#ffb547;
-  --civilian:#55637a;    /* deliberately quiet */
+  --civilian:#55637a;    /* deliberately quiet - A MAP DOT, NEVER TEXT */
+  /* 🚨 A DOT COLOUR AND A TEXT COLOUR ARE NOT THE SAME COLOUR, and using one as
+     the other is how two readouts ended up at 2.97:1 - under the bar even for
+     a graphical object, let alone for words. --civilian is chosen to be quiet,
+     which is right for an ordinary vehicle on the map and wrong for a number
+     somebody has to read. This is the same hue at a legible lightness (4.51:1
+     on --bg2); use it wherever traffic-coloured TEXT is wanted, and leave
+     --civilian to the dots. */
+  --civilian-ink:#6f809b;
   --cam:#3ddc97;
   --hot:#ff5b6e;
   --mono:ui-monospace,"Cascadia Mono",Consolas,"SF Mono",monospace;
@@ -45,7 +60,9 @@ body{
    the subject of the map. Red here would read as "N police moving now", which
    is the single worst thing this header could accidentally say. */
 .stats .movingstat{cursor:help}
-.stats .movingstat b{color:var(--civilian); transition:color .4s}
+/* --civilian-ink, not --civilian: this is a number in the header, not a dot on
+   the map. At the dot colour it measured 2.97:1. */
+.stats .movingstat b{color:var(--civilian-ink); transition:color .4s}
 .stats .movingstat b.on{color:#93a7c4}   /* something is actually passing */
 
 nav{display:flex; align-items:center; gap:14px; font-size:12.5px}
@@ -217,7 +234,10 @@ main{position:absolute; inset:52px 0 57px 0; display:flex}
   font:600 11.5px var(--mono); letter-spacing:.06em; color:var(--dim2);
   transition:color .3s;
 }
-.trafficbar span.busy{color:var(--civilian); color:#7f8ea6}
+/* Was `color:var(--civilian); color:#7f8ea6` - two declarations where the
+   second silently won. The literal was somebody already working around the dot
+   colour being too dark to read; the token now says so. */
+.trafficbar span.busy{color:var(--civilian-ink)}
 .trafficbar em{font-style:normal; font-size:10px; color:var(--dim2); opacity:.75;
   margin-left:auto; text-align:right; line-height:1.3}
 
@@ -265,6 +285,52 @@ main{position:absolute; inset:52px 0 57px 0; display:flex}
 
 /* ---------- leaflet overrides ---------- */
 .leaflet-container{background:#0a0d12; font:inherit}
+
+/* 🚨 THE BASEMAP WAS EFFECTIVELY BLANK AND I COULD NOT SEE IT BY LOOKING.
+ *
+ * Reported on Hacker News as "Dark gray on black. Impossible to see", and by
+ * him as "everything is dark gray and gray". Both were right, and the sampled
+ * tiles say how badly: CARTO dark_all serves land at #020202-#090909 with the
+ * road casing at #222222-#262626, which is a contrast ratio of 1.10-1.37:1
+ * against the land it sits on. The bar for a graphical object is 3.0:1. At
+ * z15 over MANHATTAN - the densest street grid there is - it measured 1.30:1.
+ * So the streets were not dim, they were absent, and the map read as a black
+ * field with dots floating on it.
+ *
+ * ⚠️ TILE PANE ONLY, NEVER `.leaflet-container` OR `#map`. Every colour on this
+ * map means something: red is a publicly owned vehicle, amber is fleet, green
+ * is a camera. A filter over the whole map would shift all of them, which turns
+ * a legibility fix into a data-integrity bug. The marker, overlay and popup
+ * panes are siblings of this one and stay untouched.
+ *
+ * 🔬 3.6 IS MEASURED, NOT PICKED BY EYE. Three things were tried and rejected:
+ *   - contrast() above 1.0 clips 28-42% of the tile to PURE BLACK. It pivots
+ *     around mid-grey and every pixel here is far below that, so it buys
+ *     separation by deleting water, parks and buildings. Left at 1.0.
+ *   - maximising separation alone chose brightness(4.4) contrast(2.8), which
+ *     scores 11:1 by crushing land to #000 and blowing roads to #efefef. A map
+ *     with two colours is not a fixed map.
+ *   - brightness(4.2) cleared 4.5:1 but began clipping, and more importantly it
+ *     lit the road casing to #a0a0a0 - see below.
+ *
+ * 🚨 THE FIRST FIX FOR THIS BUG CAUSED A SECOND ONE, and only measuring caught
+ * it. Brightening the basemap raises the surface every MARKER sits on, and a
+ * sighting sits on a road by definition. At 4.2 a fleet dot on a lit road
+ * measured 1.07:1 - I would have fixed the roads by hiding the vehicles, which
+ * are the entire point of the map. The two demands pull opposite ways and
+ * brightness alone cannot serve both: the best balance available left BOTH at
+ * about 2.3:1. So the dots got a dark ring instead (MARKER_HALO in app.js),
+ * which breaks the tie rather than splitting it, and brightness is now free to
+ * be chosen for the roads alone.
+ *
+ * 3.6 is the HIGHEST value that clips NOTHING - 0.00% of pixels at either end,
+ * measured over four tiles including Manhattan at z15. Roads go from 1.10-1.37
+ * to 3.76:1 against land, land sits at #202020 so it still plainly reads as a
+ * dark map, and the street labels land at #f5f5f5 without being blown out.
+ *
+ * ⚠️ Re-run the measurement if TILE_UPSTREAM in hub.py ever changes style. This
+ * number belongs to dark_all and to nothing else. */
+.leaflet-tile-pane{filter:brightness(3.6)}
 .leaflet-control-attribution{background:#0d1219cc!important; color:#5c6879!important; font-size:10px!important}
 .leaflet-control-attribution a{color:#8794a8!important}
 .leaflet-bar a{background:#111621!important; color:#e6ecf5!important; border-color:#1e2634!important}

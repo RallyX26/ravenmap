@@ -45,6 +45,13 @@ const label_for = (v) => CLASS_LABEL[v] || v;
    public tiers: it reads as movement, not as an identity. */
 const TRAFFIC = '#93a7c4';
 
+/* The ring drawn around every marker so it reads against ANY backdrop.
+   Matches --bg, so on empty land the ring is invisible and the dot looks
+   exactly as it always did; over a lit road it is what keeps the dot separate.
+   ⚠️ Not black: pure black against the near-black basemap would read as a
+   deliberate outline where none is wanted. */
+const MARKER_HALO = '#0a0d12';
+
 /* How long a private-tier pass stays on the map.
  *
  * Public-tier sightings persist for the whole selected window, because a
@@ -246,6 +253,30 @@ const bucketed = (sec) => Math.floor(sec / CACHE_BUCKET_S) * CACHE_BUCKET_S;
    re-derived in four places is a constant that will eventually disagree. */
 const windowCut = () => state.windowS ? bucketed(Date.now() / 1000 - state.windowS) : 0;
 
+/* How the window is NAMED wherever a count is printed beside it. Kept next to
+   windowCut for the same reason windowCut exists: the header, the panel and the
+   hint all describe the same window, and a label re-derived per call site is a
+   label that will eventually disagree with the number it sits next to.
+   ⚠️ Keys must match the <option value>s in index.html. */
+const WINDOW_LABEL = {
+  0: 'all time', 300: '5m', 3600: '1h',
+  21600: '6h', 86400: '24h', 604800: '7d',
+};
+
+/* How many public sightings the map is DRAWING right now.
+   state.sightings holds public rows only (load() fills it from the
+   vclass=public fetch), so this is the window applied to that set - the same
+   filter drawAll and renderList use, and deliberately NOT the chip filter,
+   which hides rows rather than changing how many exist. */
+const publicInWindow = () => {
+  const cut = windowCut();
+  return [...state.sightings.values()].filter((s) => s.ts > cut).length;
+};
+
+/* The public fetch's row cap, named because loadStats has to know whether a
+   count landed on it and is therefore a floor rather than a total. */
+const PUBLIC_LIMIT = 2000;
+
 const isPublic = (s) => s.tier === 'public';
 const label = (s) => isPublic(s) ? (s.plate_text || '—')
   : `private · ${(s.plate_hash || '').slice(2, 8)}`;
@@ -259,7 +290,24 @@ function pingStyle(s) {
     ? Math.min(1, (Date.now() / 1000 - s.ts) / state.windowS) : 0;
   return {
     radius: 7,
-    color: COLOR[s.vclass] || COLOR.unknown,
+    // 🚨 A DARK RING, NOT THE CLASS COLOUR AGAIN.
+    //
+    // The stroke used to be the same colour as the fill, which made every dot's
+    // legibility depend entirely on what was underneath it. That was survivable
+    // while the basemap was uniformly near-black, and it stopped being
+    // survivable the moment the basemap was brightened so the roads could be
+    // seen at all: measured, a fleet marker on a lit road casing came out at
+    // 1.07:1, and a sighting sits ON a road by definition.
+    //
+    // The two requirements pull against each other - brighter roads, visible
+    // dots - and tuning brightness alone cannot satisfy both: the best balance
+    // available left BOTH at about 2.3:1, under the 3.0 bar. A ring breaks the
+    // tie instead of splitting it, because the dot is then separated from
+    // whatever it sits on by a colour of its own.
+    //
+    // ⚠️ THE FILL STILL CARRIES THE MEANING. Red is still a publicly owned
+    // vehicle; nothing about identity moved into the stroke.
+    color: MARKER_HALO,
     fillColor: COLOR[s.vclass] || COLOR.unknown,
     fillOpacity: 0.9 * (1 - age * 0.45),
     opacity: 1 - age * 0.35,
@@ -315,7 +363,10 @@ function drawSighting(s) {
 function drawTraffic(s) {
   if (state.traffic.has(s.id)) return;
   const m = L.circleMarker([s.lat, s.lon], {
-    radius: 5, color: TRAFFIC, fillColor: TRAFFIC,
+    // Same ring as the public dots, and for the same reason - these are the
+    // markers most likely to be sitting on a lit road, because live traffic is
+    // nothing but vehicles on roads.
+    radius: 5, color: MARKER_HALO, fillColor: TRAFFIC,
     fillOpacity: 0.8, opacity: 0.95, weight: 1,
     interactive: false,        // unclickable, not just click-does-nothing
   }).addTo(state.trafficLayer);
@@ -445,10 +496,14 @@ function renderList() {
     if (show) {
       el.innerHTML = `${hidden} more public sighting${hidden === 1 ? '' : 's'}
         in the last 24h &mdash; <button class="ghost" id="widen">show everything</button>`;
-      $('#widen').onclick = () => {
+      // Same rule as the window dropdown: this changes the window, so the
+      // header's count has to be repainted with it rather than waiting on the
+      // 30s timer.
+      $('#widen').onclick = async () => {
         $('#window').value = '0';
         state.windowS = 0;
-        load();
+        await load();
+        loadStats();
       };
     }
   }
@@ -1235,7 +1290,17 @@ document.querySelectorAll('.chip').forEach((b) => {
   };
 });
 
-$('#window').onchange = (e) => { state.windowS = Number(e.target.value); load(); };
+// ⚠️ REPAINT THE HEADER TOO, OR THE FIX ONLY HOLDS FOR 30 SECONDS.
+// The stats row is on a 30s timer, so changing the window redrew the map
+// instantly and left the count reading the OLD window until the timer came
+// round - which is the exact contradiction this was fixing, just briefer and
+// harder to catch. The count is derived from the rows load() fetches, so it is
+// only correct once load() has resolved.
+$('#window').onchange = async (e) => {
+  state.windowS = Number(e.target.value);
+  await load();
+  loadStats();
+};
 /* The watched-roads toggle, and it REMEMBERS.
  *
  * A visitor who turns the bands on, pans, and has them snap back off on the
@@ -1636,7 +1701,7 @@ function fetchJSON(url, ms = FETCH_TIMEOUT_MS) {
 async function load() {
   const trafficCut = bucketed(Date.now() / 1000 - TRAFFIC_FADE_S);
   const [pub, live] = await Promise.all([
-    fetchJSON(`/api/sightings?since=${windowCut()}&vclass=public&limit=2000`),
+    fetchJSON(`/api/sightings?since=${windowCut()}&vclass=public&limit=${PUBLIC_LIMIT}`),
     fetchJSON(`/api/sightings?since=${trafficCut}&limit=400`),
   ]);
   // ⚠️ The clear() is why drawSnapshot must never run after this: live data
@@ -1778,6 +1843,37 @@ This camera reads none, so the sightings above cannot be told apart.">&mdash;</b
     ? 'Vehicles crossing a camera in the last 45 seconds.'
     : `Vehicles crossing a camera in the last 45 seconds. ${hour.toLocaleString()} passes in the last hour, so 0 here means a quiet road rather than a network that has stopped.`;
   const everProduced = s.nodes_ever_produced ?? '?';
+  // 🚨 THE HEADER WAS ANSWERING A QUESTION NOBODY ASKED IT.
+  //
+  // Reported: "top of map ui says 88 sightings but there are 188". Measured on
+  // the live API: 88 public sightings in the last 24h, 183 all time. BOTH
+  // numbers were right. The header printed the 24h figure while the map drew
+  // the window the visitor had selected - and `everything` is the DEFAULT, so
+  // this was not an edge case somebody wandered into, it was the opening state
+  // of the site. A visitor counts the dots, reads the header, and concludes the
+  // map is broken. He did, and he was reading it correctly.
+  //
+  // ⚠️ SAME BUG AS THE PANEL ONE ABOVE (see renderList), FROM THE OTHER SIDE.
+  // That time the header showed MORE than the panel; this time it shows fewer.
+  // The lesson did not stick because the fix was a hint rather than a shared
+  // definition, so fix the definition: the figure is counted from the rows the
+  // map is ACTUALLY drawing, which is the rule "moving now" already follows -
+  // the number in the header and the dots under it are one fact and cannot
+  // disagree.
+  //
+  // ⚠️ The label has to move WITH the number. Printing 183 under a fixed "24h"
+  // would swap a visible contradiction for an invisible lie.
+  const wl = WINDOW_LABEL[state.windowS] || `${Math.round(state.windowS / 3600)}h`;
+  // Before the first load answers there is nothing drawn to count, and 0 would
+  // read as "no government vehicles have ever been seen". Fall back to the
+  // server's own 24h figure and say 24h, until the map can speak for itself.
+  const shown = _liveArrived ? publicInWindow() : null;
+  const pubCount = shown === null ? s.public_24h : shown;
+  const pubWindow = shown === null ? '24h' : wl;
+  // The fetch asks for at most PUBLIC_LIMIT rows, so a count that lands exactly
+  // on it is a floor rather than a total. Say so with a + instead of quietly
+  // publishing the cap as if it were the answer.
+  const capped = shown !== null && state.sightings.size >= PUBLIC_LIMIT;
   const hours = s.heartbeats_total
     ? `<span title="${s.heartbeats_total.toLocaleString()} heartbeats, one every 30 seconds. A lower bound: heartbeats were not always enabled and dropped ones are never counted."><b>${Math.round(s.heartbeats_total / 120).toLocaleString()}</b> hours watched</span>`
     : '';
@@ -1786,7 +1882,7 @@ This camera reads none, so the sightings above cannot be told apart.">&mdash;</b
     ${hours}
     <span class="movingstat" title="${movingTitle}"><b id="movingnow" class="${movingNow() ? 'on' : ''}">${movingNow().toLocaleString()}</b> moving now</span>
     <span><b>${(s.traffic_24h ?? 0).toLocaleString()}</b> passes 24h</span>
-    <span><i>${s.public_24h.toLocaleString()}</i> public sightings 24h</span>
+    <span title="Government and police vehicles published with a photo, over the window selected in the panel. Private traffic is counted separately as passes."><i>${pubCount.toLocaleString()}${capped ? '+' : ''}</i> public sightings ${pubWindow}</span>
     <span>${vehicles}</span>`;
 }
 
