@@ -124,3 +124,13 @@ desktop/.buildenv/
 tools/measure_public_cams.py
 public/snapshot.json
 camsurvey/
+
+# 🚨 GENERATED ON THE SERVER, AND THAT IS WHY IT IS IGNORED.
+# tools/support_page.py builds this from the LIVE database and from the machine's
+# own memory and disk, so it can only be produced on the box. Committing it would
+# mean either a stale copy overwriting the real one on every deploy, or the box
+# showing as drifted from origin/main forever - deploy.py verifies that tree
+# match and it should keep failing loudly for real drift.
+# (public/checksums.html is DIFFERENT: it is built from published release assets,
+# so it is reproducible anywhere and is tracked.)
+public/support.html

@@ -728,7 +728,7 @@ class Handler(BaseHTTPRequestHandler):
             return "public, max-age=15"
         if p == "/" or p.endswith(".html") or p in (
                 "/about", "/transparency", "/status", "/IPCamera", "/app",
-                "/node", "/key", "/checksums"):
+                "/node", "/key", "/checksums", "/support", "/donate"):
             return "public, max-age=60"        # page shells: reuse, revalidate
         # /api/plate search, /api/track, /api/sighting/<id>, operator routes,
         # /api/live, /api/audit - anything per-user or a lookup - is never cached.
@@ -1387,6 +1387,26 @@ class Handler(BaseHTTPRequestHandler):
             # check against. Served from THIS host while the binaries live on
             # GitHub, so verifying means trusting two places rather than one.
             if p == "/checksums":       return self._file(PUBLIC / "checksums.html")
+            # Growth, live capacity and what it costs, generated from the
+            # database by tools/support_page.py. Asking for money without
+            # showing the numbers - including the bad retention one - is the
+            # kind of thing this project exists to be the opposite of.
+            if p in ("/support", "/donate"):
+                # ⚠️ GENERATED, SO IT CAN BE ABSENT. It is built on the server by
+                # tools/support_page.py and gitignored, so a fresh checkout has
+                # no copy. Say that rather than serving a 404, which would look
+                # like the page was taken down - on a donations page that reads
+                # as something worse than a missing file.
+                f = PUBLIC / "support.html"
+                if f.is_file():
+                    return self._file(f)
+                return self._send(
+                    503, b"<!doctype html><meta charset=utf-8>"
+                         b"<title>SparrowMap</title>"
+                         b"<p style='font:15px system-ui;padding:24px'>"
+                         b"This page is generated from the live database and has "
+                         b"not been built on this server yet.<br>"
+                         b"<a href='/'>Back to the map</a>", "text/html")
             # 🚨 THE ROUTE SOMEBODY WITH THEIR OWN CAMERA IS SENT TO. Everything
             # it needs is already public (enrol, aim, review); what did not exist
             # was one page that walks somebody who owns a shop - not a terminal -
