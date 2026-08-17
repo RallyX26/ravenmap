@@ -705,7 +705,7 @@ class Handler(BaseHTTPRequestHandler):
             # 7-day revalidation is cheap insurance against serving a stale one.
             return "public, max-age=604800"
         if p.startswith("/static/"):
-            # 🚨 THE APP'S OWN CODE (app.js, transparency.js, refresh.js). It
+            # 🚨 THE APP'S OWN CODE (app.js, sitenav.js, transparency.js). It
             # MUST be able to change - marking it immutable froze every JS fix
             # for a week on returning visitors. Short cache: still absorbs a
             # launch spike (thousands of requests in a minute -> one origin hit)

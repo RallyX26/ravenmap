@@ -356,9 +356,6 @@ addEventListener('keydown', e => {
 $('#modenote').innerHTML = NOTES.review;
 load();
 setInterval(async () => { if (!cur) showCounts(await api('/api/bank/stats')); }, 15000);
-
-window.sparrowRefresh = async () => { await load(); };
 </script>
-<script src="/static/refresh.js"></script>
 </body>
 </html>

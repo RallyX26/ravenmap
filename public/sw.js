@@ -18,7 +18,7 @@
  * JS fix quietly knocked every phone camera offline until it finished pulling
  * the model over mobile data. Version the code; never the thing that takes a
  * minute to fetch. */
-const CACHE = 'sparrow-app-v8';
+const CACHE = 'sparrow-app-v9';
 // Deliberately the LAST app cache name rather than a fresh one: devices already
 // hold the model under it, and renaming would throw away the very download this
 // split exists to protect. Bump ONLY when the vendored model itself changes.
@@ -55,7 +55,10 @@ const SHELL = [
   '/vendor/leaflet.css',
   // Shared by both.
   '/static/style.css',
-  '/static/refresh.js',
+  // ⚠️ '/static/refresh.js' was here and the file is gone. The install is
+  // allSettled so a stale entry cannot break it, which is exactly why one
+  // could sit here failing on every install without anyone noticing. Remove
+  // the entry when you remove the file.
   '/static/icon-192.png',
 ];
 

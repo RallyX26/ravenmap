@@ -600,8 +600,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": "not found"}, 404)
             return self._send(200, f.read_bytes(), "image/jpeg")
         if p.startswith("/static/"):
-            # Shared with the hub's public folder so one refresh.js serves both
-            # apps. A control copied into two files gets fixed in one of them.
+            # Shared with the hub's public folder so ONE copy of a shared
+            # control (sitenav.js, style.css) serves both apps. A control
+            # copied into two files gets fixed in one of them.
             f = HERE.parent / "public" / Path(p[8:]).name
             if f.is_file():
                 import mimetypes as _m

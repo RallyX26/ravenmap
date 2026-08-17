@@ -2115,16 +2115,14 @@ setTimeout(showIntro, 700);
 setInterval(renderList, 10000);   // keep the "3m ago" column honest
 setInterval(ageTraffic, 1000);    // the live traffic view
 
-/* Soft refresh for the shared refresh button (public/refresh.js).
+/* The shared refresh button was removed at his request, and public/refresh.js
+ * with it - it was the last `position:fixed` control on the site, which is the
+ * thing seven overlap reports in one day were about. The map already refreshes
+ * on a timer, so the button was offering to do what was happening anyway.
  *
- * Defined HERE rather than in an inline tag on the page, because index.html
- * loads this file with <script src=...> - and a script element with a src
- * IGNORES its inline content. The hook was invisible there, so the button
- * silently fell back to a full reload and threw away the map view every time,
- * which is the one thing the soft path exists to preserve. */
-window.sparrowRefresh = async () => {
-  await Promise.all([load(), loadCameras(), loadPlaces(), loadStats(), policyBanner()]);
-};
+ * Nothing calls window.sparrowRefresh now, so it is gone too rather than left
+ * as a hook with no caller. If a refresh control is ever wanted again it goes
+ * IN THE HEADER, in flow - see sitenav.js. */
 
 /* ---- government plate search ------------------------------------------
  *

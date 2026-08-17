@@ -78,11 +78,12 @@
     /* 🚨 THE CORNERS ARE STACKS NOW, AND THAT IS THE WHOLE FIX.
        Five separate overlap reports came from five floating controls that each
        positioned THEMSELVES against the same two corners from a different file:
-       sitenav's Sign in pill, the bug button, refresh.js (right:12px, and it
-       MOVES to the bottom below 860px), install.js (right:12px, bottom:70px -
-       six pixels from refresh's 64px, so they drew on top of each other), and
-       Leaflet's own heat button. Every fix so far has been a sixth guess at the
-       offsets, which is why a new pair collided each time.
+       sitenav's Sign in pill, the bug button, the old refresh button
+       (right:12px, and it MOVED to the bottom below 860px), install.js
+       (right:12px, bottom:70px - six pixels from refresh's 64px, so they drew
+       on top of each other), and Leaflet's own heat button. Every fix up to
+       this one was a sixth guess at the offsets, which is why a new pair
+       collided each time. (Refresh has since been removed outright.)
        A flex column cannot overlap its own children. So the corner became a
        real container that everything is MOVED INTO, and the only numbers left
        to measure are where each container starts - two, instead of one per
@@ -115,9 +116,9 @@
     "  align-items:flex-end;gap:8px;pointer-events:none}",
     "#swTR{z-index:9001}#swBR{z-index:1250;right:12px}",
     /* The children gave up their own placement when they joined. !important
-       because refresh.js and install.js still ship the stylesheets that put
-       them in a corner, and they are right to - those rules are what position
-       them on a page that has no stack. */
+       because install.js still ships the stylesheet that puts its button in a
+       corner, and it is right to - that rule is what positions it on a page
+       that has no stack. (refresh.js did the same until it was removed.) */
     /* 🚨 .swbar BELONGS IN THIS LIST, AND LEAVING IT OUT COST A WHOLE ROUND.
        The reset was written for the two floating stacks and the header row was
        added afterwards, so the adopted buttons kept their own position:fixed
@@ -141,16 +142,15 @@
     ".swtoplink:hover{border-color:#3d8cff;color:#fff}",
     /* On a narrow screen the header is deliberately stripped back for the
        search box, so an extra pill inside it would crowd the one control that
-       matters there. It lifts out to the top-right corner instead - which is
-       free on a phone, because refresh.js moves ITS button to the bottom right
-       below 860px. Same element, no second copy to drift. */
+       matters there. It lifts out to the top-right corner instead, which is
+       free on a phone. Same element, no second copy to drift. */
     "@media (max-width:520px){.swtoplink{padding:6px 10px;font-size:12px}}",
     "@media print{.swtoplink{display:none !important}}",
-    /* Under the top link, clear of both the header and refresh.js's button. */
-    /* 44x44 to match refresh.js's button exactly: these two now sit in one
-       stack on the map with Leaflet's own control above them, and three
-       controls in a line that are three different sizes read as three
-       accidents rather than one set. */
+    /* Under the top link, clear of the header. */
+    /* 44x44, the shared size for every round control on the map: they sit in
+       one stack with Leaflet's own control above them, and controls in a line
+       that are different sizes read as several accidents rather than one set.
+       ⚠️ Keep any new round control at 44x44 for the same reason. */
     ".swbug{position:fixed;z-index:9001;width:44px;height:44px;",
     "  border-radius:50%;border:1px solid #2a3547;background:#111621ee;",
     "  color:#cfe3f5;font-size:18px;line-height:1;cursor:pointer;",
@@ -287,8 +287,7 @@
      * app.js publishes the map header's real height as --headh and keeps it
      * updated on load, resize and orientationchange - it exists precisely
      * because the search box wraps onto a second row on a phone, taking the
-     * header from ~56px to ~120px. refresh.js already positions its button
-     * from it.
+     * header from ~56px to ~120px.
      *
      * My own getBoundingClientRect ran while the header was still one row, so
      * the column landed ON the search row and the Sign in pill covered the
@@ -332,35 +331,16 @@
       if (fr.height > 0 && fr.top < window.innerHeight / 2) bottoms.push(fr.bottom);
     }
     if (bottoms.length) top = Math.round(Math.max.apply(null, bottoms)) + 10;
-    /* 🚨 AND CLEAR OF THE REFRESH BUTTON, WHICH LIVES AT THE SAME COORDINATES.
+    /* The refresh button used to be positioned from here as well, because it
+     * placed itself at the identical coordinates and the two collided twice.
+     * It has since been removed entirely (his call) along with refresh.js, so
+     * this column is now the only thing claiming the corner.
      *
-     * refresh.js positions itself at right:12px, top:calc(var(--headh) + 10px).
-     * This column computed the identical spot, so on the map the Sign in pill
-     * and the bug button sat directly on top of it. Reported twice.
-     *
-     * Measured rather than hard-coded around, because refresh.js MOVES: below
-     * 860px it drops to the bottom-right corner, and duplicating that
-     * breakpoint here would be a second copy of a rule that is free to change.
-     * If the button is up here, sit under it; if it has gone to the bottom,
-     * take the space it left.
+     * ⚠️ THE RULE THAT CAUSED THAT COLLISION STILL APPLIES: one function owns
+     * this stack. Anything new that wants the top-right gets adopted here, not
+     * positioned from its own file. Two components measuring the same corner
+     * from different files is exactly how they ended up on top of each other.
      */
-    /* 🚨 SWAPPED, HIS CALL: SIGN IN TAKES THE TOP SLOT, REFRESH GOES BELOW IT.
-     *
-     * Sign in is the control a volunteer is hunting for - it is the way back to
-     * a camera they think they have lost - and refresh is the one you reach for
-     * only when something already looks wrong. The more-wanted control gets the
-     * corner your thumb finds first.
-     *
-     * ⚠️ ONE FUNCTION OWNS THIS STACK NOW. refresh.js still styles its own
-     * button; it just no longer decides WHERE it sits when this column is on
-     * the page. Two components positioning themselves against the same corner
-     * from different files is exactly how they ended up on top of each other
-     * twice today - the fix is a single owner, not a third guess at the
-     * offsets. If this column is not present (a page without sitenav.js),
-     * refresh.js keeps its own placement and nothing here runs.
-     */
-    var ref = document.querySelector(".swrefresh");
-    var refTop = top;                       // the slot the column is vacating
     /* 🚨 AND OUT OF THE SIDE PANEL, WHICH OWNS THE RIGHT EDGE ON A DESKTOP.
      *
      * Clearing the header and the refresh button still left the Sign in pill
@@ -486,33 +466,16 @@
      * drawn straight through the refresh button, because 70px and 64px are not
      * far enough apart to be two rows. Whichever corner refresh has chosen for
      * this width, the banner is now directly above it and never on it. */
-    /* 🚁 REFRESH SITS UNDER THE FIRE BUTTON. HIS CALL.
+    /* The refresh button used to be adopted into Leaflet's own top-right
+     * corner here, so that it and the fire button laid out as one column
+     * instead of computing coordinates near each other. Both the button and
+     * refresh.js are now gone.
      *
-     * The heat/fire button is a Leaflet control at position:topright. Appending
-     * refresh to Leaflet's OWN corner container - rather than computing
-     * coordinates near it, which is what produced six collisions earlier today
-     * - means Leaflet lays them out as one column with its own spacing, free.
-     *
-     * ⚠️ Looked up HERE, inside placeTools, not at module scope. This ran once
-     * at load in its first version, before Leaflet had built the corner, so it
-     * was always null and refresh silently stayed in the header row. placeTools
-     * re-runs as the page settles, so by the time the map exists this finds it.
-     * ⚠️ And only where the corner exists at all: on a page with no map there
-     * is nothing to sit under, so refresh keeps the site row. */
-    var leafletCorner = document.querySelector(".leaflet-top.leaflet-right");
-
-    // Refresh prefers the map's corner, under the fire button; the site row is
-    // the fallback for pages that have no map.
-    if (leafletCorner && ref) {
-      if (ref.parentNode !== leafletCorner) leafletCorner.appendChild(ref);
-      ref.style.position = "relative";
-      ref.style.top = ""; ref.style.right = ""; ref.style.bottom = "";
-      ref.style.marginTop = "8px";
-      ref.style.clear = "both";
-      ref.style.float = "none";
-    } else {
-      adopt(site, ref);
-    }
+     * ⚠️ KEEP THE TECHNIQUE IF ANYTHING ELSE EVER WANTS THAT CORNER: append it
+     * to `.leaflet-top.leaflet-right` and let Leaflet do the spacing, and look
+     * the corner up INSIDE placeTools rather than at module scope - at module
+     * scope Leaflet has not built it yet, so the lookup is always null and the
+     * control silently stays where it was. */
     adopt(BR, document.querySelector(".instwrap"));
 
     TR.style.right = right + "px";
@@ -765,11 +728,11 @@
     // first placement has to be redone once the page settles.
     window.addEventListener("load", placeTools);
     /* Re-place over the first few seconds rather than guessing when the page
-     * has settled. Fonts load, the search box wraps, refresh.js adds its button
-     * from its own script tag, and app.js publishes --headh on 'load' - each of
-     * those moves something this depends on, and every one of them has produced
-     * a collision at least once today. Six cheap reads beat one confident
-     * measurement taken too early. */
+     * has settled. Fonts load, the search box wraps, other scripts add their
+     * own buttons from their own script tags, and app.js publishes --headh on
+     * 'load' - each of those moves something this depends on, and every one of
+     * them has produced a collision at least once. Six cheap reads beat one
+     * confident measurement taken too early. */
     [200, 600, 1200, 2500, 4000].forEach(function (ms) {
       setTimeout(placeTools, ms);
     });

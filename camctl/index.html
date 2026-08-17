@@ -718,13 +718,11 @@ setInterval(async () => {
   }
 }, 5000);
 
-window.sparrowRefresh = async () => {
-  // The camera page's most common reason to refresh is a stream that died, so
-  // reconnect it explicitly rather than just re-reading the controls.
-  reconnectStream('manual refresh');
-  await Promise.all([load(), pollBoxes(), pollConfirm()]);
-};
+// The refresh button is gone (it was the last floating control on the site),
+// and this hook existed only to serve it. ⚠️ The reason it was worth having is
+// still true: this page's usual reason to refresh is a DEAD STREAM, which
+// reloading the controls alone does not fix. If a refresh control returns here,
+// it needs reconnectStream(), not just load().
 </script>
-<script src="/static/refresh.js"></script>
 </body>
 </html>
