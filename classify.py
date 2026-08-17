@@ -87,6 +87,11 @@ SIGNALS: dict[str, tuple[float, str, str]] = {
     "gov_plate_word":    (2.6, "plate",    "plate carries a government legend"),
     "gov_plate_series":  (1.8, "plate",    "plate matches a known agency series"),
     "fleet_decal":       (2.0, "visual",   "commercial fleet livery"),
+    # Weight 0.0: this does not lower a score, it OVERRIDES the class outright
+    # (see the security block in classify()). It is listed here so the reason
+    # string tells a reader why a marked vehicle was not published.
+    "security_livery":   (0.0, "visual",   "marked PRIVATE SECURITY, not "
+                                           "government - held private"),
     # Graded, not boolean - see the handling in classify(). Listed here only
     # so the reason string renders.
     "visual_police":     (0.0, "visual",   "identified as a police vehicle by sight"),
@@ -96,6 +101,45 @@ SIGNALS: dict[str, tuple[float, str, str]] = {
 _PLATE_WORDS = re.compile(
     r"\b(MUNICIPAL|OFFICIAL|EXEMPT|GOVERNMENT|GOVT|STATE OWNED|CITY OF|COUNTY|"
     r"SHERIFF|POLICE|US GOVERNMENT|FEDERAL)\b", re.I)
+
+# 🚨 WORDS THAT MEAN "PRIVATE COMPANY", AND THEREFORE "NOT GOVERNMENT".
+#
+# HIS CATCH 2026-08-16, about a vehicle in his review queue: POLICE on the side
+# with the word cropped out, SECURITY in the back window. His call on it was
+# "too risky and could be a mall cop", and he is right on both counts.
+#
+# Private security is the one category built to LOOK like police, and the class
+# decision below could never reach it: the `fleet` branch is skipped whenever
+# any police signal fired, and `livery` and `agency_decal` are police signals.
+# So a marked security vehicle lands in `police`, which is publishable with a
+# readable plate. Publishing it attaches a legible plate to a private company -
+# exactly the harm the two-tier split exists to prevent.
+#
+# ⚠️ NARROW ON PURPOSE. "PATROL" is absent because real forces use it (State
+# Patrol, Highway Patrol) and it would retract real government vehicles. These
+# are words that no police force paints on a car.
+_SECURITY_WORDS = re.compile(
+    r"\b(SECURITY|SECURITIES|PRIVATE SECURITY|LOSS PREVENTION|"
+    r"COURTESY PATROL|SECURITAS|ALLIED UNIVERSAL|BRINKS|BRINK'?S)\b", re.I)
+
+
+def _looks_private_security(evidence: dict) -> bool:
+    """Did anything about this vehicle say 'private security company'?
+
+    Reads the explicit signal a node may send, and also any TEXT we were given:
+    detect/pipeline.py recognises SECURITY as bodywork rather than a plate, and
+    a caller that passes the read through gets the benefit here.
+    """
+    if evidence.get("security_livery"):
+        return True
+    for key in ("livery_text", "plate_text", "plate_legend"):
+        v = evidence.get(key)
+        if v and _SECURITY_WORDS.search(str(v)):
+            return True
+    for w in (evidence.get("livery_words") or ()):
+        if _SECURITY_WORDS.search(str(w)):
+            return True
+    return False
 
 
 def _squash(score: float) -> float:
@@ -220,6 +264,27 @@ def classify(evidence: dict) -> dict:
         vclass = "gov"
     else:
         vclass = "civilian"
+
+    # 🚨 PRIVATE SECURITY OVERRIDES EVERY POLICE SIGNAL. See _SECURITY_WORDS.
+    #
+    # This sits AFTER the decision rather than inside it, and that is the whole
+    # point: a security vehicle fires real police signals - it has the livery,
+    # sometimes the light bar - so no amount of reordering the branches reaches
+    # it. The signals are not wrong about what they saw; they are wrong about
+    # what it means, and only the word on the glass settles that.
+    #
+    # It becomes `fleet`, which is honest (a commercial vehicle with company
+    # livery) and, more importantly, publishes NOTHING: `sightable` allows only
+    # police/emergency/gov and `tierable` only police/gov.
+    #
+    # ⚠️ The cost of a false positive here is one unpublished government
+    # vehicle. The cost of a false negative is a private company's plate on a
+    # public map under the word POLICE. Those are not the same price, which is
+    # why this refuses rather than merely lowering the score.
+    security = _looks_private_security(evidence)
+    if security and vclass in ("police", "gov"):
+        fired.append("security_livery")
+        vclass = "fleet"
 
     # ---- rule 2: text alone can never publish somebody -------------------
     # `corroborated` feeds the reason string below; `tierable` (which authorises

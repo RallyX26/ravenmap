@@ -241,6 +241,14 @@ class PlateReader:
         self.color_mode = getattr(cfg, "image_color_mode", "rgb") or "rgb"
         self.ocr_errors = 0
 
+        # Agency words read off BODYWORK rather than off a plate. They are not
+        # plates and never become sightings, but they are evidence about what
+        # the vehicle IS - "SECURITY" in particular says private company, not
+        # government. See the note where they are collected in read().
+        # ⚠️ Cleared per vehicle by reset_livery(); a set that accumulates over
+        # a whole run would attribute one car's markings to the next one.
+        self.livery_words: set[str] = set()
+
     def _session_providers(self) -> list:
         """Dig out the real InferenceSession's providers.
 
@@ -267,6 +275,18 @@ class PlateReader:
                     pass
         return []
         self._warned = False
+
+    def reset_livery(self) -> set:
+        """Take the livery words seen since the last call, and start fresh.
+
+        🚨 A CALLER THAT NEVER CALLS THIS WILL EVENTUALLY MARK EVERY VEHICLE AS
+        SECURITY. The reader is reused across a whole run, so the set has to be
+        drained per vehicle by whoever is assembling that vehicle's evidence.
+        Returning the words as it clears them makes the correct usage the
+        convenient one.
+        """
+        seen, self.livery_words = self.livery_words, set()
+        return seen
 
     def read(self, frame: np.ndarray, vbox: tuple[int, int, int, int]
              ) -> list[PlateRead]:
@@ -351,6 +371,15 @@ class PlateReader:
             # are left alone: those really are printed on real plates, which is
             # why classify.py looks for them.
             if _is_livery_text(text):
+                # 🚨 DROPPED AS A PLATE, KEPT AS EVIDENCE.
+                # This used to `continue` and lose the word entirely, which
+                # meant the system could read SECURITY off the bodywork and use
+                # it only to reject a plate candidate. That word is the single
+                # best evidence that a marked vehicle is a private security
+                # firm rather than police, and classify._looks_private_security
+                # exists to act on it - so record it instead of forgetting it.
+                self.livery_words.add(
+                    "".join(ch for ch in text.upper() if ch.isalnum()))
                 continue
 
             out.append(PlateRead(text=text, conf=conf, region=region,
