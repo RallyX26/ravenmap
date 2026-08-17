@@ -178,6 +178,49 @@ def main() -> int:
           f"worst {off:.1f} m from any centreline")
     print(f"  curving road: worst {off:.1f} m off")
 
+    # 🚨 A FIXED CAMERA MUST STAY ON ITS SPAN EVEN WHEN THE EVENT CARRIES GPS.
+    #
+    # Reported: two of 95 sightings from a fixed camera on one street landed on
+    # the SIDE ROAD its own house sits near, because the per-event GPS branch
+    # ran before the span check. The camera had not moved - it reported where it
+    # IS, which is exactly the coordinate the span model exists to keep off the
+    # map. Here: a camera watching "Main Street" whose own position is 30 m down
+    # "Broad Street".
+    print()
+    span = [[BASE_LAT + _n(60), BASE_LON], [BASE_LAT - _n(60), BASE_LON]]
+    fixed = {"id": "n_fixed", "kind": "fixed",
+             "lat": BASE_LAT, "lon": BASE_LON + _n(30),
+             "span_lat1": span[0][0], "span_lon1": span[0][1],
+             "span_lat2": span[1][0], "span_lon2": span[1][1],
+             "heading": 90.0, "reach_m": 40}
+    bad = {}
+    for i in range(30):
+        # The event carries the camera's OWN position - the case that broke it.
+        la, lo = node_mod.sighting_position(
+            fixed, fixed["lat"], fixed["lon"], seed=f"f{i}")
+        got, _ = nearest_road((la, lo))
+        if got != "Main Street":
+            bad[got] = bad.get(got, 0) + 1
+    check("🚨 a FIXED camera stays on its watched span, GPS or not", not bad,
+          f"{sum(bad.values())} of 30 left the span: {bad}")
+    print(f"  fixed camera: {30 - sum(bad.values())}/30 stayed on Main Street")
+
+    # ...and the mirror image: a PHONE that happens to carry a stale enrolment
+    # span must still follow its GPS, or every dashcam dot pins to the street it
+    # was first switched on in - which would undo the fix above.
+    phone = dict(fixed)
+    phone["id"], phone["kind"] = "n_phone", "phone"
+    drove = (BASE_LAT, BASE_LON + _n(120))          # 120 m east, on Broad
+    want2, _ = nearest_road(drove)
+    off_span = 0
+    for i in range(30):
+        la, lo = node_mod.sighting_position(phone, drove[0], drove[1], seed=f"p{i}")
+        if nearest_road((la, lo))[0] == want2:
+            off_span += 1
+    check(f"a PHONE with a stale span still follows its GPS ({want2})",
+          off_span == 30, f"only {off_span}/30 followed the GPS")
+    print(f"  phone with stale span: {off_span}/30 followed the GPS")
+
     print()
     if FAILED:
         print(f"{len(FAILED)} FAILED: {FAILED}")

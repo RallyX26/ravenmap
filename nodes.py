@@ -378,6 +378,32 @@ def sighting_position(nd: dict, lat: Optional[float] = None,
     """
     import math
 
+    span = span_of(nd)
+
+    # 🚨 A FIXED CAMERA USES ITS SPAN, EVEN WHEN THE EVENT CARRIES GPS.
+    #
+    # The per-event GPS branch below used to run FIRST, unconditionally, so a
+    # single sighting that happened to carry a lat/lon jumped off the watched
+    # span and was re-placed on whatever road was nearest that point.
+    #
+    # Measured on his Bridge Street camera: 93 of 95 sightings sat on its North
+    # Bridge Street span, and TWO landed 25 m west on HAMRICK STREET - the side
+    # road its own house sits near. Reported as "the two on hamrick street
+    # should be on bridge street". The camera had not moved; it reported where
+    # it IS, and that is precisely the position the span exists to avoid
+    # publishing. GPS from a fixed node is worse than useless here: it is the
+    # one coordinate the whole span model was built to keep off the map.
+    #
+    # ⚠️ THE TEST IS `kind`, NOT "does it have a span". A PHONE node also gets a
+    # span at enrolment - from wherever it was standing when it enrolled - and
+    # keying on the span's existence would pin every dashcam sighting to the
+    # street the phone was first switched on in, undoing the fix directly above.
+    # What matters is whether the camera MOVES.
+    MOBILE_KINDS = {"phone", "mobile", "drive"}
+    if span and (nd.get("kind") or "") not in MOBILE_KINDS:
+        import road
+        return road.point_on_span(span, seed or f"{nd.get('id','')}:{now()}")
+
     if lat is not None and lon is not None:
         # 🚨 SNAP FROM THE TRUE POINT. JITTERING FIRST PUT DOTS ON THE WRONG
         # STREET, WHICH IS A FALSE CLAIM RATHER THAN A VAGUE ONE.
@@ -419,7 +445,10 @@ def sighting_position(nd: dict, lat: Optional[float] = None,
         return jitter_position(float(lat), float(lon),
                                float(CONFIG.get("node_position_jitter_m", 60)))
 
-    span = span_of(nd)
+    # A MOBILE node that reported no GPS for this sighting. Its span is where it
+    # enrolled, which is the best guess available: better a dot on the street it
+    # was switched on in than the invented point the fallback below produces.
+    # (A fixed node with a span already returned at the top.)
     if span:
         import road
         return road.point_on_span(span, seed or f"{nd['id']}:{now()}")

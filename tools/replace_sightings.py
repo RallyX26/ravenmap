@@ -46,20 +46,33 @@ def _m(a, b) -> float:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ids", required=True, help="comma-separated sighting ids")
-    ap.add_argument("--at", required=True, help="LAT,LON the person says they were at")
+    ap.add_argument("--at", help="LAT,LON the person says they were at")
+    # 🚨 --on-span IS NOT A HUMAN'S GUESS, IT IS A RECOMPUTATION.
+    # A fixed camera's sightings belong on its published watched span, and the
+    # span is already stored. When one has escaped it - see the GPS-overrides-
+    # span bug in nodes.sighting_position - putting it back needs no
+    # coordinates from anybody, so this mode takes none.
+    ap.add_argument("--on-span", action="store_true",
+                    help="re-place onto the sighting's own node's watched span")
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--max-m", type=float, default=400.0,
                     help="refuse to move a sighting further than this")
     a = ap.parse_args()
 
     import db
+    import nodes as node_mod
     import road
 
-    try:
-        lat, lon = (float(x) for x in a.at.split(","))
-    except ValueError:
-        print("--at must be LAT,LON")
+    if bool(a.at) == bool(a.on_span):
+        print("pass exactly one of --at LAT,LON or --on-span")
         return 2
+    lat = lon = None
+    if a.at:
+        try:
+            lat, lon = (float(x) for x in a.at.split(","))
+        except ValueError:
+            print("--at must be LAT,LON")
+            return 2
     ids = [int(x) for x in a.ids.split(",") if x.strip()]
 
     # 🚨 SNAP FROM THE STATED POINT, THE SAME WAY INGEST NOW DOES.
@@ -75,12 +88,27 @@ def main() -> int:
             refused.append((sid, "no such sighting"))
             continue
         r = dict(row)
-        if (r.get("source") or "") not in ("phone_node", "drive", "mobile"):
-            # A fixed camera's position is its own and is not a contributor's
-            # recollection to correct.
-            refused.append((sid, f"source={r.get('source')} is not mobile"))
-            continue
-        snapped = road.snap_point(lat, lon, f"replace:{sid}")
+        if a.on_span:
+            n = conn.execute("SELECT * FROM nodes WHERE id=?",
+                             (r["node_id"],)).fetchone()
+            nd = dict(n) if n else None
+            span = node_mod.span_of(nd) if nd else None
+            if not span:
+                refused.append((sid, "its node has no watched span"))
+                continue
+            if (nd.get("kind") or "") in ("phone", "mobile", "drive"):
+                # A moving node's span is only where it enrolled; pinning a
+                # dashcam sighting to it would be the wrong-street bug again.
+                refused.append((sid, f"node kind={nd.get('kind')} moves"))
+                continue
+            snapped = road.point_on_span(span, f"respan:{sid}")
+        else:
+            if (r.get("source") or "") not in ("phone_node", "drive", "mobile"):
+                # A fixed camera's position is its own and is not a
+                # contributor's recollection to correct.
+                refused.append((sid, f"source={r.get('source')} is not mobile"))
+                continue
+            snapped = road.snap_point(lat, lon, f"replace:{sid}")
         if not snapped:
             refused.append((sid, "no road near the stated position"))
             continue
