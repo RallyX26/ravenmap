@@ -163,12 +163,34 @@
     "  backdrop-filter:blur(6px);-webkit-tap-highlight-color:transparent}",
     ".swbug:hover{border-color:#3d8cff}",
     "@media print{.swbug{display:none}}",
+    /* 🚨 CENTRED, AND THE SCROLL LIVES ON THE WRAP, NOT THE CARD.
+       Reported from a phone: the Send and Close buttons sat below the bottom
+       of the screen with no way to reach them. Two causes, and both had to go.
+
+       `align-items:flex-end` pinned the card to the bottom of the wrap, and
+       the wrap is `inset:0` - i.e. the full viewport. On iOS that box is the
+       viewport with the browser chrome HIDDEN, so while the URL bar is on
+       screen the actually-visible area is shorter than the wrap and anything
+       aligned to its bottom edge is underneath the chrome. `max-height:92vh`
+       on the card had the same bug for the same reason: 92vh can be taller
+       than the screen you are looking at.
+
+       Scrolling now belongs to the wrap, with `margin:auto` on the card. That
+       centres it when it fits and scrolls the whole overlay when it does not.
+       `align-items:center` would NOT be safe here: when a flex item overflows
+       a centred container the overflow goes off BOTH ends, so the top of the
+       card becomes unreachable instead of the bottom. `margin:auto` does not
+       have that failure. dvh is used where supported so the height tracks the
+       chrome instead of ignoring it. */
     ".swbugwrap{position:fixed;inset:0;z-index:9500;display:flex;",
-    "  align-items:flex-end;justify-content:center;background:rgba(4,7,12,.72);",
-    "  padding:16px}",
+    "  justify-content:center;background:rgba(4,7,12,.72);",
+    "  padding:16px 16px calc(16px + env(safe-area-inset-bottom));",
+    "  overflow-y:auto;-webkit-overflow-scrolling:touch;",
+    "  overscroll-behavior:contain}",
+    "@supports (height:100dvh){.swbugwrap{height:100dvh}}",
     ".swbugcard{background:#0f151f;border:1px solid #27354a;border-radius:16px;",
-    "  padding:18px;max-width:460px;width:100%;color:#c7d2dc;",
-    "  font:14px/1.6 system-ui,sans-serif;max-height:92vh;overflow-y:auto}",
+    "  padding:18px;max-width:460px;width:100%;color:#c7d2dc;margin:auto;",
+    "  font:14px/1.6 system-ui,sans-serif}",
     ".swbugcard b{color:#e8eef6;display:block;margin-bottom:8px;font-size:16px}",
     ".swbugcard p{margin:6px 0 10px}",
     ".swbugcard textarea{width:100%;background:#080b11;color:#e8eef6;",

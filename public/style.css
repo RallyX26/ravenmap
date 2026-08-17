@@ -127,7 +127,22 @@ main{position:absolute; inset:52px 0 57px 0; display:flex}
 .win .cams{display:flex; align-items:center; gap:5px; cursor:pointer}
 
 /* ---------- detail card ---------- */
-.detail{border-bottom:1px solid var(--line); padding:11px 12px; background:#0d1420}
+/* 🚨 THIS SCROLLS, BECAUSE ITS PARENT CLIPS.
+   `.panel` is `overflow:hidden` and lays its children out in a column, and only
+   `.list` was given `overflow-y:auto`. So the detail card could grow past the
+   bottom of the panel and simply be cut off with no way to reach the rest of
+   it - reported on "report a problem", where the form adds a textarea and two
+   buttons to an already tall card and the buttons were the part that vanished.
+   Capped rather than merely scrollable so a long card cannot squeeze the
+   sightings list underneath it down to nothing.
+   ⚠️ `min-height:0` is load-bearing: a flex child defaults to `min-height:auto`,
+   which refuses to shrink below its content and would keep the overflow
+   unreachable however the max-height is set.
+   The phone layout switches `.panel` to `overflow:visible` in normal document
+   flow, where the whole page scrolls and a cap would be a bug, so it is undone
+   in the media query. */
+.detail{border-bottom:1px solid var(--line); padding:11px 12px; background:#0d1420;
+        max-height:62%; min-height:0; overflow-y:auto; overscroll-behavior:contain}
 .detail.hidden, .hidden{display:none}
 .detail img{width:100%; border-radius:7px; border:1px solid var(--line2); display:block; background:#000}
 
@@ -366,6 +381,10 @@ main{position:absolute; inset:52px 0 57px 0; display:flex}
   .panel{width:100%; flex:none; height:auto; min-height:0; overflow:visible;
          border-left:0; border-top:1px solid var(--line)}
   .list{overflow:visible; height:auto; max-height:none; padding-bottom:0}
+  /* Same reasoning as .list: in normal flow the page itself scrolls, so a
+     capped, internally-scrolling detail card would be a second scroller inside
+     the first - the exact thing this layout exists to avoid. */
+  .detail{max-height:none; overflow:visible}
   /* #map is no longer a positioned ancestor, so pin the About/Transparency
      panes to the viewport between the two bars. */
   /* The pane fills the whole area above the mode bar and pushes its OWN content
