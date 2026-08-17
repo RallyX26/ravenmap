@@ -35,7 +35,12 @@
     { href: "/rv",           icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5 9.5 18 20 6.5"/></svg>',       label: "Review" },
     { href: "/about",        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.8" r=".9" fill="currentColor" stroke="none"/></svg>',       label: "About",        mode: "about" },
     { href: "/transparency", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.8-6.5 10-6.5S22 12 22 12s-3.8 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/></svg>', label: "Transparency", mode: "transparency" },
-    { href: "/status",       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19v-4M9.3 19V11M14.7 19V7M20 19V4"/></svg>', label: "Status" }
+    { href: "/status",       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19v-4M9.3 19V11M14.7 19V7M20 19V4"/></svg>', label: "Status" },
+    // Growth, live capacity and costs, generated from the database. Labelled
+    // "Support" rather than "Donate" because the page is mostly numbers - the
+    // costs and the bad retention figure included - and the ask is the last
+    // thing on it rather than the point of it.
+    { href: "/support",      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 5.6a5 5 0 0 0-7.1 0L12 7.3l-1.7-1.7a5 5 0 0 0-7.1 7.1l8.8 8.8 8.8-8.8a5 5 0 0 0 0-7.1z"/></svg>', label: "Support" }
   ];
 
   // Self-contained styling, so this works on a page that does not load
