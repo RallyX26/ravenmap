@@ -304,7 +304,17 @@ the map is public and stays public either way.</p>"""
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/static/style.css?v=105">
 <style>
- body{{padding:0}} .wrap{{max-width:820px;margin:0 auto;padding:20px 18px 70px}}
+ /* 🚨 UNDO BOTH, NOT JUST overflow. style.css pins `html,body` to height:100%
+    with `overflow:hidden` because the MAP is a fixed full-screen app that
+    scrolls its own panel, and every document page borrowing the stylesheet has
+    to hand that back. This page never did: on a desktop it stopped at the fold
+    with no scrollbar, so the costs, the hardware goals and the donate link -
+    the entire point of the page - were unreachable. Reported by him.
+    hardware.html already carries this exact fix and says why body alone is not
+    enough: it leaves html clamped and the page still refuses to scroll. */
+ html,body{{height:auto;overflow:visible}}
+ body{{padding:0}}
+ .wrap{{max-width:820px;margin:0 auto;padding:20px 18px 70px}}
  h1{{font-size:26px;margin:0 0 4px}} h2{{font-size:15px;margin:30px 0 10px;
    color:var(--dim);text-transform:uppercase;letter-spacing:.11em;
    font:600 11.5px/1 var(--mono)}}
