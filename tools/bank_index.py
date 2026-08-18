@@ -98,6 +98,91 @@ def connect() -> sqlite3.Connection:
     return db
 
 
+def read() -> sqlite3.Connection:
+    """A READER. Does not run the schema script, so it takes no write lock.
+
+    🚨 connect() calls executescript, and executescript begins a transaction
+    even when every statement is CREATE ... IF NOT EXISTS and nothing changes.
+    So a reader using it blocks behind a running index build and fails with
+    'database is locked' - which is exactly what happened the first time the
+    labelling queue was opened while tools/bank_index.py was still going.
+    A queue that dies whenever the index is being refreshed is not usable.
+    """
+    db = sqlite3.connect(f"file:{INDEX}?mode=ro", uri=True, timeout=5)
+    db.row_factory = sqlite3.Row
+    return db
+
+
+# Each queue is a WHERE plus an ORDER BY, so it belongs in the database rather
+# than in 635,000 Python dicts. Loading them all cost 6s per click; these
+# answer in milliseconds off the indexes.
+#
+# ⚠️ `label IS NULL OR label = ''` in every unlabelled queue: the walk wrote
+# `""` for an unlabelled crop and the index copies whatever the sidecar says,
+# so testing `IS NULL` alone silently skips the older half of the bank.
+_UNLABELLED = "(label IS NULL OR label = '')"
+_GOVCLASS = "clip_vclass IN ('police','gov_dot','emergency')"
+
+QUERIES = {
+    # CLIP says government, the head refused it. Most confident first.
+    "gap": ("SELECT * FROM crops WHERE " + _UNLABELLED + " AND " + _GOVCLASS +
+            " AND head_conf IS NOT NULL AND head_conf < :thr"
+            " ORDER BY clip_conf DESC LIMIT :n"),
+    # Highest government confidence first, whatever the head thought.
+    "likely": ("SELECT * FROM crops WHERE " + _UNLABELLED + " AND " + _GOVCLASS +
+               " ORDER BY clip_conf DESC LIMIT :n"),
+    # Closest to CLIP's own boundary. Crops with no CLIP block are EXCLUDED:
+    # they have no margin, so they would score as maximally uncertain and fill
+    # a queue that is supposed to be about the boundary.
+    "hunt": ("SELECT * FROM crops WHERE " + _UNLABELLED +
+             " AND clip_margin IS NOT NULL"
+             " ORDER BY clip_margin ASC LIMIT :n"),
+    # Unbiased. The ONLY mode whose labels may be quoted as precision or recall.
+    "review": ("SELECT * FROM crops WHERE " + _UNLABELLED +
+               " ORDER BY RANDOM() LIMIT :n"),
+    # Crops from other people's nodes, oldest first.
+    "remote": ("SELECT * FROM crops WHERE " + _UNLABELLED +
+               " AND source = 'remote_node' ORDER BY ts ASC LIMIT :n"),
+}
+
+
+def pick(mode: str, thr: float = 0.45, n: int = 1) -> list[sqlite3.Row]:
+    """First n rows of a queue, straight from the index."""
+    q = QUERIES.get(mode)
+    if not q:
+        return []
+    db = read()
+    try:
+        return list(db.execute(q, {"thr": thr, "n": n}))
+    finally:
+        db.close()
+
+
+def counts(thr: float = 0.45) -> dict:
+    """How many are waiting in each queue. One row, not 635,000."""
+    db = read()
+    try:
+        out = {}
+        for mode, q in QUERIES.items():
+            if mode == "review":
+                continue
+            # ⚠️ STRIP THE ORDER BY AS WELL AS THE LIMIT. Counting a sorted
+            # subquery makes SQLite materialise and sort every matching row -
+            # 100k+ of them - to produce one integer, which took long enough
+            # that the first version of this call had to be killed. Order is
+            # meaningless to a COUNT.
+            body = q.split(" ORDER BY ")[0]
+            cq = "SELECT COUNT(*) c FROM (" + body + ")"
+            out[mode] = db.execute(cq, {"thr": thr, "n": 1}).fetchone()["c"]
+        out["unlabelled"] = db.execute(
+            "SELECT COUNT(*) c FROM crops WHERE " + _UNLABELLED).fetchone()["c"]
+        out["labelled"] = db.execute(
+            "SELECT COUNT(*) c FROM crops WHERE NOT " + _UNLABELLED).fetchone()["c"]
+        return out
+    finally:
+        db.close()
+
+
 def _row_from(day: str, stem: str, mtime: float, d: dict) -> tuple:
     clip = d.get("clip") or {}
     hg = clip.get("head_gov")

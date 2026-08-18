@@ -35,11 +35,19 @@ from __future__ import annotations
 
 import json
 import random
+import sys
 import time
 from pathlib import Path
 from typing import Optional
 
 from core import DATA, NODE_UA
+
+# `bank_index` lives in tools/ and this module lives at the root, so it is not
+# importable by default. Added here rather than at each call site so there is
+# exactly one place that knows where the index code is.
+_TOOLS = Path(__file__).resolve().parent / "tools"
+if str(_TOOLS) not in sys.path:
+    sys.path.insert(0, str(_TOOLS))
 
 BANK = DATA / "training"
 # ⚠️ THE KEYS ARE STABLE, THE DISPLAY NAMES ARE NOT.
@@ -78,8 +86,89 @@ def _sidecar(day: str, stem: str) -> Path:
     return BANK / day / f"{stem}.json"
 
 
+class BankIndexMissing(RuntimeError):
+    """The index is not there. Raised rather than falling back silently.
+
+    🚨 THE ONE FAILURE THIS MODULE MUST NOT HAVE IS A QUIET ONE. An empty queue
+    and a broken queue look identical on the page - "nothing left to label" is
+    exactly what a caller sees if this returns []. That mistake has already been
+    made once in this project, in db.pending_areas, where a query against the
+    wrong column returned zero whether the review pen was empty or full and the
+    map showed nothing while the reviewer stared at six items. So: no index, no
+    guessing, and an error that names the command that fixes it.
+    """
+
+
 def items() -> list[dict]:
-    """Every banked crop with its metadata. Cheap enough at this scale."""
+    """Every banked crop with its metadata, read from the index.
+
+    🚨 THIS USED TO WALK THE BANK, AND THE COMMENT SAID "cheap enough at this
+    scale". It was, at about 30,000 crops. Measured 2026-08-17 the bank holds
+    **718,389** and the walk costs **4.5 minutes** - and stats() calls this,
+    every next_item() mode calls this, so /api/bank/stats and /api/bank/next
+    each paid it. The labelling queue was not slow, it was unusable, and the
+    queue this project needs most is the one nobody could open.
+
+    ⚠️ The index is a CACHE. The sidecar is still the truth and set_label still
+    writes it first; this only decides what to SHOW. If the two disagree the
+    repair is `python tools/bank_index.py`, never an edit here.
+    """
+    import bank_index                                  # local: tools/ is on path
+    if not bank_index.INDEX.exists():
+        raise BankIndexMissing(
+            "no bank index at %s - build it with: python tools/bank_index.py"
+            % bank_index.INDEX)
+    db = bank_index.connect()
+    out = []
+    for r in db.execute(
+            "SELECT day,stem,ts,cls_name,label,labelled_at,sampling,source,"
+            "node_id,vocab,clip_vclass,clip_conf,clip_margin,head_conf,head_gov "
+            "FROM crops"):
+        out.append({
+            "day": r["day"],
+            "stem": r["stem"],
+            "ts": r["ts"],
+            "cls_name": r["cls_name"],
+            "label": r["label"],
+            "labelled_at": r["labelled_at"],
+            "sampling": r["sampling"],
+            "source": r["source"],
+            "node_id": r["node_id"],
+            "vocab": int(r["vocab"] or 1),
+            "_clip": {"vclass": r["clip_vclass"], "conf": r["clip_conf"],
+                      "margin": r["clip_margin"], "scores": None},
+            # 🚨 THE HEAD'S VERDICT, WHICH THIS DICT NEVER CARRIED BEFORE.
+            # Without it no queue can be built out of the two models
+            # DISAGREEING, and that disagreement is the whole of what is wrong
+            # with the classifier right now: CLIP calls a marked cruiser
+            # government at 0.90 and the head scores it 0.00, so it is discarded
+            # and nobody is ever asked. See the `gap` mode.
+            "_head": r["head_conf"],
+            "_head_gov": None if r["head_gov"] is None else bool(r["head_gov"]),
+            "_uncertainty": 1.0 - float(r["clip_margin"] or 0.0),
+        })
+    db.close()
+    return out
+
+
+def _row_to_item(r) -> dict:
+    """One index row in the shape every caller of items() already expects."""
+    return {
+        "day": r["day"], "stem": r["stem"], "ts": r["ts"],
+        "cls_name": r["cls_name"], "label": r["label"],
+        "labelled_at": r["labelled_at"], "sampling": r["sampling"],
+        "source": r["source"], "node_id": r["node_id"],
+        "vocab": int(r["vocab"] or 1),
+        "_clip": {"vclass": r["clip_vclass"], "conf": r["clip_conf"],
+                  "margin": r["clip_margin"], "scores": None},
+        "_head": r["head_conf"],
+        "_head_gov": None if r["head_gov"] is None else bool(r["head_gov"]),
+        "_uncertainty": 1.0 - float(r["clip_margin"] or 0.0),
+    }
+
+
+def _items_by_walk() -> list[dict]:
+    """The old full-bank walk. Kept ONLY for rebuilding, never for serving."""
     out = []
     for j in sorted(BANK.rglob("*.json")):
         img = j.with_suffix(".jpg")
@@ -117,15 +206,51 @@ def items() -> list[dict]:
 
 
 def stats() -> dict:
-    it = items()
-    done = [i for i in it if i["label"]]
+    """Counts for the labelling page.
+
+    🚨 THIS IS ON THE PER-CLICK PATH AND THAT IS WHY IT IS WRITTEN LIKE THIS.
+    camctl returns stats alongside EVERY /api/bank/next, so whatever this costs
+    is paid on every single crop. Building the whole bank in Python to count it
+    took 4.5 minutes before the index and 6 seconds after - which would have
+    thrown away the entire speed-up the index was added for.
+    Only the LABELLED rows are fetched (1,661 of 643,000), and the two totals
+    come from COUNT.
+
+    ⚠️ `label IN (VALID)` rather than `label IS NOT NULL AND label <> ''`.
+    Both are correct; only the first can use the index on `label`, and the OR
+    form measured 48 seconds on this bank.
+    """
+    import bank_index
+    db = bank_index.read()
+    try:
+        marks = sorted(VALID)
+        qs = ",".join("?" for _ in marks)
+        total = db.execute("SELECT COUNT(*) c FROM crops").fetchone()["c"]
+        done = [_row_to_item(r) for r in db.execute(
+            "SELECT * FROM crops WHERE label IN (%s)" % qs, marks)]
+        # Unlabelled crops the model calls government at >= 0.50. Counted in
+        # SQL because it is the one figure here that scans the whole bank.
+        #
+        # 🚨 `label IS NULL OR ...` IS LOAD-BEARING. Written as `label NOT IN
+        # (...)` alone this returned 0 while 165,000 crops were waiting,
+        # because in SQL `NULL NOT IN (...)` is NULL rather than true - so
+        # every UNLABELLED row, which is the entire population being counted,
+        # failed the test. It read as "nothing left to label", which is the
+        # same silent zero db.pending_areas produced and the reason this file
+        # raises rather than returns [] when the index is missing.
+        likely_left = db.execute(
+            "SELECT COUNT(*) c FROM crops "
+            "WHERE (label IS NULL OR label NOT IN (%s)) "
+            "AND clip_vclass IN ('police','gov_dot','emergency') "
+            "AND clip_conf >= 0.50" % qs, marks).fetchone()["c"]
+    finally:
+        db.close()
     by = {}
     for i in done:
         by[i["label"]] = by.get(i["label"], 0) + 1
     # Only labels gathered in review mode can be used to report performance.
     # See the module docstring.
     measurable = [i for i in done if (i.get("sampling") or "review") == "review"]
-    likely_left = sum(1 for i in it if not i["label"] and _gov_score(i) >= 0.50)
     recheck = [i for i in done
                if i["label"] == "civilian"
                and i["_clip"].get("vclass") in ("fleet", "gov_dot", "police", "emergency")]
@@ -140,9 +265,9 @@ def stats() -> dict:
         "unsplit": len(unsplit),
         "recheck": len(recheck),
         "likely_left": likely_left,
-        "total": len(it),
+        "total": total,
         "labelled": len(done),
-        "remaining": len(it) - len(done),
+        "remaining": total - len(done),
         "by_label": by,
         "measurable": len(measurable),
         "positives": by.get("police", 0),
@@ -222,6 +347,24 @@ def next_item(mode: str = "review", seed: Optional[int] = None) -> Optional[dict
     "false positives" holding recall down turned out to be an ambulance and a
     box truck that were never civilian at all.
     """
+    # 🚨 THE FAST PATH: A QUEUE IS A WHERE PLUS AN ORDER BY, SO ASK THE DATABASE.
+    #
+    # These modes used to build 635,000 dictionaries to return ONE of them, which
+    # cost about 6 seconds per click even after the index removed the 4.5-minute
+    # bank walk. Six seconds between crops is still enough to make a labelling
+    # session not happen, and the labels are the only thing capping the
+    # classifier. The indexes make the same answer take milliseconds.
+    #
+    # The slower modes below (marked, split, recheck) stay on items(): they are
+    # occasional, they filter on things the index does not sort by, and the
+    # difference between 6s and instant does not decide whether they get used.
+    import bank_index
+    if mode in bank_index.QUERIES:
+        rows = bank_index.pick(mode, thr=_head_threshold(), n=1)
+        if not rows:
+            return None
+        return _row_to_item(rows[0])
+
     if mode == "marked":
         # 🚨 EVERY CROP YOU CALLED GOVERNMENT, NEWEST FIRST, SO A MISTAKE CAN BE
         # TAKEN BACK.
@@ -307,6 +450,40 @@ def next_item(mode: str = "review", seed: Optional[int] = None) -> Optional[dict
         cand = [i for i in todo if i.get("source") == "remote_node"]
         cand.sort(key=lambda i: i.get("ts") or 0)
         return cand[0] if cand else None
+    if mode == "gap":
+        # 🚨 WHERE THE TWO MODELS DISAGREE, AND THE ONLY QUEUE AIMED AT WHAT IS
+        # ACTUALLY WRONG WITH THE CLASSIFIER.
+        #
+        # `hunt` asks where CLIP is UNSURE. That is the right question for CLIP
+        # and the wrong one for the head, because the failure being chased looks
+        # like this in the log:
+        #
+        #     #696471: gov_dot conf=0.93 margin=0.89 head=0.00
+        #
+        # CLIP is not unsure there. It is confident and the head threw it away,
+        # so `hunt` ranks that crop LOW and nobody is ever asked about it. He
+        # drove past a marked state trooper and the map never saw it; measured
+        # afterwards, drive nodes produced 837 uploads in 24h and 0 published.
+        # The head is fit on a single-digit number of camera-view positives, so
+        # its blind spots are not noise to be averaged away - they are specific
+        # vehicles it has never been shown.
+        #
+        # Ordered by CLIP confidence descending: the most confidently-government
+        # crop the head refused is the one whose label teaches it the most.
+        #
+        # ⚠️ BIASED BY CONSTRUCTION, exactly like `likely`, and for both reasons:
+        # the slice is chosen by the models, and knowing you are in the
+        # "should have been government" queue primes the answer. Labels from
+        # here can TRAIN. They must never MEASURE. `review` is the only mode
+        # whose labels may be quoted as precision or recall.
+        thr = _head_threshold()
+        cand = [i for i in todo
+                if (i["_clip"].get("vclass") in ("police", "gov_dot", "emergency")
+                    and i.get("_head") is not None
+                    and float(i["_head"]) < thr)]
+        cand.sort(key=lambda i: -(i["_clip"].get("conf") or 0.0))
+        return cand[0] if cand else None
+
     if mode == "hunt":
         # Closest to CLIP's decision boundary first.
         todo.sort(key=lambda i: -i["_uncertainty"])
@@ -386,6 +563,40 @@ def same_pass(day: str, stem: str, gap: float = 2.0,
     return out[:7]           # a filmstrip, not a contact sheet
 
 
+_HEAD_THR = None
+
+
+def _head_threshold() -> float:
+    """The head's own publish threshold, read from the head file.
+
+    🚨 NOT HARDCODED, BECAUSE THIS NUMBER HAS ALREADY MOVED ONCE WITHOUT ANYONE
+    ASKING IT TO. `fit_local` saves over the live head as a side effect, and on
+    2026-08-15 that quietly took the threshold from 0.45 to 0.98885 - at which
+    point almost nothing clears it. A constant here would have gone on
+    disagreeing with the model in silence, and the `gap` queue would have been
+    built against a boundary the classifier no longer uses.
+
+    Falls back to 0.45 and says so, rather than to zero: a wrong-but-plausible
+    threshold produces a queue that is merely mis-ordered, while zero would
+    produce an EMPTY one, and an empty queue reads as "nothing to do".
+    """
+    global _HEAD_THR
+    if _HEAD_THR is not None:
+        return _HEAD_THR
+    try:
+        import numpy as np
+        z = np.load(DATA / "models" / "vehicle_head.npz", allow_pickle=True)
+        for k in z.files:
+            if "thr" in k.lower():
+                _HEAD_THR = float(z[k])
+                return _HEAD_THR
+    except Exception:
+        pass
+    print("labelbank: could not read the head threshold, assuming 0.45")
+    _HEAD_THR = 0.45
+    return _HEAD_THR
+
+
 def _gov_score(item: dict) -> float:
     """How strongly the model called this a government vehicle, 0 if it did not."""
     c = item.get("_clip") or {}
@@ -462,6 +673,24 @@ def set_label(day: str, stem: str, label: str, sampling: str = "review") -> dict
         if not (synced.startswith("reclassified") and d.get("synced") == "promoted"):
             d["synced"] = synced
         p.write_text(json.dumps(d, indent=1, default=str), encoding="utf-8")
+
+    # 🚨 THE INDEX HAS TO LEARN THE ANSWER OR THE QUEUE ASKS AGAIN.
+    #
+    # Every mode filters on `label`, and that now comes from the index rather
+    # than the sidecar. Without this line the crop stays unlabelled as far as
+    # the queue is concerned and comes straight back - and because `gap` and
+    # `likely` are sorted by confidence, it comes back FIRST, so the queue would
+    # hand you the same picture forever and look broken while working perfectly.
+    #
+    # LAST, and best-effort, deliberately: the sidecar is the truth and is
+    # already written by this point. A cache that cannot be updated must never
+    # cost a human's judgement - the label survives, the ordering is stale until
+    # the next `tools/bank_index.py`, and that is the right way round.
+    try:
+        import bank_index
+        bank_index.update_one(bank_index.connect(), day, stem)
+    except Exception as exc:                                   # noqa: BLE001
+        print(f"labelbank: label saved, index not updated ({exc})")
 
     clip = d.get("clip") or {}
     return {"clip": {"vclass": clip.get("vclass"), "conf": clip.get("conf"),

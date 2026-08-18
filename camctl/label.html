@@ -103,6 +103,7 @@ main{flex:1;display:flex;align-items:center;justify-content:center;
   <div><b>LABEL VEHICLES</b><span class="sub">ground truth for the classifier</span></div>
   <div class="modes">
     <button class="mode on" data-m="review">Review</button>
+    <button class="mode" data-m="gap">Gap</button>
     <button class="mode" data-m="likely">Likely gov</button>
     <button class="mode" data-m="hunt">Hunt</button>
     <button class="mode" data-m="recheck">Recheck</button>
@@ -151,6 +152,15 @@ let cur = null, last = null, mode = 'review', busy = false;
 const PASSKEY = 'sparrow.passall';
 
 const NOTES = {
+  gap:    `<b>Gap mode:</b> crops where CLIP said <b>government</b> and the trained
+           head <b>refused</b> them. These were discarded and nobody was ever
+           asked, so they are the classifier's blind spots rather than its hard
+           cases &mdash; a marked cruiser CLIP scored 0.99 and the head scored
+           0.00001. Hunt will not find these, because CLIP is not the one that
+           is unsure.
+           <b>These labels train, they never measure:</b> the slice is chosen by
+           the models and the queue's name tells you what to expect, so they are
+           biased twice over, exactly like Likely.`,
   likely: `<b>Likely government first:</b> sorted by how strongly the model
            called it a government vehicle. This is the fastest way to find the
            thing that is actually holding the classifier back &mdash; there are
