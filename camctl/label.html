@@ -103,6 +103,7 @@ main{flex:1;display:flex;align-items:center;justify-content:center;
   <div><b>LABEL VEHICLES</b><span class="sub">ground truth for the classifier</span></div>
   <div class="modes">
     <button class="mode on" data-m="review">Review</button>
+    <button class="mode" data-m="patrol">Patrol gap</button>
     <button class="mode" data-m="gap">Gap</button>
     <button class="mode" data-m="likely">Likely gov</button>
     <button class="mode" data-m="hunt">Hunt</button>
@@ -152,6 +153,14 @@ let cur = null, last = null, mode = 'review', busy = false;
 const PASSKEY = 'sparrow.passall';
 
 const NOTES = {
+  patrol: `<b>Patrol gap:</b> the queue to actually work. Crops where CLIP said
+           <b>police or emergency</b> and the head <b>refused</b> them &mdash; about
+           2,300 above 0.90 confidence, which is finishable.
+           <b>Gap</b> without this filter is half CLIP's <code>gov_dot</code> class,
+           which is mostly firing on heavy plant: a concrete mixer at 0.991, a dump
+           truck at 0.991. Those are <b>fleet</b> and the head is right to refuse
+           them, so answering them teaches it nothing.
+           <b>Trains, never measures</b>, same as Likely and Gap.`,
   gap:    `<b>Gap mode:</b> crops where CLIP said <b>government</b> and the trained
            head <b>refused</b> them. These were discarded and nobody was ever
            asked, so they are the classifier's blind spots rather than its hard

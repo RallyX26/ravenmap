@@ -142,6 +142,23 @@ QUERIES = {
     "gap": ("SELECT * FROM crops WHERE " + _UNLABELLED + " AND " + _GOVCLASS +
             " AND head_conf IS NOT NULL AND head_conf < :thr"
             " ORDER BY clip_conf DESC LIMIT :n"),
+    # 🚨 THE SAME QUEUE WITH THE CONSTRUCTION TRAFFIC TAKEN OUT.
+    #
+    # `gap` sorted by confidence is dominated by CLIP's `gov_dot` class, and
+    # looking at the top of it, gov_dot is largely firing on heavy plant: a
+    # concrete mixer at 0.991, an articulated dump truck at 0.991. Those are
+    # `fleet` - commercially owned - and the head is RIGHT to refuse them, so
+    # answering them teaches it nothing it does not already know. 82,265 of the
+    # 164,465 sit in that class.
+    #
+    # The crops that matter are the ones where CLIP said POLICE or EMERGENCY and
+    # the head still refused: a marked patrol SUV with its light bar lit,
+    # CLIP 0.990, head 0.0067. That is the reported failure exactly. There are
+    # about 2,300 of those above 0.90, which is a queue a person can finish.
+    "patrol": ("SELECT * FROM crops WHERE " + _UNLABELLED +
+               " AND clip_vclass IN ('police','emergency')"
+               " AND head_conf IS NOT NULL AND head_conf < :thr"
+               " ORDER BY clip_conf DESC LIMIT :n"),
     # Highest government confidence first, whatever the head thought.
     "likely": ("SELECT * FROM crops WHERE " + _UNLABELLED + " AND " + _GOVCLASS +
                " ORDER BY clip_conf DESC LIMIT :n"),
