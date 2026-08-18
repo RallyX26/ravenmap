@@ -83,8 +83,24 @@ class FrameGrabber:
         self.grabbed_seen = 0
 
     # -- lifecycle ------------------------------------------------------
+    @staticmethod
+    def _open(src):
+        """Open a URL, a file, or a USB device INDEX.
+
+        🚨 "--source 0" USED TO FAIL WITH "cannot open 0" AND IT LOOKED LIKE A
+        BROKEN CAMERA. cv2.VideoCapture treats a str as a path or URL, so the
+        string "0" is a filename that does not exist - while the integer 0 is
+        the first capture device. Anybody attaching a phone through a webcam
+        driver (Iriun, DroidCam, EpocCam) lands on a device index, types the
+        obvious thing, and gets an error about a camera that is working fine.
+        A digit means a device; everything else is a path or a URL.
+        """
+        if isinstance(src, str) and src.strip().isdigit():
+            return cv2.VideoCapture(int(src.strip()))
+        return cv2.VideoCapture(src)
+
     def start(self) -> "FrameGrabber":
-        cap = cv2.VideoCapture(self.src)
+        cap = self._open(self.src)
         if not cap.isOpened():
             raise RuntimeError(f"cannot open {self.src}")
         ok, frame = cap.read()
@@ -126,7 +142,7 @@ class FrameGrabber:
                     except Exception:
                         pass
                     time.sleep(1.0)
-                    cap = cv2.VideoCapture(self.src)
+                    cap = self._open(self.src)
                     last_ok = now
                 else:
                     time.sleep(0.02)
