@@ -230,7 +230,21 @@ def main() -> None:
     # instrument that CAN hand you a flattering number eventually will, so this
     # one is not able to.
     ap.add_argument("--seeds", type=int, default=10)
+    # 🚨 ABLATION, BECAUSE "MORE LABELS" IS A HYPOTHESIS NOT A FACT.
+    # 186 machine-made positives were added on 2026-08-18 and recall against
+    # zero-shot fell from 60% to 48%. Almost all of them came from PUBLIC
+    # TRAFFIC CAMERAS while all 43 test positives come from his own camera, so
+    # the obvious suspect is distribution rather than label quality - and the
+    # only way to tell is to train without them and look. This flag makes that
+    # a one-line experiment instead of an edit.
+    ap.add_argument("--exclude", default="",
+                    help="comma-separated sampling tags to drop from TRAINING "
+                         "as well (e.g. machine,community)")
     args = ap.parse_args()
+    if args.exclude:
+        EXCLUDE_FROM_TRAINING.update(
+            t.strip() for t in args.exclude.split(",") if t.strip())
+        print("excluding from training: %s" % sorted(EXCLUDE_FROM_TRAINING))
 
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import StratifiedGroupKFold
