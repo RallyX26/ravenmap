@@ -140,6 +140,42 @@ def main() -> None:
     for k, v in by.most_common():
         print("    %-10s %d" % (k, v))
 
+    # --- the stratified estimate, weighted by band population ----------
+    # 🚨 THE WEIGHTS EXIST TO BE USED. A stratified sample read as if it were
+    # simple random is worse than no sample at all: it looks rigorous and
+    # reports a rate inflated by however hard the dense band was oversampled.
+    # Band A is 60 crops out of ~5,700 while band C is 80 out of ~500,000, so
+    # an unweighted count would put the government rate roughly two orders of
+    # magnitude too high.
+    rand = [(i, l) for i, l, _, _ in settled if mapping.get(i, {}).get("pool") == "random"]
+    if rand:
+        from collections import defaultdict
+        seen = defaultdict(int)
+        pos = defaultdict(int)
+        pop = {}
+        for item, lab in rand:
+            m = mapping[item]
+            b = m.get("band") or "?"
+            seen[b] += 1
+            pop[b] = m.get("band_pop") or 0
+            if lab in ("police", "gov"):
+                pos[b] += 1
+        print()
+        print("--- the RANDOM slice: an unbiased estimate for the whole bank ---")
+        total_pop = sum(pop.values())
+        est = 0.0
+        for b in sorted(seen):
+            rate = pos[b] / seen[b]
+            est += rate * pop[b]
+            print("    band %-3s %3d labelled, %3d government -> %5.1f%% of a "
+                  "%d-crop band" % (b, seen[b], pos[b], rate * 100, pop[b]))
+        print("    weighted estimate: %.2f%% of the bank is a government vehicle"
+              % (100.0 * est / max(total_pop, 1)))
+        print("    (%d crops behind that estimate, %d labelled)"
+              % (total_pop, sum(seen.values())))
+        print("    ⚠️ band C is the thin one and it is where MISSED positives")
+        print("       live, so widen it before trusting a recall figure.")
+
     if not a.apply:
         print()
         print("DRY RUN. add --apply to write these into the bank.")
@@ -150,8 +186,16 @@ def main() -> None:
         m = mapping.get(item)
         if not m:
             continue
+        # 🚦 TWO DIFFERENT TAGS, BECAUSE THEY HAVE DIFFERENT RIGHTS.
+        # community_random came from a stratified random draw and is therefore
+        # allowed to MEASURE (his call: the project is open and the statistic is
+        # checkable by anyone). community came from the patrol queue, which is
+        # biased toward the model's mistakes by construction, so it may only
+        # train - and neither trains until he approves it on /proof, because
+        # APPROVED_FOR_TRAINING in fit_local contains neither tag.
+        tag = "community_random" if m.get("pool") == "random" else "community"
         try:
-            labelbank.set_label(m["day"], m["stem"], label, "community")
+            labelbank.set_label(m["day"], m["stem"], label, tag)
             ok += 1
         except Exception as exc:                        # noqa: BLE001
             print("  %s failed: %s" % (item, exc))

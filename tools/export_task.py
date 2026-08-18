@@ -67,6 +67,53 @@ def pick_work(n: int, thr: float) -> list:
     return rows
 
 
+# 🚦 THE STRATIFIED RANDOM DRAW. This is the half that can MEASURE.
+#
+# A purely random sample cannot be afforded: government vehicles are about 1.07%
+# of the bank, so a random draw costs roughly 93 labels for every positive found
+# and a 40-positive test set means labelling about 3,700 crops. That is why the
+# test set was never rebuilt after the camera fleet arrived, and why it still
+# measures crops captured 08-08 to 08-12 - a world that stopped existing.
+#
+# Sampling randomly WITHIN confidence bands and reweighting by band size gives an
+# unbiased estimate for a few hundred labels, because randomness is preserved
+# inside each stratum. The sparse band is not optional: it is the only place a
+# MISSED patrol car can be found, and without it recall cannot be measured at
+# all, only precision.
+#
+# ⚠️ THE WEIGHTS MUST TRAVEL WITH THE LABELS. A stratified sample analysed as if
+# it were simple random is worse than no sample, because it looks rigorous and
+# reports a number inflated by however hard the top band was oversampled. The
+# band and its population size go into the local map, and import_votes carries
+# them through.
+STRATA = [
+    ("A", "clip_vclass IN ('police','gov_dot','emergency') AND clip_conf >= 0.90"),
+    ("B", "clip_vclass IN ('police','gov_dot','emergency') "
+          "AND clip_conf >= 0.60 AND clip_conf < 0.90"),
+    ("C", "NOT (clip_vclass IN ('police','gov_dot','emergency') "
+          "AND clip_conf >= 0.60)"),
+]
+
+
+def pick_random(per_band: dict) -> list:
+    """Random crops within each band, with the band and its size attached."""
+    db = bank_index.read()
+    out = []
+    for band, where in STRATA:
+        pop = db.execute("SELECT COUNT(*) c FROM crops WHERE " + UNLABELLED +
+                         " AND " + PUBLIC_ONLY + " AND " + where).fetchone()["c"]
+        want = per_band.get(band, 0)
+        if not want or not pop:
+            continue
+        rows = list(db.execute(
+            "SELECT * FROM crops WHERE " + UNLABELLED + " AND " + PUBLIC_ONLY +
+            " AND " + where + " ORDER BY RANDOM() LIMIT ?", (want * 2,)))
+        for r in rows:
+            out.append((r, band, pop))
+    db.close()
+    return out
+
+
 def pick_gold(n: int) -> list:
     """Crops HE answered, whose answers are therefore known.
 
@@ -95,6 +142,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=400, help="crops to be labelled")
     ap.add_argument("--gold", type=int, default=40, help="known-answer crops mixed in")
+    ap.add_argument("--random-a", type=int, default=0, help="stratified draw, band A (clip >= 0.90)")
+    ap.add_argument("--random-b", type=int, default=0, help="stratified draw, band B (0.60-0.90)")
+    ap.add_argument("--random-c", type=int, default=0, help="stratified draw, band C (the rest)")
     ap.add_argument("--push", action="store_true", help="scp the bundle to the box")
     ap.add_argument("--box", default="")
     ap.add_argument("--key", default="")
@@ -108,7 +158,7 @@ def main() -> None:
     mapping, manifest = {}, []
     used = set()
 
-    def add(r, gold_label=None):
+    def add(r, gold_label=None, pool="work", band=None, band_pop=None):
         key = (r["day"], r["stem"])
         if key in used:
             return False
@@ -119,7 +169,16 @@ def main() -> None:
         iid = secrets.token_hex(8)
         shutil.copy2(p, OUT / (iid + ".jpg"))
         # Local only: how to get back to the crop. Never shipped.
-        mapping[iid] = {"day": r["day"], "stem": r["stem"], "gold": gold_label}
+        # 🚦 WHICH POOL THIS CAME FROM, AND IT DECIDES WHAT THE LABEL MAY DO.
+        # `work` is the patrol queue: biased toward the model's mistakes on
+        # purpose, so its labels may TRAIN (once he approves them) and may never
+        # measure. `random` is a stratified random draw, so its labels are the
+        # only community ones allowed to MEASURE. Recording it here, at the
+        # moment the crop is chosen, is the only place the distinction is
+        # knowable - by the time a vote comes back there is nothing to infer it
+        # from.
+        mapping[iid] = {"day": r["day"], "stem": r["stem"], "gold": gold_label,
+                        "pool": pool, "band": band, "band_pop": band_pop}
         # Shipped: an id and nothing else.
         manifest.append({"id": iid})
         return True
@@ -132,12 +191,24 @@ def main() -> None:
         if add(r):
             n_work += 1
 
+    n_rand = 0
+    want = {"A": a.random_a, "B": a.random_b, "C": a.random_c}
+    if any(want.values()):
+        seen_band = {k: 0 for k in want}
+        for r, band, pop in pick_random(want):
+            if seen_band[band] >= want[band]:
+                continue
+            if add(r, pool="random", band=band, band_pop=pop):
+                seen_band[band] += 1
+                n_rand += 1
+        print("  stratified random draw: %s" % seen_band)
+
     gold = pick_gold(a.gold)
     n_gold = 0
     for r in gold:
         if n_gold >= a.gold:
             break
-        if add(r, gold_label=r["label"]):
+        if add(r, gold_label=r["label"], pool="gold"):
             n_gold += 1
 
     # Shuffle so the gold is not detectable by position.
@@ -150,7 +221,8 @@ def main() -> None:
 
     size = sum(f.stat().st_size for f in OUT.glob("*.jpg"))
     print("bundle : %s" % OUT)
-    print("  to label      : %d" % n_work)
+    print("  to label      : %d  (patrol queue, TRAINS once you approve)" % n_work)
+    print("  random slice  : %d  (stratified, MEASURES)" % n_rand)
     print("  gold (hidden) : %d" % n_gold)
     print("  total images  : %d  (%.1f MB)" % (len(manifest), size / 1048576))
     print("  map (LOCAL)   : %s" % MAP)

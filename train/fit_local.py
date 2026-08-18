@@ -89,6 +89,61 @@ C_BEST = 0.5
 # Handheld stays out of both, because it was MEASURED to hurt (AP 0.890 -> 0.844).
 EXCLUDE_FROM_TRAINING = {"handheld", "scraped"}
 
+# 🚨 AN ALLOWLIST, NOT A DENYLIST. HIS RULE, AND IT IS THE RIGHT ONE:
+# "training data should be gated and approved by me. all of it."
+#
+# The line above is a denylist, and a denylist fails silently the moment a new
+# sampling tag appears. That is not hypothetical - it already happened. 186
+# machine-made labels were written on 2026-08-18, were not in the denylist, and
+# therefore trained the head without anybody approving them. Recall fell twelve
+# points and the labels were never the decision they looked like.
+#
+# So membership is now positive: a tag trains only if it is HERE, and every tag
+# here is one he clicked himself. `machine` and `community` are deliberately
+# absent. They become trainable by being APPROVED on /proof, which retags them
+# `confirmed` - so the gate is a human action, not a config line somebody
+# forgets to update.
+#
+# What this protects is the thing he actually asked for: that a private car can
+# never be labelled police in the training data, and that a cruiser is only ever
+# found with a police label. No machine and no stranger can put either claim
+# into the training set without him seeing the picture first.
+#
+# ⚠️ `handheld` is absent for a DIFFERENT reason and it is not about approval -
+# he labelled those himself. It was MEASURED to hurt (AP 0.890 -> 0.844),
+# because press-style photographs teach photography rather than policing.
+APPROVED_FOR_TRAINING = {
+    "review",      # random draw, his
+    "likely",      # highest-government-confidence queue, his
+    "hunt",        # CLIP's hardest cases, his
+    "split",       # police-vs-gov re-ask, his
+    "marked",      # crops he called government, re-shown for undo
+    "recheck",     # civilians the model disagreed with, his
+    "gap",         # CLIP says government, head refused - his clicks
+    "patrol",      # the same queue with heavy plant filtered out - his clicks
+    "remote",      # other people's nodes, oldest first - his clicks
+    "confirmed",   # a machine or community label he has approved on /proof
+}
+
+# ⚠️ THE LIST ABOVE IS EVERY MODE THE LABELLING PAGE OFFERS, AND THAT IS THE
+# POINT: if a tag is missing, HIS OWN work silently stops training. Writing the
+# allowlist from memory got `gap` and `remote` wrong on the first attempt - 58
+# and 29 of his own labels would have been dropped. Check it against the mode
+# buttons in camctl/label.html when a queue is added, not against recollection.
+
+# 🚦 WHAT MAY MEASURE. His call, 2026-08-18: crowd consensus is allowed to
+# measure, because the project is open and the statistic is checkable by anyone.
+# But only a RANDOM sample can measure anything, so this is his random draw plus
+# the community's random stratified slice - never the patrol queue, whose whole
+# purpose is to be biased toward the model's mistakes.
+MEASURABLE = {"review", "community_random"}
+
+
+def _trainable(src):
+    """Boolean mask: rows he has approved for training."""
+    import numpy as np
+    return np.isin(src, list(APPROVED_FOR_TRAINING))
+
 # Label -> is this a publicly owned vehicle we would publish?
 #
 # ⚠️ `gov` IS A POSITIVE HERE AND THAT IS NOT A WIDENING. Until 2026-08-10 the
@@ -242,9 +297,9 @@ def main() -> None:
                          "as well (e.g. machine,community)")
     args = ap.parse_args()
     if args.exclude:
-        EXCLUDE_FROM_TRAINING.update(
-            t.strip() for t in args.exclude.split(",") if t.strip())
-        print("excluding from training: %s" % sorted(EXCLUDE_FROM_TRAINING))
+        for t in args.exclude.split(","):
+            APPROVED_FOR_TRAINING.discard(t.strip())
+        print("training on: %s" % sorted(APPROVED_FOR_TRAINING))
 
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import StratifiedGroupKFold
@@ -252,7 +307,7 @@ def main() -> None:
 
     X, y, src, meta = load()
     groups = pass_groups(meta)
-    cam = src == "review"
+    cam = np.isin(src, list(MEASURABLE))
     print(f"\n{len(y)} labelled crops: {int(y.sum())} government, "
           f"{int((y == 0).sum())} not")
     print(f"  camera-view (review) : {int(cam.sum())}  "
@@ -287,7 +342,7 @@ def main() -> None:
         # twins were. Excluding by group closes the door they came through.
         test_groups = set(groups[cam_idx[te_i]].tolist())
         extra = np.where(~cam
-                         & ~np.isin(src, list(EXCLUDE_FROM_TRAINING))
+                         & _trainable(src)
                          & ~np.isin(groups, list(test_groups)))[0]
         train_rows = np.concatenate([cam_idx[tr_i], extra])
 
@@ -378,7 +433,7 @@ def main() -> None:
         return
 
     # Final model on everything, for deployment.
-    fit_rows = np.where(~np.isin(src, list(EXCLUDE_FROM_TRAINING)))[0]
+    fit_rows = np.where(_trainable(src))[0]
     # 🚨 FIT ON THE SCALED FEATURES, AND SAVE THE SCALER WITH THE WEIGHTS.
     # The folds above are evaluated with standardisation; a deployed head fitted
     # WITHOUT it is a different model from the one that was measured, and it
