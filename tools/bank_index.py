@@ -155,10 +155,25 @@ QUERIES = {
     # the head still refused: a marked patrol SUV with its light bar lit,
     # CLIP 0.990, head 0.0067. That is the reported failure exactly. There are
     # about 2,300 of those above 0.90, which is a queue a person can finish.
-    "patrol": ("SELECT * FROM crops WHERE " + _UNLABELLED +
+    # 🚨 AT MOST A FEW PER CAMERA, OR ONE VEHICLE EATS THE QUEUE.
+    #
+    # Straight confidence order put the SAME white Jeep in ten of twenty-five
+    # slots on one sheet: one marked unit, one camera, photographed over and
+    # over. That is not twenty-five decisions, it is sixteen, and the ten teach
+    # the head almost nothing beyond what the first one did.
+    #
+    # It is also the failure label_progress already names - "from SEVERAL
+    # cameras. A model trained on one street learns that street" - so spending
+    # the labelling budget on one street is exactly the trap the project has
+    # been trying to climb out of. ROW_NUMBER partitions by node so every camera
+    # contributes its best few and the sheet is mostly distinct vehicles.
+    "patrol": ("SELECT * FROM ("
+               " SELECT *, ROW_NUMBER() OVER ("
+               "   PARTITION BY node_id ORDER BY clip_conf DESC) rn"
+               " FROM crops WHERE " + _UNLABELLED +
                " AND clip_vclass IN ('police','emergency')"
                " AND head_conf IS NOT NULL AND head_conf < :thr"
-               " ORDER BY clip_conf DESC LIMIT :n"),
+               ") WHERE rn <= 3 ORDER BY clip_conf DESC LIMIT :n"),
     # Highest government confidence first, whatever the head thought.
     "likely": ("SELECT * FROM crops WHERE " + _UNLABELLED + " AND " + _GOVCLASS +
                " ORDER BY clip_conf DESC LIMIT :n"),
