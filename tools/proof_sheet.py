@@ -1,4 +1,13 @@
-"""Every machine label on one page, grouped by call, so a human can skim them.
+"""SUPERSEDED by the live /proof page. Kept only as a static export.
+
+⚠️ /proof is now served from camctl/proof_app.html and reads /api/proof/list
+directly, so it is always current and every label can be kept or corrected in
+one click. This script writes a READ-ONLY snapshot, which is what proved
+inadequate: three wrong labels were spotted on it and there was no way to fix
+them except describing them in a message, and each description matched several
+crops. Use it only if you want a frozen copy of a moment.
+
+Every machine label on one page, grouped by call, so a human can skim them.
 
     python tools/proof_sheet.py          ->  camctl/proof.html, served at /proof
 
