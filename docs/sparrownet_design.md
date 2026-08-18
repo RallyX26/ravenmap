@@ -116,3 +116,89 @@ checked.** Sightings carry coordinates, and the project's defence against faked
 sightings partly rests on a node being a real thing in a real place. Anonymity
 for the volunteer and accountability for the claim pull against each other, and
 that tension should be resolved deliberately rather than discovered later.
+
+
+---
+
+# BUILT AND TESTED, 2026-08-18
+
+Step 1 is done. It took about fifteen minutes and **no hardware at all**.
+
+## What actually got built
+
+`tor` on the existing map box, with a hidden service in front of the hub that is
+already running. Nothing else. No new machine, no new domain, no registrar, no
+DNS, no CDN, no port forwarding, no router change, no certificate.
+
+```
+HiddenServiceDir /var/lib/tor/sparrowmap/
+HiddenServicePort 80 127.0.0.1:8150
+```
+
+That is the whole configuration. Tor makes an outbound connection, so the box
+does not need an inbound port open for it and the address cannot be looked up in
+a registry, because there is no registry.
+
+## The trap that was checked FIRST
+
+A hidden service forwards from the local tor daemon, so **every anonymous
+visitor arrives as 127.0.0.1** - and `is_operator_addr` returns True for
+loopback. Naively, that would have handed operator rights to the entire
+internet.
+
+It does not, and two independent things already stop it:
+
+* `mirror.enabled()` is True on this box, so operator routes are **absent**
+  rather than refused;
+* `operator_auth.required()` is True, and when it is, **the socket address is
+  ignored** - which is exactly the trap hub.py's own comment warns about.
+
+Either one alone would be enough. Both were verified before tor was installed,
+not after.
+
+## Measured
+
+| test | result |
+|---|---|
+| public map over Tor | `/` `/about` `/api/stats` `/support` all 200 |
+| operator routes over Tor | `/review` `/api/review/list` `/api/operator/state` `/api/purge` `/api/audit` all **404** |
+| node pages over Tor | `/app` `/drive` `/key` all 200 |
+| node APIs over Tor | reachable, answering at application level (`400 missing name`, `404 unknown node`) |
+| clearnet leakage in the page | `sparrowmap.com` 0, `cloudflare` 0, external CDNs 0, absolute URLs 0 |
+| response headers | `Server: SparrowMap`, no `CF-RAY`, no Cloudflare |
+| latency | loopback 0.001-0.05s, over Tor 0.7-3.6s |
+
+The leakage row matters more than it looks. Plenty of onion mirrors give
+themselves away through a hardcoded absolute URL to the clearnet site; this page
+is entirely relative, so it does not.
+
+## What this buys, and what it does not
+
+**Buys:** an address with no registrar and no CDN to lean on; a way for a
+volunteer to run a node without their home IP crossing Cloudflare; and a
+fallback that keeps working if the domain ever stops.
+
+**Does not buy:** protection from the box dying or the host dropping the
+project. Tor is a name and a path, not a second copy. That is what mirrors are
+for, and they are the next step rather than this one.
+
+## Latency, honestly
+
+0.7-3.6s per request against 0.02s on loopback. For a node that is fine - it
+uploads a crop every few seconds and nothing is interactive. For a person
+browsing the map it is noticeable. So the onion is a fallback and a privacy
+option, not a replacement for the clearnet site.
+
+## Is there an easier method?
+
+No, and that is the point. The alternatives are all worse:
+
+| option | cost | who can take it away |
+|---|---|---|
+| **.onion** | nothing, 15 minutes | nobody |
+| second domain | money, yearly | a registrar |
+| VPS in another country | money, monthly | that host |
+| IPFS | complex for live data | nobody, but it fits static files |
+
+⏭️ **Not announced anywhere.** The address exists and works; publishing it is a
+decision, not a side effect of building it.
