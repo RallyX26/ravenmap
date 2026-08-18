@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proof the machine labels</title>
+<link rel="icon" href="data:,">
+<style>
+:root{--bg:#0a0d12;--card:#111621;--line:#1e2634;--line2:#2a3547;--ink:#e6ecf5;
+ --dim:#8794a8;--dim2:#5c6879;--blue:#3d8cff;--good:#3ddc97;--warn:#ffb547;--hot:#ff5b6e;
+ --mono:ui-monospace,Consolas,monospace}
+*{box-sizing:border-box}
+html,body{height:auto;overflow:visible}
+body{margin:0;background:var(--bg);color:var(--ink);
+ font:14px/1.5 ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1400px;margin:0 auto;padding:18px 14px 90px}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--dim2);font-size:12.5px;margin:0 0 14px}
+.note{border-left:2px solid var(--warn);background:#15130c;padding:11px 13px;
+ border-radius:0 8px 8px 0;margin:0 0 16px;font-size:12.5px;color:#d8cdb4}
+.note b{color:var(--ink)}
+.bar{position:sticky;top:0;z-index:5;background:#0a0d12ee;backdrop-filter:blur(6px);
+ padding:9px 0 11px;border-bottom:1px solid var(--line);margin-bottom:14px;
+ display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.f{font:600 10.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;
+ padding:6px 10px;border-radius:6px;cursor:pointer;color:var(--dim);
+ background:#0d121c;border:1px solid var(--line2)}
+.f.on{color:#080c12;background:var(--blue);border-color:transparent}
+.count{margin-left:auto;font:11.5px var(--mono);color:var(--dim2)}
+.count b{color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.c{background:var(--card);border:1px solid var(--line2);border-radius:9px;overflow:hidden;
+ transition:border-color .12s,opacity .2s}
+.c.done{opacity:.42}
+.c.ok{border-color:#2b5e42}
+.c.fixed{border-color:#7a5a20}
+.c img{width:100%;height:140px;object-fit:contain;background:#000;display:block;cursor:zoom-in}
+.m{font:10px var(--mono);color:var(--dim2);padding:5px 7px 3px;line-height:1.4}
+.m b{color:var(--dim)}
+.act{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;padding:0 5px 6px}
+.a{padding:7px 2px;border-radius:5px;border:1px solid var(--line2);background:#0d121c;
+ color:var(--dim);font:700 10px var(--mono);cursor:pointer}
+.a:hover{color:var(--ink);border-color:var(--blue)}
+.a.keep{grid-column:1 / -1;background:#0e1f16;border-color:#2b5e42;color:#8fe0b4;
+ font-size:11px;padding:8px}
+.a.p{color:#ff8b96} .a.g{color:#7fb8e8} .a.f2{color:#e8c07f} .a.c2{color:#9aa8bc}
+.lab{display:inline-block;padding:1px 5px;border-radius:3px;font-weight:700}
+.lab.police{background:#3a1418;color:#ff8b96} .lab.gov{background:#12253a;color:#7fb8e8}
+.lab.fleet{background:#2a2314;color:#e8c07f} .lab.civilian{background:#1a1f28;color:#9aa8bc}
+.lab.unsure{background:#241f14;color:#c9b98d}
+h2{font:600 12px var(--mono);letter-spacing:.14em;text-transform:uppercase;
+ margin:26px 0 10px;padding-top:14px;border-top:1px solid var(--line);color:var(--dim)}
+#zoom{position:fixed;inset:0;background:#000c;display:none;align-items:center;
+ justify-content:center;z-index:50;cursor:zoom-out}
+#zoom img{max-width:94vw;max-height:94vh}
+.empty{color:var(--dim2);padding:30px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Proof the machine labels</h1>
+  <p class="sub">Every crop a machine labelled. Keep it, or click the right answer.</p>
+
+  <!-- 🚨 THE AUDIT HAS TO BE ACTIONABLE. The first version of this page could
+       only be read, so finding a wrong label meant describing it in a message
+       and hoping the right crop was found from two decimal places. Three were
+       reported that way and several crops matched each description. -->
+  <div class="note">
+    <b>These train the head. They can never measure it.</b> Anything you touch here
+    is retagged <code>confirmed</code>: a human has now seen it, so it is good enough
+    to train on and to use as a hidden gold crop for the community task &mdash; but the
+    crop was chosen by a biased queue, so it still never enters
+    <code>measurable</code>. Only crops you answer in <b>review</b> mode measure
+    anything.<br><br>
+    Sorted with the head's most confident rejections first, because those are the
+    most valuable if the call is right and the most damaging if it is wrong.
+  </div>
+
+  <div class="bar" id="bar">
+    <button class="f on" data-f="machine">Unchecked</button>
+    <button class="f" data-f="confirmed">Checked</button>
+    <button class="f" data-f="all">All</button>
+    <span style="width:14px"></span>
+    <button class="f on" data-l="all">Any label</button>
+    <button class="f" data-l="police">police</button>
+    <button class="f" data-l="gov">gov</button>
+    <button class="f" data-l="fleet">fleet</button>
+    <button class="f" data-l="civilian">civilian</button>
+    <button class="f" data-l="unsure">unsure</button>
+    <span class="count" id="count"></span>
+  </div>
+
+  <div id="out"></div>
+</div>
+<div id="zoom"><img alt=""></div>
+
+<script>
+var $ = function (s) { return document.querySelector(s); };
+var ALL = [], fState = 'machine', fLabel = 'all';
+var LABELS = [['p', 'police'], ['g', 'gov'], ['f', 'fleet'], ['c', 'civilian'], ['u', 'unsure']];
+
+function esc(s) {
+  return String(s === null || s === undefined ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+  });
+}
+
+function cls(lab) {
+  if (lab === 'police') return 'p';
+  if (lab === 'gov') return 'g';
+  if (lab === 'fleet') return 'f2';
+  return 'c2';
+}
+
+function card(r) {
+  var id = r.day + '/' + r.stem;
+  var acts = LABELS.map(function (L) {
+    var dim = (L[1] === r.label) ? ' style="opacity:.35"' : '';
+    return '<button class="a ' + cls(L[1]) + '" data-id="' + esc(id) +
+      '" data-l="' + L[1] + '"' + dim + '>' + L[0].toUpperCase() + '</button>';
+  }).join('');
+  return '<div class="c' + (r.sampling === 'confirmed' ? ' ok' : '') +
+    '" data-id="' + esc(id) + '">' +
+    '<img loading="lazy" src="/api/bank/img/' + esc(r.day) + '/' + esc(r.stem) + '" alt="">' +
+    '<div class="m">was <span class="lab ' + esc(r.label) + '">' + esc(r.label) + '</span>' +
+    ' &middot; <b>' + esc(r.clip_vclass) + '</b> ' + (r.clip_conf || 0).toFixed(2) +
+    ' &middot; head ' + (r.head_conf || 0).toFixed(3) + '</div>' +
+    '<div class="act"><button class="a keep" data-id="' + esc(id) + '" data-l="' +
+    esc(r.label) + '" data-keep="1">KEEP</button>' + acts + '</div></div>';
+}
+
+function counts() {
+  var un = ALL.filter(function (r) { return r.sampling === 'machine'; }).length;
+  $('#count').innerHTML = '<b>' + un + '</b> unchecked &middot; <b>' +
+    (ALL.length - un) + '</b> checked';
+}
+
+function render() {
+  var rows = ALL.filter(function (r) {
+    if (fState !== 'all' && r.sampling !== fState) return false;
+    if (fLabel !== 'all' && r.label !== fLabel) return false;
+    return true;
+  });
+  var byLab = {};
+  rows.forEach(function (r) { (byLab[r.label] = byLab[r.label] || []).push(r); });
+  var html = '';
+  ['police', 'gov', 'fleet', 'civilian', 'unsure'].forEach(function (lab) {
+    var rs = byLab[lab];
+    if (!rs || !rs.length) return;
+    html += '<h2>' + lab + ' &middot; ' + rs.length + '</h2><div class="grid">' +
+      rs.map(card).join('') + '</div>';
+  });
+  $('#out').innerHTML = html || '<p class="empty">Nothing matches that filter.</p>';
+  counts();
+}
+
+function load() {
+  fetch('/api/proof/list', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { ALL = d.items || []; render(); })
+    .catch(function () { $('#out').innerHTML = '<p class="empty">Could not load.</p>'; });
+}
+
+document.addEventListener('click', function (e) {
+  var z = $('#zoom');
+  if (e.target.tagName === 'IMG' && e.target.closest('.c')) {
+    z.querySelector('img').src = e.target.src;
+    z.style.display = 'flex';
+    return;
+  }
+  if (e.target.closest('#zoom')) { z.style.display = 'none'; return; }
+
+  var f = e.target.closest('.f');
+  if (f) {
+    if (f.dataset.f) {
+      fState = f.dataset.f;
+      document.querySelectorAll('.f[data-f]').forEach(function (b) {
+        b.classList.toggle('on', b === f);
+      });
+    } else {
+      fLabel = f.dataset.l;
+      document.querySelectorAll('.f[data-l]').forEach(function (b) {
+        b.classList.toggle('on', b === f);
+      });
+    }
+    render();
+    return;
+  }
+
+  var a = e.target.closest('.a');
+  if (!a) return;
+  var id = a.dataset.id, lab = a.dataset.l;
+  var slash = id.indexOf('/');
+  var day = id.slice(0, slash), stem = id.slice(slash + 1);
+
+  // Grey the card immediately. The write is confirmed below, but a reviewer
+  // going at speed needs to see that the click landed without waiting.
+  var el = a.closest('.c');
+  if (el) el.classList.add('done', a.dataset.keep ? 'ok' : 'fixed');
+
+  fetch('/api/proof/set', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ day: day, stem: stem, label: lab })
+  }).then(function (r) { return r.json(); })
+    .then(function (d) {
+      var row = ALL.filter(function (r) { return r.day + '/' + r.stem === id; })[0];
+      if (row && d && d.ok) { row.label = lab; row.sampling = 'confirmed'; }
+      if (!d || !d.ok) {
+        if (el) { el.classList.remove('done', 'ok', 'fixed'); el.style.borderColor = '#ff5b6e'; }
+      }
+      counts();
+    })
+    .catch(function () {
+      if (el) { el.classList.remove('done', 'ok', 'fixed'); el.style.borderColor = '#ff5b6e'; }
+    });
+});
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') $('#zoom').style.display = 'none';
+});
+
+load();
+</script>
+</body>
+</html>

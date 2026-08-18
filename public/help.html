@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Help train the detector — SparrowMap</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/static/style.css?v=107">
+<style>
+  /* Built for a thumb and for speed. Hundreds of these get answered in a
+     sitting, so the picture is as big as the screen allows and the buttons are
+     large enough to hit without looking. */
+  html,body{height:auto; overflow:visible}
+  .wrap{max-width:760px; margin:0 auto; padding:16px 14px 30px}
+  h1{font-size:21px; margin:0 0 4px}
+  .sub{color:var(--dim2); font-size:13px; margin:0 0 14px}
+  .why{border-left:2px solid var(--police); background:#0f1420; padding:12px 14px;
+       border-radius:0 8px 8px 0; margin:0 0 16px; font-size:13px; color:#c3ccda}
+  .why b{color:var(--ink)}
+  .stage{background:#000; border:1px solid var(--line2); border-radius:10px;
+         height:46vh; min-height:230px; display:flex; align-items:center;
+         justify-content:center; overflow:hidden}
+  .stage img{max-width:100%; max-height:100%; object-fit:contain}
+  .btns{display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-top:12px}
+  .b{padding:16px 10px; border-radius:10px; cursor:pointer; border:1px solid var(--line2);
+     background:#0d121c; color:var(--ink); font:600 15px system-ui; text-align:center}
+  .b:hover{border-color:var(--police)}
+  .b.police{background:#2a1013; border-color:#7a2630}
+  .b.gov{background:#101d2a; border-color:#26506e}
+  .b.fleet{background:#241f14; border-color:#4a3a1c}
+  .b.civ{background:#1a1f28}
+  .b.wide{grid-column:1 / -1; background:#0a0e15; color:var(--dim); padding:12px}
+  .hint{font-size:11.5px; color:var(--dim2); margin-top:3px; font-weight:400; display:block}
+  .count{font:11.5px var(--mono); color:var(--dim2); text-align:center; margin-top:12px}
+  .count b{color:var(--ink)}
+  .done{text-align:center; color:var(--dim); padding:40px 10px; line-height:1.7}
+  .done b{color:var(--ink); font-size:17px; display:block; margin-bottom:8px}
+  .foot{margin-top:26px; font-size:12px; color:var(--dim2); line-height:1.65}
+  .foot a{color:#5aa9ff}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Help train the detector</h1>
+  <p class="sub">What kind of vehicle is this? About two seconds each.</p>
+
+  <!-- 🚨 SAY WHAT IT IS FOR, AND SAY THE LIMITS. Somebody being asked to work
+       for free is owed both. The honest pitch is also the accurate one: the
+       model is wrong about these specific images and that is why they are here. -->
+  <div class="why">
+    <b>Why these ones.</b> The detector already looked at every picture here and
+    got it wrong, or was not sure. Those are the only images worth a person's
+    time, so this queue is the mistakes rather than a random pile.<br><br>
+    <b>What happens to your answer.</b> It trains the detector. It does
+    <b>not</b> put anything on the map, and it cannot: nothing here can publish a
+    vehicle. Several people see each picture and the answers are compared before
+    any of it is used.<br><br>
+    <b>What you are looking at.</b> Every image comes from a <b>public traffic
+    camera</b>, never from a volunteer's own camera, and carries no location,
+    no time and no number plate.
+  </div>
+
+  <div id="stage" class="stage"><img id="img" alt=""></div>
+
+  <div class="btns" id="btns">
+    <button class="b police" data-l="police">Police
+      <span class="hint">marked patrol car, sheriff, trooper</span></button>
+    <button class="b gov" data-l="gov">Government
+      <span class="hint">fire engine, ambulance, city truck</span></button>
+    <button class="b fleet" data-l="fleet">Company
+      <span class="hint">delivery, construction, taxi</span></button>
+    <button class="b civ" data-l="civilian">Private car
+      <span class="hint">an ordinary vehicle</span></button>
+    <button class="b wide" data-l="unsure">Can't tell &middot; skip</button>
+  </div>
+
+  <p class="count" id="count"></p>
+
+  <div class="foot">
+    Part of <a href="/">SparrowMap</a>, a camera network the neighbourhood owns.
+    Government vehicles are public and searchable; everybody else is hashed at the
+    camera and deleted. <a href="/about">How it works</a> &middot;
+    <a href="/support">What it costs</a>
+  </div>
+</div>
+
+<script>
+(function () {
+  var $ = function (s) { return document.querySelector(s); };
+  // An anonymous id so the same person is not shown the same crop twice and so
+  // agreement can be measured. No account, nothing personal, never sent anywhere
+  // but this one endpoint.
+  var voter = localStorage.getItem('sparrow.voter');
+  if (!voter) {
+    voter = (Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)).slice(0, 20);
+    localStorage.setItem('sparrow.voter', voter);
+  }
+  var queue = [], cur = null, mine = 0, busy = false;
+
+  function preload(ids) {
+    ids.slice(0, 4).forEach(function (id) {
+      var i = new Image(); i.src = '/api/help/img/' + id;
+    });
+  }
+
+  function fill(cb) {
+    fetch('/api/help/next?voter=' + encodeURIComponent(voter), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        queue = d.items || [];
+        preload(queue);
+        if (d.done && !queue.length) return finished(d);
+        cb && cb();
+      })
+      .catch(function () { $('#count').textContent = 'could not reach the server'; });
+  }
+
+  function finished(d) {
+    $('#stage').outerHTML = '<div class="done"><b>That is all of them.</b>' +
+      'Thank you. Every one of these makes the detector better at telling a ' +
+      'patrol car from an ordinary one.</div>';
+    $('#btns').style.display = 'none';
+    $('#count').textContent = mine ? 'you answered ' + mine : '';
+  }
+
+  function show() {
+    if (!queue.length) return fill(show);
+    cur = queue.shift();
+    $('#img').src = '/api/help/img/' + cur;
+    preload(queue);
+  }
+
+  function vote(label) {
+    if (busy || !cur) return;
+    busy = true;
+    var item = cur;
+    // Move to the next picture immediately. Waiting on the network to show the
+    // next one is what makes this kind of task feel like work.
+    show();
+    fetch('/api/help/vote', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item: item, label: label, voter: voter })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      busy = false;
+      if (d && d.ok && !d.skipped) {
+        mine = d.yours || mine + 1;
+        $('#count').innerHTML = 'you have answered <b>' + mine + '</b>' +
+          (d.everyone ? ' &middot; everyone: <b>' + d.everyone + '</b>' : '');
+      }
+    }).catch(function () { busy = false; });
+  }
+
+  $('#btns').addEventListener('click', function (e) {
+    var b = e.target.closest('.b');
+    if (b) vote(b.getAttribute('data-l'));
+  });
+  document.addEventListener('keydown', function (e) {
+    var k = { p: 'police', g: 'gov', f: 'fleet', c: 'civilian', u: 'unsure' }[e.key.toLowerCase()];
+    if (k) vote(k);
+  });
+
+  fill(show);
+})();
+</script>
+</body>
+</html>

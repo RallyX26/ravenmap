@@ -1482,6 +1482,26 @@ class Handler(BaseHTTPRequestHandler):
             # the interesting half is the arithmetic, which applies to any lens
             # somebody already owns - not just the one this was written for.
             if p == "/build16":          return self._file(PUBLIC / "build16.html")
+            # 🚨 COMMUNITY LABELLING. Public on purpose, and safe because of
+            # what it cannot do rather than who it lets in: a vote lands in a
+            # SEPARATE database file with no sightings table, it never becomes a
+            # label here, and every crop in a task is from a PUBLIC traffic
+            # camera carrying an opaque id with no day, node, time or place.
+            # See help_api.py, which exists to hold those limits in one place.
+            if p == "/help":             return self._file(PUBLIC / "help.html")
+            if p == "/api/help/next":
+                import help_api
+                voter = (q.get("voter") or [""])[0]
+                return self._json(help_api.next_for(voter))
+            if p == "/api/help/stats":
+                import help_api
+                return self._json(help_api.stats())
+            if p.startswith("/api/help/img/"):
+                import help_api
+                raw = help_api.image(p[len("/api/help/img/"):])
+                if raw is None:
+                    return self._err(404, "no such crop")
+                return self._send(200, raw, "image/jpeg")
             # One program, three modes. /node and /key are kept as aliases
             # because keys, QR codes and bookmarks already point at them - a
             # link a volunteer printed must not stop working because the pages
@@ -2617,6 +2637,16 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(503, "the map is at capacity right now - "
                                           "your camera will retry")
                 return self._ingest(b)
+
+            # A stranger's judgement about one crop. It is written to
+            # label_votes.db and nowhere else - not to sightings, not to the
+            # bank. Consensus and the decision happen later, on his machine.
+            if p == "/api/help/vote":
+                import help_api
+                b = self._body()
+                return self._json(help_api.record(
+                    str(b.get("item") or ""), str(b.get("label") or ""),
+                    str(b.get("voter") or "")))
 
             if p == "/api/node/progress":
                 # How far setup got, so "never started" stops being one bucket.
