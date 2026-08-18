@@ -550,15 +550,29 @@ def same_pass(day: str, stem: str, gap: float = 2.0,
                     and i.get("source") != "scraped")
         return not i["label"]
 
+    # 🚨 A TWO-SECOND WINDOW ON ONE NODE IS A QUERY, NOT A SCAN.
+    # This walked all 645,000 crops to find the handful within two seconds of
+    # one timestamp, and it runs on EVERY /api/bank/next - so it was still
+    # costing about six seconds a click after next_item itself had been brought
+    # down to well under one. The window and the node both have indexes.
+    import bank_index
+    db = bank_index.read()
+    try:
+        rows = list(db.execute(
+            "SELECT day, stem, ts, cls_name, label, vocab, source FROM crops "
+            "WHERE node_id = ? AND ts BETWEEN ? AND ? "
+            "AND NOT (day = ? AND stem = ?)",
+            (node, ts - gap, ts + gap, day, stem)))
+    finally:
+        db.close()
     out = []
-    for i in items():
-        if (i["day"] == day and i["stem"] == stem) or not eligible(i):
+    for r in rows:
+        i = {"label": r["label"], "vocab": int(r["vocab"] or 1),
+             "source": r["source"]}
+        if not eligible(i):
             continue
-        if (i.get("node_id") or "") != node:
-            continue
-        if abs(float(i.get("ts") or 0) - ts) <= gap:
-            out.append({"day": i["day"], "stem": i["stem"],
-                        "ts": i.get("ts"), "cls_name": i.get("cls_name")})
+        out.append({"day": r["day"], "stem": r["stem"],
+                    "ts": r["ts"], "cls_name": r["cls_name"]})
     out.sort(key=lambda r: r.get("ts") or 0)
     return out[:7]           # a filmstrip, not a contact sheet
 

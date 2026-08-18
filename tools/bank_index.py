@@ -87,14 +87,28 @@ CREATE INDEX IF NOT EXISTS crops_clip    ON crops(clip_vclass);
 CREATE INDEX IF NOT EXISTS crops_head    ON crops(head_conf);
 CREATE INDEX IF NOT EXISTS crops_source  ON crops(source);
 CREATE INDEX IF NOT EXISTS crops_ts      ON crops(ts);
+-- same_pass asks "other crops from THIS node within two seconds", which is a
+-- node plus a narrow time window. Indexed together so it is a range scan over a
+-- handful of rows rather than over every crop that node ever produced.
+CREATE INDEX IF NOT EXISTS crops_node_ts ON crops(node_id, ts);
 CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
 """
 
 
 def connect() -> sqlite3.Connection:
-    db = sqlite3.connect(INDEX)
+    db = sqlite3.connect(INDEX, timeout=30)
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
+    # 🚨 WAL, SO A REBUILD DOES NOT LOCK THE PEOPLE READING.
+    # In the default rollback journal a writer blocks readers outright, and
+    # this index is written by a build that takes minutes while the labelling
+    # queue is being read by a human clicking every few seconds. Observed
+    # exactly that: opening the queue during a build died with "database is
+    # locked". In WAL a reader sees the last committed state and never waits.
+    try:
+        db.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.OperationalError:
+        pass                    # already WAL, or someone else holds it briefly
     return db
 
 
@@ -214,7 +228,35 @@ def update_one(db: sqlite3.Connection, day: str, stem: str) -> None:
     db.commit()
 
 
+def _singleton():
+    """Refuse to run a second build. Returns the held lock, or None.
+
+    🚨 ADDED BECAUSE IT HAPPENED IMMEDIATELY. Two builds were started minutes
+    apart, both wrote the same SQLite file, and between them they held a lock
+    that made the labelling queue fail with "database is locked" and left a
+    28 MB stale journal behind. box_puller learned this already and the note
+    there applies unchanged: an OS advisory lock on a file this program owns is
+    dropped by the OS the instant the process dies, whatever kills it, which is
+    the one property a pidfile does not have.
+    """
+    lock = open(DATA / "bank_index.lock", "a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock.close()
+        return None
+    return lock
+
+
 def build(full: bool = False, quiet: bool = False) -> dict:
+    held = _singleton()
+    if held is None:
+        raise SystemExit("another bank_index build is already running")
     db = connect()
     known = {}
     if not full:
