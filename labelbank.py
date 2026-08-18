@@ -674,7 +674,28 @@ def set_label(day: str, stem: str, label: str, sampling: str = "review") -> dict
             d["reported_by_operator"] = True
             p.write_text(json.dumps(d, indent=1, default=str), encoding="utf-8")
 
-    synced = _sync_sighting(d.get("sighting_id"), label, day=day, stem=stem)
+    # 🚨 A MACHINE LABEL MUST NEVER REACH THE PUBLIC MAP.
+    #
+    # Labelling a crop `police` PROMOTES its sighting to the public tier - that
+    # is deliberate and correct when a person pressed the button, and it is the
+    # single most consequential thing this function does: it puts a claim about
+    # a real vehicle, at a real place and time, on a public map.
+    #
+    # A machine first pass writes training labels at a rate no human could, and
+    # a model's judgement is exactly what the two-tier design exists to keep OFF
+    # the public tier. Nothing about "CLIP was confident and I agreed" is a
+    # human confirming a vehicle.
+    #
+    # ⚠️ THIS WAS FOUND BY RUNNING IT, NOT BY READING IT. The first machine batch
+    # attempted to sync 25 sightings and every one was refused - HTTP 403,
+    # because the call came from an address that is not an operator. Nothing was
+    # published, but only because a DIFFERENT guard happened to be in the way.
+    # Relying on that would be relying on the labeller never running anywhere
+    # privileged, which is not a property anybody checked or wrote down.
+    if sampling == "machine":
+        synced = "not synced: machine label, training only"
+    else:
+        synced = _sync_sighting(d.get("sighting_id"), label, day=day, stem=stem)
     if synced:
         # Recorded so `clear_label` can reverse EXACTLY what this label did,
         # rather than guessing. See the note there.
