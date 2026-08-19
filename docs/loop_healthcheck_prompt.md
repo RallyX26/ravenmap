@@ -39,7 +39,7 @@ Run these checks. Do NOT ask permission first - they are all read-only.
      db == "ok"
      heavy_free  > 5   (cap 48)
      inflight    < 60  (cap 200)
-     road_cells_failing == 0
+     road_cells_failing < 60 and NOT climbing across samples
      fd_used_pct < 20
      inflight_now: nothing held more than ~10s
    ⚠️ Pools read healthy BETWEEN bursts, so a single sample can miss a real
@@ -70,8 +70,12 @@ Run these checks. Do NOT ask permission first - they are all read-only.
 KNOWN CAUSES - check these before inventing a new theory:
   * 503 with the general pool nearly empty  -> a NARROWER pool is refusing
     (heavy, ingest, or road_lookup). Find which. Do not raise the first cap.
-  * road_cells_failing climbing             -> data/roadcache is missing or
-    cold; overpass is unreachable from both boxes and always has been.
+  * road_cells_failing climbing             -> check tools/road_fill.py is
+    still running on his desktop (scheduled task "SparrowMap road cache
+    fill"). Overpass REFUSES the box but answers his desktop, so the desktop
+    resolves cells and copies them over. A value that oscillates (0..60) is
+    the normal working state - new areas appear and get filled. Only a value
+    climbing across several samples, with the cache NOT growing, is a fault.
   * bursty 503s, idle between bursts        -> public_cams.py starving the hub
     for CPU. Fix is systemd CPUWeight, not a bigger cap.
   * map loads but no markers                -> /api/sightings, not /api/nodes.
