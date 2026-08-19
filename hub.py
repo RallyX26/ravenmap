@@ -192,7 +192,29 @@ HEAVY_ROUTES = frozenset({"/api/nodes", "/api/sightings"})
 # 12 concurrent builds is ~180 MB of peak, affordable against the 620 MB the hub
 # now sits at, and a reader waiting 12s for the map is the failure this whole
 # exercise was meant to prevent.
-MAX_HEAVY = 12
+#
+# ⚠️ RAISED 12 -> 48 ON 2026-08-18, WHEN THE MACHINE UNDERNEATH CHANGED.
+# Both halves of the reasoning above were properties of the OLD box, and the
+# map moved: 2 cores and 3.8 GB became 8 cores and 31 GB. "There are two cores
+# and a GIL" is simply no longer true, and 180 MB of peak was frightening
+# against 3.8 GB in a way it is not against 31 GB with 27 GB free.
+#
+# The measurement that forced it: with 12 permits the pool sat at heavy_free=0
+# and readers got 503s - the map showed "reconnecting" and only aircraft. It
+# was not computing, it was queueing again, exactly as at 8.
+#
+# 🚨 THE PERMIT IS HELD ACROSS THE SINGLE-FLIGHT WAIT, NOT JUST THE BUILD.
+# That is why a bigger pool is the fix rather than a faster build. When a
+# cache-missing /api/nodes takes 15.6s cold, the leader builds and every
+# follower BLOCKS holding a heavy permit of its own, so one slow build pins
+# the entire pool even though only one build is running. The pool therefore
+# has to be sized for concurrent READERS of a cold key, not for concurrent
+# builds. 48 is ~720 MB of worst-case peak against 27 GB free.
+#
+# The better fix is to take the permit around the build alone and let
+# followers wait outside the pool. That is a change to the dispatch path of a
+# live site and it is not a thing to do at speed; this is the safe half.
+MAX_HEAVY = 48
 
 # How long a heavy request waits for a permit before giving up. Long enough to
 # outlast the leader it is almost certainly queued behind (a build is well
