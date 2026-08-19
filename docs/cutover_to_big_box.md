@@ -49,7 +49,7 @@ ssh BIG 'rsync -a -e "ssh -i /root/.ssh/stage_pull" root@MAP_IP:/tmp/cut.db /opt
 # 2. stop the old origin so nothing writes to two databases
 ssh MAP 'systemctl stop caddy sparrowmap'
 
-# 3. point Cloudflare at 65.21.157.66  (dashboard, or the API)
+# 3. point Cloudflare at <map-box>  (dashboard, or the API)
 
 # 4. verify
 curl -sI https://map.sparrowmap.com/ | head -3

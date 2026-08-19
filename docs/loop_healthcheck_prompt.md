@@ -34,7 +34,7 @@ Run these checks. Do NOT ask permission first - they are all read-only.
    PASS = all 200 and under ~3s. Any 503, or /api/sightings returning no rows,
    means the map is showing "reconnecting" or losing its markers.
 
-2. THE HUB. ssh -i D:/LLM/.ssh/emberaudio_hetzner root@65.21.157.66 and read
+2. THE HUB. ssh -i D:/LLM/.ssh/emberaudio_hetzner root@$SPARROW_BOX and read
    http://127.0.0.1:8150/api/health. Report anything outside these:
      db == "ok"
      heavy_free  > 5   (cap 48)
