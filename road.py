@@ -99,10 +99,41 @@ DRIVEABLE = {
 # dead endpoint is not re-dialled on every lookup. overpass-api.de stays first
 # because it is the canonical instance and works from most machines - the home
 # hub reaches it fine - it is simply not reachable from this box today.
+# ⚠️ MEASURED FROM THE BOX 2026-08-19, not assumed. Every public instance I
+# could find was tried with a real highway query from this machine:
+#
+#   overpass-api.de          TCP :443 CONNECTION REFUSED on v4 and v6.
+#                            ICMP to it succeeds at 25 ms, and github,
+#                            openstreetmap.org and cloudflare all return 200 -
+#                            so egress is fine and this is them refusing us,
+#                            almost certainly the Hetzner range.
+#   kumi.systems             accepts TCP, completes a TLS 1.3 handshake, then
+#   private.coffee           never answers. Same host, 193.219.97.30.
+#   osm.ch                   answers correctly but is SWITZERLAND ONLY - valid
+#                            JSON, zero elements for Michigan.
+#   monicz.dev               answered once, then 0 ways in 40 s. Rate limited.
+#   fossgis / osm.se / osm.jp / vlaanderen / pgi.gov.pl / openstreetmap.fr
+#   / nchc.org.tw / geocoding.ai / lz4 / z    all failed outright.
+#
+# 🚨 THE ONLY INSTANCE THAT ANSWERS THIS BOX IS maps.mail.ru, AND THAT IS A
+# DELIBERATE TRADE-OFF, NOT AN OVERSIGHT.
+#
+# What it learns is a GRID-SNAPPED bbox (see GRID_DEG, ~400 m) asking for
+# public road geometry - never a camera's true position, which is why that
+# snapping exists. What it can still infer, over time, is roughly which areas
+# this project is interested in. That is a real disclosure to a large Russian
+# service, and it is listed LAST so it is only reached when nothing else will
+# answer.
+#
+# ➡️ To refuse that trade entirely, delete the last line. Road snapping then
+# degrades to the documented fallback - the jittered point is used and no
+# claim is made about which street - which is safe, just less precise.
 OVERPASS_MIRRORS = (
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
+    "https://overpass.monicz.dev/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 )
 # Kept as a name because other code and tests refer to it; it is the primary.
 OVERPASS = OVERPASS_MIRRORS[0]
@@ -111,6 +142,19 @@ OVERPASS = OVERPASS_MIRRORS[0]
 # is skipped for this long rather than costing every later lookup its timeout.
 _MIRROR_COOLDOWN_S = 600.0
 _MIRROR_DOWN: dict = {}
+
+# 🚨 WHICHEVER MIRROR LAST ANSWERED IS TRIED FIRST NEXT TIME.
+#
+# A fixed order cannot be right on both machines: from the home hub
+# overpass-api.de answers, and from the public box it refuses outright, so
+# whichever order is hardcoded is wrong somewhere. Measured cost of getting it
+# wrong: a lookup spent its entire budget on two failing endpoints and never
+# reached the one that works.
+#
+# Remembering the last success makes the steady state optimal on ANY machine
+# without hardcoding a preference, and it costs one variable. The cooldown
+# still handles the case where the remembered one dies.
+_LAST_GOOD: dict = {}
 
 # Grid the bbox onto ~400 m so the request does not carry the camera's precise
 # position. 0.004 deg of latitude is ~445 m; longitude is scaled at query time.
@@ -173,6 +217,14 @@ _OVERPASS_SLOTS = threading.Semaphore(3)
 # Cells Overpass has recently refused, and until when.
 _FAIL_UNTIL: dict = {}
 _FAIL_TTL_S = 120.0
+# 🚨 AND HOW MANY TIMES IN A ROW, SO A PERMANENTLY DEAD CELL BACKS OFF.
+# A flat 120 s is right for a blip and wrong for an outage: with Overpass
+# unreachable for days, every cell was re-asked every two minutes forever, and
+# each attempt costs a bounded slot and a full timeout. Doubling per consecutive
+# failure turns that into a handful of attempts an hour, and any success resets
+# it, so recovery is still automatic and immediate.
+_FAIL_STREAK: dict = {}
+_FAIL_TTL_MAX_S = 3600.0
 
 
 def _fetch_ways_bounded(lat: float, lon: float):
@@ -182,7 +234,14 @@ def _fetch_ways_bounded(lat: float, lon: float):
     try:
         # Shorter than the 25s default: this runs inside a request, and a
         # visitor waiting 25 seconds for a road lookup has already been failed.
-        return fetch_ways(lat, lon, timeout=8.0)
+        #
+        # ⚠️ RAISED 8s -> 14s ON MEASUREMENT. The only mirror that answers this
+        # box returns in about 12 s, so an 8 s bound guaranteed failure however
+        # healthy the endpoint was - the timeout itself was making the feature
+        # impossible. 14 s is still well inside the caller's tolerance, and the
+        # circuit breaker above means a dead endpoint is now refused instantly
+        # rather than costing this timeout on every lookup.
+        return fetch_ways(lat, lon, timeout=14.0)
     finally:
         _OVERPASS_SLOTS.release()
 
@@ -209,18 +268,54 @@ def fetch_ways(lat: float, lon: float, timeout: float = 25.0) -> list[list[tuple
     # lesson the remark check below already encodes.
     now = time.time()
     live = [m for m in OVERPASS_MIRRORS if _MIRROR_DOWN.get(m, 0) <= now]
-    if not live:                      # all cooling down: try them all anyway
-        live = list(OVERPASS_MIRRORS)
+    # Try the one that worked last time first; it is by far the most likely to
+    # work again, and every second spent on a dead endpoint is a second the
+    # working one does not get.
+    good = _LAST_GOOD.get("url")
+    if good in live:
+        live = [good] + [m for m in live if m != good]
+    if not live:
+        # 🚨 THIS USED TO READ `live = list(OVERPASS_MIRRORS)` - "all cooling
+        # down: try them all anyway" - WHICH DEFEATED THE COOLDOWN IN THE ONE
+        # CASE IT EXISTS FOR.
+        #
+        # A per-mirror cooldown is meant to stop a dead endpoint costing every
+        # later lookup its timeout. Falling back to the full list when they are
+        # ALL cooling down means a total outage is the one situation where the
+        # protection does nothing. Measured 2026-08-19 with every mirror down:
+        # the hub logged a retry every 8 seconds, indefinitely, each one taking
+        # a road-lookup slot and burning its full timeout.
+        #
+        # Fail immediately instead. The caller already handles "could not ask"
+        # and the negative cache below already remembers it, so nothing is lost
+        # except the wasted work.
+        raise urllib.error.URLError(
+            "all overpass mirrors are cooling down after recent failures")
+    # 🚨 BOUND THE WHOLE ATTEMPT, NOT EACH MIRROR.
+    # `timeout` is per-request, so with five mirrors a single lookup could hold
+    # a road slot for five times that before giving up - which is exactly the
+    # "bound on the wrong noun" shape that has caused every outage here so far.
+    # The caller asked for `timeout`; that is the budget for the ANSWER, not
+    # per endpoint dialled. Whatever is left is what the next mirror gets, and
+    # a mirror is skipped entirely once there is not enough left to be worth
+    # dialling.
+    deadline = time.time() + max(timeout, 1.0)
     doc = None
     last = None
     for url in live:
+        remaining = deadline - time.time()
+        if remaining < 1.5:
+            last = last or urllib.error.URLError(
+                "road lookup budget spent before a mirror answered")
+            break
         req = urllib.request.Request(
             url, data=data,
             headers={"User-Agent": "SparrowMap/0.1 (citizen ALPR; road snapping)"})
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with urllib.request.urlopen(req, timeout=remaining) as r:
                 doc = json.loads(r.read().decode("utf-8"))
             _MIRROR_DOWN.pop(url, None)
+            _LAST_GOOD["url"] = url
             break
         except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
             last = exc
@@ -712,9 +807,14 @@ def ways_for_cell(lat: float, lon: float, online: bool = True,
     try:
         ways = _fetch_ways_bounded(lat, lon)
     except Exception:
-        _FAIL_UNTIL[key] = time.time() + _FAIL_TTL_S
+        streak = _FAIL_STREAK.get(key, 0) + 1
+        _FAIL_STREAK[key] = streak
+        # 120s, 240s, 480s ... capped at an hour.
+        wait = min(_FAIL_TTL_S * (2 ** (streak - 1)), _FAIL_TTL_MAX_S)
+        _FAIL_UNTIL[key] = time.time() + wait
         raise
     _FAIL_UNTIL.pop(key, None)
+    _FAIL_STREAK.pop(key, None)
     if len(_WAYS_CACHE) >= _WAYS_CACHE_MAX:
         # ⚠️ Evict HALF, not everything. clear() threw away every warm cell the
         # moment the 65th arrived, so a network spread over more than
