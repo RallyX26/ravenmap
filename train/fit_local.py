@@ -292,6 +292,24 @@ def main() -> None:
     # the obvious suspect is distribution rather than label quality - and the
     # only way to tell is to train without them and look. This flag makes that
     # a one-line experiment instead of an edit.
+    # 🚨 AN ABLATION IS A MEASUREMENT, NOT A DEPLOYMENT.
+    #
+    # This script fits a final model and writes it over the LIVE head as its
+    # last act, which is right when you are deploying and wrong every other
+    # time. It has now cost a working classifier twice: on 2026-08-15 the live
+    # threshold silently became 0.98885, and on 2026-08-18 an ablation run
+    # installed a 0.9948 head that box_puller loaded and scored against for the
+    # minutes between the run finishing and a human reading the output.
+    #
+    # Nothing warned, because a saved file looks the same as a good one. So a
+    # run that exists to ANSWER A QUESTION can now decline to touch the live
+    # head at all. Default behaviour is unchanged, so deploying still works the
+    # way it always did.
+    ap.add_argument("--no-save", action="store_true",
+                    help="evaluate and report, but do NOT write the head. Use "
+                         "this for every ablation and comparison run.")
+    ap.add_argument("--out", default="",
+                    help="write the fitted head here instead of the live path")
     ap.add_argument("--exclude", default="",
                     help="comma-separated sampling tags to drop from TRAINING "
                          "as well (e.g. machine,community)")
@@ -443,12 +461,19 @@ def main() -> None:
     scaler = StandardScaler().fit(X[fit_rows])
     clf = LogisticRegression(max_iter=5000, C=C_BEST, class_weight="balanced")
     clf.fit(scaler.transform(X[fit_rows]), y[fit_rows])
-    MODEL_OUT.parent.mkdir(parents=True, exist_ok=True)
-
     thrs = [recall_at(s)[1] for s in seed_scores]
     thrs = [x for x in thrs if x is not None]
     thr = float(np.median(thrs)) if thrs else None
-    np.savez(MODEL_OUT, w=clf.coef_, b=clf.intercept_,
+
+    if a.no_save:
+        print()
+        print(f"--no-save: the live head was NOT touched "
+              f"(would have been threshold {thr if thr else 'UNREACHABLE'}).")
+        return
+
+    out_path = Path(a.out) if a.out else MODEL_OUT
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(out_path, w=clf.coef_, b=clf.intercept_,
              mean=scaler.mean_, scale=scaler.scale_,
              # Named so a consumer can check it is feeding the right features
              # in the right order rather than discovering a mismatch as bad
@@ -458,7 +483,7 @@ def main() -> None:
              threshold=thr if thr is not None else 0.99,
              n_train=len(y), n_pos=int(y.sum()),
              n_cam_pos=n_pos_cam)
-    print(f"saved {MODEL_OUT}  (threshold {thr if thr else 'UNREACHABLE'})")
+    print(f"saved {out_path}  (threshold {thr if thr else 'UNREACHABLE'})")
     print(f"\n⚠️  {n_pos_cam} camera-view positives, so recall moves in "
           f"{100 / n_pos_cam:.0f}-point steps.")
     print("    Read AP for DIRECTION and recall for MAGNITUDE - a single fold")

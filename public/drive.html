@@ -937,6 +937,50 @@
   }
   // Three frames, or two frames spanning MIN_STABLE_MS - see the note by
   // MIN_STABLE_MS for why a frame count alone cannot work on a slow phone.
+  /* 🚨 THE MOTION IS COMPUTED AND THEN THROWN AWAY, AND IT IS THE BEST
+   * ANTI-FAKE SIGNAL THIS PROJECT HAS.
+   *
+   * Measured on the box 2026-08-19: of 260,170 sightings in 24 h, `heading` and
+   * `speed_mph` are NULL on effectively all of them. The columns exist. The
+   * tracker has the numbers at capture time. Nothing carries them across.
+   *
+   * Why it matters: a photograph of a screen, a dashboard, or a CarPlay display
+   * is PLANAR AND STATIC. It cannot move through a scene the way a vehicle
+   * does, and no amount of image quality changes that - which is why physics
+   * beats a screen-artefact detector. He reported exactly this case: cards in
+   * the review pen showing a dash with no car visible.
+   *
+   * ⚠️ THIS IS PLUMBING, NOT A DETECTOR, AND THAT IS DELIBERATE. Nothing is
+   * rejected here. A rule that drops sightings has to be measured against real
+   * traffic first, and it cannot be measured while the numbers are discarded.
+   * Persist first, decide later - the roadmap says the same thing and says it
+   * first for the same reason.
+   *
+   * ⚠️ Note a stationary track is NOT proof of a fake in drive mode: a car
+   * being FOLLOWED at matched speed also barely moves in frame. That ambiguity
+   * is precisely why this reports numbers rather than a verdict. */
+  function dmotion(tr,now){
+    var b0=tr.box0, b1=tr.bestBox||tr.box;
+    if(!b0||!b1) return null;
+    var cx0=(b0[0]+b0[2])/2, cy0=(b0[1]+b0[3])/2;
+    var cx1=(b1[0]+b1[2])/2, cy1=(b1[1]+b1[3])/2;
+    var dx=cx1-cx0, dy=cy1-cy0;
+    var w0=b0[2]-b0[0], w1=b1[2]-b1[0];
+    return {
+      frames: tr.seen,
+      track_ms: Math.round(now-(tr.first||now)),
+      // Pixels the vehicle's centre travelled across the frame, first sighting
+      // to best. A fixture inside the car reads ~0 no matter how long it is up.
+      px_moved: Math.round(Math.sqrt(dx*dx+dy*dy)),
+      // How much it grew. A vehicle approaching or receding changes width even
+      // when it holds its position in frame; a dashboard cannot.
+      width_ratio: w0>0 ? Math.round((w1/w0)*100)/100 : null,
+      // Direction of travel in IMAGE space, degrees clockwise from up. Not a
+      // compass bearing - the phone's heading has to be added for that.
+      heading_img: (Math.abs(dx)<4 && Math.abs(dy)<4) ? null
+                   : Math.round(((Math.atan2(dx,-dy)*180/Math.PI)+360)%360)
+    };
+  }
   function dstable(tr,now){
     return tr.seen>=MIN_FRAMES ||
            (tr.seen>=2 && (now-(tr.first||now))>=MIN_STABLE_MS);
@@ -1217,7 +1261,12 @@ function redactPlateBand(cv, geom) {
     fetch('/api/sightings',{method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+driveNode.token},
       body:JSON.stringify({node_id:driveNode.id,ts:Date.now()/1000,source:'phone_node',
-        body:b.cls,det_conf:b.score,plate_text:'',plate_conf:0,evidence:{},
+        body:b.cls,det_conf:b.score,plate_text:'',plate_conf:0,
+        heading:(b.motion&&b.motion.heading_img!=null)?b.motion.heading_img:null,
+        // Rides in `evidence` because the sightings table has no column for it
+        // yet. The hub stores evidence verbatim, so the numbers are queryable
+        // from tonight rather than after a migration.
+        evidence:(b.motion?{motion:b.motion}:{}),
         snap_b64:b.crop,lat:loc[0],lon:loc[1]})})
       .then(function(r){return r.json();}).then(function(r){
         if(r&&!r.error){ dsent++; $('#sent').textContent=dsent;
@@ -1278,7 +1327,8 @@ function redactPlateBand(cv, geom) {
           var sc=Math.max(iou(pb,h.box), iou(c.box,h.box));
           if(sc>bar && sc>trIoU){ tr=c; trIoU=sc; }
         }
-        if(!tr){tr={id:dnextId++,seen:0,best:null,bestArea:0,cls:h.cls,first:now};dtracks.push(tr);}
+        if(!tr){tr={id:dnextId++,seen:0,best:null,bestArea:0,cls:h.cls,first:now,
+                      box0:h.box.slice()};dtracks.push(tr);}
         if(tr.box && tr.last && now>tr.last){
           var idt=now-tr.last;
           var nvx=(h.box[0]-tr.box[0])/idt, nvy=(h.box[1]-tr.box[1])/idt;
@@ -1311,7 +1361,7 @@ function redactPlateBand(cv, geom) {
         var unsent = !tr.sentW || trW >= tr.sentW*RESEND_WIDTH;
         if(dstable(tr,now) && tr.best && unsent && (!winBest||area>winBest.area))
           winBest={crop:tr.best,full:tr.full,cls:tr.cls,score:tr.score,area:area,
-                   box:tr.bestBox,vw:v.videoWidth,tr:tr};
+                   box:tr.bestBox,vw:v.videoWidth,tr:tr,motion:dmotion(tr,now)};
       }
       dtracks=dtracks.filter(function(t){return now-t.last<GONE_MS;});
       /* 🚨 DO NOT MINT A CAMERA BECAUSE SOMEBODY OPENED THIS PAGE.
