@@ -133,8 +133,21 @@ OVERPASS_MIRRORS = (
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
     "https://overpass.monicz.dev/api/interpreter",
-    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 )
+# 🚨 maps.mail.ru WAS HERE AND WAS REMOVED ON PURPOSE - DO NOT ADD IT BACK.
+#
+# It was the only instance that answered the public box, so for a few hours it
+# was the only thing making road snapping work there. It is still the only one.
+# It is out anyway, because the price was telling a large Russian service which
+# ~400 m squares a project that tracks police vehicles keeps asking about, and
+# this codebase gives viewers a per-day rolling alias and hashes their IP
+# addresses specifically to prevent that class of inference. Buying snapping
+# with it would contradict the thing the rest of the file is built to protect.
+#
+# ➡️ The replacement is tools/road_fill.py: his DESKTOP reaches
+# overpass-api.de fine (measured), so it resolves the cells the box needs and
+# copies them into the box cache. Same data, same snapping, nothing new
+# disclosed - only the machine asking changes.
 # Kept as a name because other code and tests refer to it; it is the primary.
 OVERPASS = OVERPASS_MIRRORS[0]
 
