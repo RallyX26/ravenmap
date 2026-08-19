@@ -264,10 +264,24 @@ INGEST_ROUTES = frozenset({"POST /api/sightings", "POST /api/heartbeat/bulk"})
 # drops that sighting on the floor. Half the fleet's work was being thrown away
 # to protect readers from a contention that was not happening.
 #
-# 96 is still a MINORITY of the 200, which is the rule above and the reason this
-# is not simply set to 200: readers keep 104, more than double their measured
-# peak, so the guarantee survives while the waste does not.
-MAX_INGEST = 96
+# 🚨 AND REVERTED, WITHIN THE HOUR, BECAUSE IT HURT READERS BADLY.
+# At 96 the refusals did fall, and inflight rose from a 48 peak to 105-114 -
+# and READER LATENCY COLLAPSED: 5 of 12 samples of /api/sightings took 19 to 34
+# SECONDS, against 0.4s when ingest was idle in the same run.
+#
+# The mistake was reading "150 permits are free" as "there is spare capacity".
+# Permits were never the scarce thing. CPU behind them is. Letting 96 posts
+# decode, classify and write at once starves the readers sharing that CPU, so
+# the free permits were free precisely BECAUSE ingest was capped, not evidence
+# that the cap was unnecessary.
+#
+# The 40 above is therefore correct on this box too, and the ~48% refusal rate
+# it causes is the intended trade rather than a bug: a refused pass is re-read
+# next cycle, a reader waiting 34 seconds is the failure this whole file exists
+# to prevent. Do not raise this again without measuring READER latency during a
+# publish burst - the ingest and inflight numbers alone will mislead you exactly
+# as they misled me.
+MAX_INGEST = 40
 
 # ⚠️ INGEST QUEUES RATHER THAN BEING REFUSED, because there is still no node
 # outbox: a node whose POST is refused DROPS that sighting on the floor. Waiting
