@@ -860,7 +860,25 @@
    * vehicle it sends at most ONE crop every 5s - the largest stable vehicle in
    * that window - geotagged with the current GPS fix. The home head decides
    * cop-or-not; the phone asserts nothing. Video never leaves the device.      */
-  var SIZE=320, CONF=0.45, SEND_EDGE=200, MIN_FRAMES=3, GONE_MS=900;
+  var SIZE=320, CONF=0.45, SEND_EDGE=200, MIN_FRAMES=3, GONE_MS=1400;
+  /* 🚨 STABILITY IS AN ELAPSED TIME, NOT A FRAME COUNT.
+   *
+   * MIN_FRAMES=3 and GONE_MS=900 were written as if this loop runs at video
+   * rate. It does not: one YOLO pass at 320 on a phone costs a few hundred
+   * milliseconds, so the loop runs at roughly 3 fps and three frames barely
+   * fit inside the old 900 ms expiry. A vehicle being PASSED - which is very
+   * often the patrol car - moves far enough between two slow frames that the
+   * boxes stop overlapping, so it was scored as a new track every frame,
+   * never reached three, and was never sent.
+   *
+   * Measured: his 2026-08-18 drive sessions produced 1, 2 and 3 crops. At one
+   * send per five seconds a twenty minute drive allows about 240.
+   *
+   * So a track qualifies on three frames OR on two frames spanning
+   * MIN_STABLE_MS - two detections 350 ms apart is the same evidence that the
+   * vehicle is really there, and it is evidence a slow phone can actually
+   * produce. GONE_MS is widened so one slow frame does not kill the track. */
+  var MIN_STABLE_MS=350;
   // The vehicle must be at least this wide IN THE SOURCE FRAME before it is
   // worth uploading - see the gate in dloop(). Measured bar, not a guess.
   var MIN_SEND_PX=120;
@@ -916,6 +934,43 @@
     LB.ox=(SIZE-dw)/2; LB.oy=(SIZE-dh)/2;
     pctx.fillStyle='#727272'; pctx.fillRect(0,0,SIZE,SIZE);
     pctx.drawImage(src,LB.ox,LB.oy,dw,dh);
+  }
+  // Three frames, or two frames spanning MIN_STABLE_MS - see the note by
+  // MIN_STABLE_MS for why a frame count alone cannot work on a slow phone.
+  function dstable(tr,now){
+    return tr.seen>=MIN_FRAMES ||
+           (tr.seen>=2 && (now-(tr.first||now))>=MIN_STABLE_MS);
+  }
+  /* 🚨 THE BOX WAS ONLY REDRAWN WHEN AN INFERENCE FINISHED.
+   *
+   * drawDashOverlay was called from inside the detection callback, so the
+   * rectangle updated at the model's rate - about three times a second - and
+   * jumped in visible steps. That reads as the detector stalling even when it
+   * is working, which is exactly what it looked like.
+   *
+   * Drawing is not detection and does not need to wait for it. This runs on
+   * its own animation frame at display rate and eases each box toward its
+   * latest measured position, so the overlay is smooth at 60 fps no matter
+   * how slow the model is underneath. */
+  function drawLoop(){
+    if(!camOn) return;
+    var v=$('#dashvid'), cv=$('#dashov');
+    if(v && cv && v.videoWidth){
+      if(cv.width!==cv.clientWidth){cv.width=cv.clientWidth;cv.height=cv.clientHeight;}
+      var g=cv.getContext('2d');
+      var s=Math.max(cv.width/v.videoWidth,cv.height/v.videoHeight);
+      var ox=(cv.width-v.videoWidth*s)/2, oy=(cv.height-v.videoHeight*s)/2;
+      g.clearRect(0,0,cv.width,cv.height);
+      g.lineWidth=1.5; g.strokeStyle='#60a5fa';
+      for(var i=0;i<dtracks.length;i++){
+        var t=dtracks[i]; if(!t.box) continue;
+        if(!t.disp){ t.disp=t.box.slice(); }
+        for(var k=0;k<4;k++){ t.disp[k]+=(t.box[k]-t.disp[k])*0.35; }
+        var b=t.disp;
+        g.strokeRect(b[0]*s+ox,b[1]*s+oy,(b[2]-b[0])*s,(b[3]-b[1])*s);
+      }
+    }
+    requestAnimationFrame(drawLoop);
   }
   function iou(a,b){
     var x0=Math.max(a[0],b[0]),y0=Math.max(a[1],b[1]),
@@ -1062,8 +1117,8 @@ function redactPlateBand(cv, geom) {
   /* Expand / shrink. Bound on the TILE, so anywhere on the picture works - a
    * small target on a screen being used in a car is a target that gets missed
    * or mis-tapped. The close button stops propagation so it does not re-toggle.
-   * drawDashOverlay reads the canvas' client size each frame, so the boxes
-   * follow the new size with nothing else to update. */
+   * drawLoop reads the canvas' client size every animation frame, so the
+   * boxes follow the new size with nothing else to update. */
   function toggleCam(){
     var t=$('#camTile');
     t.classList.toggle('big');
@@ -1201,10 +1256,37 @@ function redactPlateBand(cv, geom) {
       var hits=decode(o[Object.keys(o)[0]]);
       var now=performance.now();
       for(var j=0;j<hits.length;j++){var h=hits[j];
-        var tr=null;
-        for(var t=0;t<dtracks.length;t++){if(iou(dtracks[t].box,h.box)>0.3){tr=dtracks[t];break;}}
-        if(!tr){tr={id:dnextId++,seen:0,best:null,bestArea:0,cls:h.cls};dtracks.push(tr);}
+        /* 🚨 MATCH THE BEST TRACK, AND PREDICT WHERE IT WENT.
+         * This took the FIRST track over IoU 0.3, so with several vehicles in
+         * frame a car could be absorbed by whichever track happened to sit
+         * earlier in the array. It also compared against the box as it was
+         * seen LAST time, which at 3 fps is a third of a second stale - a
+         * vehicle being overtaken has moved most of its own width by then and
+         * fails a fixed 0.3 bar for purely geometric reasons.
+         * So: score every track on its PREDICTED box, take the best, and let
+         * the bar fall as the gap between frames grows. */
+        var tr=null, trIoU=0;
+        for(var t=0;t<dtracks.length;t++){
+          var c=dtracks[t], dt=Math.max(1,now-(c.last||now));
+          var pb=c.box;
+          if(c.vx!==undefined){
+            pb=[c.box[0]+c.vx*dt, c.box[1]+c.vy*dt,
+                c.box[2]+c.vx*dt, c.box[3]+c.vy*dt];
+          }
+          // 0.30 at video rate, easing to 0.12 once frames are ~400 ms apart.
+          var bar=Math.max(0.12, 0.30-0.00045*dt);
+          var sc=Math.max(iou(pb,h.box), iou(c.box,h.box));
+          if(sc>bar && sc>trIoU){ tr=c; trIoU=sc; }
+        }
+        if(!tr){tr={id:dnextId++,seen:0,best:null,bestArea:0,cls:h.cls,first:now};dtracks.push(tr);}
+        if(tr.box && tr.last && now>tr.last){
+          var idt=now-tr.last;
+          var nvx=(h.box[0]-tr.box[0])/idt, nvy=(h.box[1]-tr.box[1])/idt;
+          tr.vx=(tr.vx===undefined)?nvx:tr.vx*0.5+nvx*0.5;
+          tr.vy=(tr.vy===undefined)?nvy:tr.vy*0.5+nvy*0.5;
+        }
         tr.box=h.box; tr.last=now; tr.seen++; tr.cls=h.cls; tr.score=h.score;
+        if(tr.first===undefined) tr.first=now;
         var area=(h.box[2]-h.box[0])*(h.box[3]-h.box[1]);
         if(area>tr.bestArea){
           tr.bestArea=area; tr.best=cropOf(v,h.box); tr.bestBox=h.box;
@@ -1214,20 +1296,20 @@ function redactPlateBand(cv, geom) {
           // Gated on MIN_FRAMES so the distant early sightings of a vehicle,
           // which improve on almost every frame and are useless anyway, do not
           // each cost a full-size JPEG encode inside the detection loop.
-          if(tr.seen>=MIN_FRAMES) tr.full=fullCropOf(v,h.box);
+          if(dstable(tr,now)) tr.full=fullCropOf(v,h.box);
         }
         // A vehicle whose biggest frame came before it was stable would
         // otherwise never get one at all - the branch above only fires on an
         // improvement, and there may not be another. Take one the first frame
         // it qualifies instead of publishing the smudge.
-        else if(tr.seen>=MIN_FRAMES && !tr.full) tr.full=fullCropOf(v,h.box);
+        else if(dstable(tr,now) && !tr.full) tr.full=fullCropOf(v,h.box);
         // Track the largest STABLE vehicle since the last send (the window
         // best), IGNORING any track already sent at this size - see RESEND_WIDTH.
         // `tr` rides along so the sender can mark the vehicle rather than the
         // window; marking the window is what let one car win every window.
         var trW = tr.bestBox ? (tr.bestBox[2]-tr.bestBox[0]) : 0;
         var unsent = !tr.sentW || trW >= tr.sentW*RESEND_WIDTH;
-        if(tr.seen>=MIN_FRAMES && tr.best && unsent && (!winBest||area>winBest.area))
+        if(dstable(tr,now) && tr.best && unsent && (!winBest||area>winBest.area))
           winBest={crop:tr.best,full:tr.full,cls:tr.cls,score:tr.score,area:area,
                    box:tr.bestBox,vw:v.videoWidth,tr:tr};
       }
@@ -1283,7 +1365,6 @@ function redactPlateBand(cv, geom) {
           winBest=null;          // let a closer pass replace it
         }
       }
-      drawDashOverlay(hits,v.videoWidth,v.videoHeight);
       requestAnimationFrame(dloop);
     }).catch(function(){ requestAnimationFrame(dloop); });
   }
@@ -1357,7 +1438,7 @@ function redactPlateBand(cv, geom) {
       camStream=s; var v=$('#dashvid'); v.srcObject=s;
       var p=v.play(); if(p&&p.catch)p.catch(function(){});
       camOn=true; $('#camBtn').className='rbtn on'; $('#camTile').style.display='block';
-      keepAwake(); requestAnimationFrame(dloop);
+      keepAwake(); requestAnimationFrame(dloop); requestAnimationFrame(drawLoop);
       toast('Dashcam on — watching the road');
       getDriveNode(function(nn){ driveNode=nn;
         if(!nn) toast('Dashcam running, but could not register to send'); });
