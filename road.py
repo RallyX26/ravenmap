@@ -696,7 +696,27 @@ def span_from_travel(lat: float, lon: float, ways: list, axis_deg: float,
 # already snapped to, so the cache cannot be finer-grained than the request
 # and a hit reveals nothing a miss would not have.
 _WAYS_CACHE: dict[tuple[int, int], list] = {}
-_WAYS_CACHE_MAX = 64
+# 🚨 RAISED 64 -> 4000 ON MEASUREMENT, BECAUSE 64 MEANT PERMANENT THRASH.
+#
+# 64 was sized when this cache only had to stop a MOBILE contributor hitting
+# Overpass repeatedly - a handful of cells around one moving phone. It is now on
+# the ingest path for the whole fleet: about 6,200 distinct cells are in play
+# and 8,001 are on disk, so 64 slots evicted continuously and nearly every
+# sighting fell through to a disk read.
+#
+# That showed up the moment sighting placement stopped going online: a py-spy
+# dump had 35 of ~70 threads sitting in pathlib.read_text/open, reading ~20 KB
+# of road JSON per sighting. The network wait had simply become a disk wait.
+#
+# ⚠️ SIZED FROM A MEASUREMENT, NOT A GUESS. Loading 500 real cells on the box
+# moved RSS from 12 MB to 71 MB - 0.12 MB per cell - so 4,000 cells costs about
+# 470 MB against 25 GB free. This is a CEILING on what gets held, not a
+# reservation: it only ever holds cells actually touched.
+#
+# ⚠️ Memory is what caused the one real outage, on the old 4 GB box. On that
+# machine this number could not have been raised. Check free memory before
+# raising it further; 8,001 cells - everything on disk - would be about 940 MB.
+_WAYS_CACHE_MAX = 4000
 
 # 🚨 ROADS DO NOT MOVE, SO THIS MUST NOT DIE WITH THE PROCESS.
 #
