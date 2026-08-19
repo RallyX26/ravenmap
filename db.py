@@ -368,6 +368,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+# Set once, by whichever thread connects first. See the note inside connect().
+_SCHEMA_LOCK = threading.Lock()
+_SCHEMA_READY = False
+
+
 def connect() -> sqlite3.Connection:
     """One connection per thread. sqlite objects are not thread-portable.
 
@@ -378,8 +383,28 @@ def connect() -> sqlite3.Connection:
     if conn is None:
         conn = sqlite3.connect(DB_PATH, timeout=15.0)
         conn.row_factory = sqlite3.Row
-        conn.executescript(SCHEMA)
-        _migrate(conn)
+        # 🚨 THE SCHEMA IS A PROPERTY OF THE DATABASE, NOT OF THE CONNECTION,
+        # SO RUNNING IT PER THREAD IS BOTH POINTLESS AND EXPENSIVE.
+        #
+        # ThreadingHTTPServer makes a NEW THREAD PER CONNECTION, so every
+        # visitor was running executescript(SCHEMA) and _migrate() - and both
+        # take a SQLite WRITE lock. Uncontended that costs 0.002s and looks
+        # free. Under this box's ingest (~87,000 camera posts per scraper
+        # cycle) the write lock is busy, so a new thread could sit in connect()
+        # for a very long time: measured 2026-08-19, an /api/nodes rebuild held
+        # for 165 SECONDS while the rebuild itself takes 0.15s.
+        #
+        # CREATE TABLE IF NOT EXISTS is idempotent, so doing it once per
+        # process is exactly as correct and removes a write-lock acquisition
+        # from every single connection. The lock below makes the first caller
+        # finish before any other thread reads - once, at startup, not forever.
+        global _SCHEMA_READY
+        if not _SCHEMA_READY:
+            with _SCHEMA_LOCK:
+                if not _SCHEMA_READY:
+                    conn.executescript(SCHEMA)
+                    _migrate(conn)
+                    _SCHEMA_READY = True
         _local.conn = conn
     return conn
 
