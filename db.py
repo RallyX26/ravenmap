@@ -1010,6 +1010,29 @@ def signal_matches(signature: str, window_s: float = 120.0,
     return [dict(r) for r in rows]
 
 
+# 🚨 THE NODE LIST IS BUILT ONCE PER WINDOW, NOT ONCE PER READER.
+#
+# On 2026-08-18 the map wedged twice within ten minutes of a restart. Every
+# stuck thread had the same stack: db.nodes(), 100+ of them at once, each
+# materialising all 13,637 camera rows. Uncontended that query answers in
+# 0.19s; a hundred concurrent copies of it under one GIL took SIX MINUTES
+# (/api/places measured at 366.8s, /api/nodes at 363.4s), and requests holding
+# admission permits that long drained every pool until readers got 503s.
+#
+# Two routes call this on the hot path - /api/nodes and /api/places - and the
+# HTTP micro-cache above them only collapses identical URLs, so it could not
+# help /api/nodes?public_cams=0 and /api/nodes at the same moment. The right
+# place to collapse the work is the work itself.
+#
+# ⚠️ THE TTL IS A STALENESS BUDGET FOR last_beat, NOT A GUESS. A row's only
+# fast-moving field is its heartbeat, and a camera beats every 30s against a
+# 90s online window, so 5s of lag cannot change whether a camera reads as
+# online. Adding or moving a camera appears within the same 5s.
+_NODES_CACHE: dict = {}
+_NODES_LOCK = threading.Lock()
+_NODES_TTL_S = 5.0
+
+
 def nodes(active_only: bool = True, include_superseded: bool = False) -> list[dict]:
     """Cameras. By default, the ones that ARE a camera right now.
 
@@ -1019,15 +1042,32 @@ def nodes(active_only: bool = True, include_superseded: bool = False) -> list[di
     the same reason it is excluded from nodes_online, and by the same test, so
     the list and the count cannot disagree.
     """
-    sql = "SELECT * FROM nodes"
-    where = []
-    if active_only:
-        where.append("status = 'active'")
-    if not include_superseded:
-        where.append("(superseded_by IS NULL OR superseded_by = '')")
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    return [dict(r) for r in connect().execute(sql + " ORDER BY name").fetchall()]
+    key = (bool(active_only), bool(include_superseded))
+    hit = _NODES_CACHE.get(key)
+    if hit and now() - hit[0] < _NODES_TTL_S:
+        return [d.copy() for d in hit[1]]
+
+    # 🚨 ONE BUILD, NOT ONE PER READER. The lock is the whole point: whoever
+    # arrives during a build waits here and then finds the finished list,
+    # instead of starting an identical one of their own.
+    with _NODES_LOCK:
+        hit = _NODES_CACHE.get(key)
+        if hit and now() - hit[0] < _NODES_TTL_S:
+            return [d.copy() for d in hit[1]]
+        sql = "SELECT * FROM nodes"
+        where = []
+        if active_only:
+            where.append("status = 'active'")
+        if not include_superseded:
+            where.append("(superseded_by IS NULL OR superseded_by = '')")
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        rows = [dict(r)
+                for r in connect().execute(sql + " ORDER BY name").fetchall()]
+        _NODES_CACHE[key] = (now(), rows)
+    # Callers get their OWN dicts, so anything that edits a row in a loop keeps
+    # working exactly as before and cannot corrupt the shared copy.
+    return [d.copy() for d in rows]
 
 
 def node(nid: str) -> Optional[dict]:
