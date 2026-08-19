@@ -743,8 +743,31 @@ class Handler(BaseHTTPRequestHandler):
             # collapsing a crowd into one origin hit every few seconds (stats and
             # the node list are small, cheap queries). The heavier per-row
             # sighting feed keeps a longer window; it is the expensive one.
-            if p in ("/api/stats", "/api/nodes", "/api/health"):
+            if p in ("/api/stats", "/api/health"):
                 return "public, max-age=3"
+            # 🚨 /api/nodes IS NOT A LIVE COUNTER AND MUST NOT BE PRICED LIKE
+            # ONE. It sat on max-age=3 because it was grouped with the counters
+            # at the top of the map - but those are /api/stats, which is 252
+            # BYTES. This is the camera list: 13,637 rows and 4 MB, the single
+            # most expensive answer this server produces.
+            #
+            # A 3s edge window means a crowd re-fetches it twenty times a
+            # minute, and on 2026-08-18 that is what wedged the hub: 150
+            # concurrent readers measured a median of 20s and half of them were
+            # refused outright.
+            #
+            # What it actually contains changes when somebody ENROLS A CAMERA.
+            # Thirty seconds of lag on that is invisible, and it turns thousands
+            # of viewers into about one origin fetch per edge per window, which
+            # is the only way this scales at all. The live feel of the page
+            # comes from /api/sightings and /api/stats, both of which are cheap
+            # and both of which keep their short windows.
+            if p == "/api/nodes":
+                return "public, max-age=30"
+            # Town badges for the zoomed-out view. Derived from the same camera
+            # list, changes on the same event, and is read far less often.
+            if p == "/api/places":
+                return "public, max-age=60"
             if p == "/api/sightings":
                 return "public, max-age=4"    # live map: fresh within a few s
             return "public, max-age=15"
