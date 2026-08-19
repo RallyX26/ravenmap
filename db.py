@@ -1047,10 +1047,38 @@ def nodes(active_only: bool = True, include_superseded: bool = False) -> list[di
     if hit and now() - hit[0] < _NODES_TTL_S:
         return [d.copy() for d in hit[1]]
 
-    # 🚨 ONE BUILD, NOT ONE PER READER. The lock is the whole point: whoever
-    # arrives during a build waits here and then finds the finished list,
-    # instead of starting an identical one of their own.
-    with _NODES_LOCK:
+    # 🚨 A READER MUST NEVER WAIT FOR A REBUILD. THIS LOCK USED TO BE `with`,
+    # AND THAT IS WHAT WEDGED THE MAP.
+    #
+    # The first version held this lock across the rebuild - including across
+    # connect(). On a fresh thread connect() runs executescript(SCHEMA) and
+    # _migrate(), which take a SQLite WRITE lock, and ThreadingHTTPServer makes
+    # a new thread per connection. Behind ingest writing ~58,000 rows a cycle
+    # that write lock is contended, so the holder stalled, and every other
+    # reader queued behind it.
+    #
+    # Measured 2026-08-19 during a live wedge: 50 threads with their top frame
+    # on this exact line, /api/nodes held 193s, heavy_free 0/48, while a
+    # rebuild in isolation costs 0.15s and connect() setup costs 0.002s. The
+    # work was never expensive; the convoy was. A lock that serialises a cheap
+    # operation behind a slow one is worse than no lock at all.
+    #
+    # So: try for the lock, and if somebody else is already rebuilding, serve
+    # the stale copy immediately instead of joining a queue. Node data changes
+    # when a camera is enrolled - a few extra seconds of staleness cannot
+    # matter, and the alternative is measurably a 193-second stall.
+    got = _NODES_LOCK.acquire(blocking=False)
+    if not got:
+        if hit:
+            return [d.copy() for d in hit[1]]      # stale, and that is fine
+        # Nothing cached at all (first request after a restart): wait, but
+        # bounded, so this can never become the old unbounded convoy.
+        if not _NODES_LOCK.acquire(timeout=5.0):
+            hit = _NODES_CACHE.get(key)
+            if hit:
+                return [d.copy() for d in hit[1]]
+            raise TimeoutError("node list unavailable")
+    try:
         hit = _NODES_CACHE.get(key)
         if hit and now() - hit[0] < _NODES_TTL_S:
             return [d.copy() for d in hit[1]]
@@ -1065,6 +1093,8 @@ def nodes(active_only: bool = True, include_superseded: bool = False) -> list[di
         rows = [dict(r)
                 for r in connect().execute(sql + " ORDER BY name").fetchall()]
         _NODES_CACHE[key] = (now(), rows)
+    finally:
+        _NODES_LOCK.release()
     # Callers get their OWN dicts, so anything that edits a row in a loop keeps
     # working exactly as before and cannot corrupt the shared copy.
     return [d.copy() for d in rows]
