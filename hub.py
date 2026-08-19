@@ -249,7 +249,25 @@ INGEST_ROUTES = frozenset({"POST /api/sightings", "POST /api/heartbeat/bulk"})
 # the burst while a reader waited. Ingest is not latency-sensitive - it queues,
 # and a missed pass is re-read on the next sweep - so it is the side that should
 # give way. This is the priority stated above, applied to a real number.
-MAX_INGEST = 40
+#
+# ⚠️ RAISED 40 -> 96 ON 2026-08-19, AND THE PRIORITY ABOVE IS UNCHANGED.
+# 40 was chosen on the 2-core box, where ingest and readers genuinely competed
+# for the same scarce pool. On the machine the map runs on now they do not.
+#
+# Measured over 40 minutes across several publish bursts: the camera fleet had
+# 48.6% of its posts REFUSED - bursts of 700-917 in a single minute - while
+# `ingest_free` sat at 0 of 40 and `inflight` peaked at 48 of 200 with
+# `heavy_free` at 42-48 of 48. Ingest was starving while 150 general permits sat
+# idle and no reader was waiting for anything.
+#
+# A refused post is not a delayed post: there is no node outbox, so the camera
+# drops that sighting on the floor. Half the fleet's work was being thrown away
+# to protect readers from a contention that was not happening.
+#
+# 96 is still a MINORITY of the 200, which is the rule above and the reason this
+# is not simply set to 200: readers keep 104, more than double their measured
+# peak, so the guarantee survives while the waste does not.
+MAX_INGEST = 96
 
 # ⚠️ INGEST QUEUES RATHER THAN BEING REFUSED, because there is still no node
 # outbox: a node whose POST is refused DROPS that sighting on the floor. Waiting
