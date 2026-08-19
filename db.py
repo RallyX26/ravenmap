@@ -1033,6 +1033,27 @@ _NODES_LOCK = threading.Lock()
 _NODES_TTL_S = 5.0
 
 
+def _build_nodes(active_only: bool, include_superseded: bool, key) -> list[dict]:
+    """Read the node list and publish it to the cache. Safe to run concurrently.
+
+    Two threads doing this at once produce identical results and the second
+    simply overwrites the first, so it needs no lock of its own. That is the
+    whole reason a cold-cache reader can be told to just do the work instead of
+    waiting or being refused.
+    """
+    sql = "SELECT * FROM nodes"
+    where = []
+    if active_only:
+        where.append("status = 'active'")
+    if not include_superseded:
+        where.append("(superseded_by IS NULL OR superseded_by = '')")
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    rows = [dict(r) for r in connect().execute(sql + " ORDER BY name").fetchall()]
+    _NODES_CACHE[key] = (now(), rows)
+    return [d.copy() for d in rows]
+
+
 def nodes(active_only: bool = True, include_superseded: bool = False) -> list[dict]:
     """Cameras. By default, the ones that ARE a camera right now.
 
@@ -1071,13 +1092,22 @@ def nodes(active_only: bool = True, include_superseded: bool = False) -> list[di
     if not got:
         if hit:
             return [d.copy() for d in hit[1]]      # stale, and that is fine
-        # Nothing cached at all (first request after a restart): wait, but
-        # bounded, so this can never become the old unbounded convoy.
-        if not _NODES_LOCK.acquire(timeout=5.0):
+        # ⚠️ NOTHING CACHED AT ALL - the first requests after a restart, when
+        # there is no stale copy to fall back on. The first version raised
+        # TimeoutError here after a bounded wait, and that shipped a REGRESSION:
+        # measured immediately after deploying it, five consecutive /api/nodes
+        # requests returned 500 while the cache was cold.
+        #
+        # Refusing was never the right answer. A rebuild costs 0.15s, so the
+        # worst case of just doing the work is a handful of duplicate builds
+        # during the first second of a restart - which is cheaper than one 500
+        # served to a real visitor. Build it, publish it, and let whoever holds
+        # the lock publish theirs too; last writer wins and both are correct.
+        if not _NODES_LOCK.acquire(timeout=2.0):
             hit = _NODES_CACHE.get(key)
             if hit:
                 return [d.copy() for d in hit[1]]
-            raise TimeoutError("node list unavailable")
+            return _build_nodes(active_only, include_superseded, key)
     try:
         hit = _NODES_CACHE.get(key)
         if hit and now() - hit[0] < _NODES_TTL_S:
