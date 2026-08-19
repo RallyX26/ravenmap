@@ -135,8 +135,41 @@ def relay_enabled() -> bool:
     return enabled() and bool(CONFIG.get("relay_inbox", True))
 
 
-def _prune_inbox() -> None:
-    """Drop crops the home puller never came for. Best-effort, never raises."""
+# 🚨 THE PRUNE RAN ON EVERY SINGLE WRITE, AND IT READS THE WHOLE DIRECTORY.
+#
+# quarantine_write is called once per phone-crop sighting - the hottest path on
+# this box - and it called _prune_inbox() first, unconditionally. _prune_inbox
+# globs the inbox and then OPENS AND JSON-PARSES EVERY FILE IN IT to read one
+# timestamp. With 4,772 files parked that is ~2,386 file reads PER POST, and at
+# 40 concurrent posts roughly 95,000 file operations at once.
+#
+# Measured 2026-08-19 by py-spy during a publish burst: 18 threads in open(),
+# 12 in read_text(), 10 in glob(), every one of them under
+# quarantine_write -> _prune_inbox -> _ingest. POSTs were held 18-26s and the
+# camera fleet had 87.7% of its posts refused.
+#
+# It also got worse over time rather than staying constant, because the cost is
+# proportional to how many crops are parked - so the fuller the inbox, the
+# slower every new write, which is the wrong way round.
+#
+# Pruning is housekeeping. It does not need to happen before each write; it
+# needs to happen. Once a minute turns ~2,386 reads per POST into ~2,386 reads
+# per MINUTE, and a crop lingering an extra sixty seconds costs nothing.
+_PRUNE_EVERY_S = 60.0
+_last_prune = 0.0
+
+
+def _prune_inbox(force: bool = False) -> None:
+    """Drop crops the home puller never came for. Best-effort, never raises.
+
+    ⚠️ RATE LIMITED. See the note above - this is O(files in the inbox) and it
+    used to run on every write.
+    """
+    global _last_prune
+    now_ = time.time()
+    if not force and now_ - _last_prune < _PRUNE_EVERY_S:
+        return
+    _last_prune = now_
     try:
         cutoff = time.time() - INBOX_TTL
         for j in INBOX.glob("*.json"):
