@@ -55,6 +55,9 @@ import node_key                                   # noqa: E402
 # unsigned, and be 401'd by the pubkey camctl had just registered.
 ROOT_DIR = HERE.parent
 from core import is_operator_addr, NODE_UA        # noqa: E402
+import sys as _sys, pathlib as _pl
+_sys.path.insert(0, str(_pl.Path(__file__).resolve().parent.parent))
+from detect import priority
 PRESETS = HERE / "presets.json"
 PORT = 8160
 
@@ -897,6 +900,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # 🚨 CLAIM IT HERE, NOT FROM THE LAUNCHER. The launcher restarts
+    # this process in a loop and each restart inherits the launcher's
+    # priority, so a value set from outside is gone by the next crash.
+    priority.claim("camctl")
     global CAM
     import argparse
     ap = argparse.ArgumentParser()

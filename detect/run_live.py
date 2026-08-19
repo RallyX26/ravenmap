@@ -49,6 +49,7 @@ from detect import bank, visual    # noqa: E402
 from detect.grabber import FrameGrabber   # noqa: E402
 from detect.pipeline import (MIN_TRACK_FRAMES, TRACK_TIMEOUT_FRAMES,  # noqa: E402
                              PlateReader, VehiclePass, VehicleTracker)
+from detect import priority   # noqa: E402
 
 EVAL = DATA / "eval" / "live"
 
@@ -112,6 +113,10 @@ def ensure_signing_key(args) -> None:
 
 
 def main() -> None:
+    # 🚨 CLAIM IT HERE, NOT FROM THE LAUNCHER. The launcher restarts
+    # this process in a loop and each restart inherits the launcher's
+    # priority, so a value set from outside is gone by the next crash.
+    priority.claim("detector")
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", default="http://localhost:8160/stream.mjpg")
     # 0 = run until stopped. That is the normal mode for a real node: a camera
