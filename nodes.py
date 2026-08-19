@@ -431,14 +431,34 @@ def sighting_position(nd: dict, lat: Optional[float] = None,
         #
         # "A vehicle passed on this street" is only the more honest shape while
         # it is the RIGHT street. Vague is fine; wrong is not.
+        # 🚨 CACHE ONLY. A SIGHTING MUST NEVER WAIT ON A NETWORK LOOKUP.
+        #
+        # This defaulted to online=True, so any sighting in a cell we had not
+        # seen before fired an Overpass query INSIDE the POST, holding an
+        # ingest permit while it ran. Overpass refuses this box, so that is a
+        # full timeout every time - measured, POST /api/sightings held for 14
+        # seconds, and with only 40 ingest permits a publish burst could not
+        # drain: 48.3% of the camera fleet's posts were refused with "busy",
+        # in clusters of ~700 within a single minute.
+        #
+        # The lookup has a better home now. tools/road_fill.py resolves cells
+        # out of band, from the machine Overpass will actually talk to, so a
+        # cache miss here is temporary rather than permanent: this sighting is
+        # placed by jitter, the cell is filled within minutes, and every later
+        # sighting on that street snaps properly.
+        #
+        # ⚠️ ENROLMENT IS NOT CHANGED. A person registering a camera is waiting
+        # on purpose and wants the road found now; that path still goes online
+        # via snap_road. This is only the automated, high-volume one.
         try:
             import road
             snapped = road.snap_point(float(lat), float(lon),
-                                      seed or f"{nd.get('id','')}:{now()}")
+                                      seed or f"{nd.get('id','')}:{now()}",
+                                      online=False)
             if snapped:
                 return snapped
         except Exception:
-            pass          # road lookup down: fall through to the jitter below
+            pass          # no cached road: fall through to the jitter below
         # No road matched, or the lookup is down. NOW jitter - an unsnapped
         # true position is the one thing that must never be published, and a
         # dot slightly off the road beats no dot at all.
@@ -499,10 +519,12 @@ def sighting_position(nd: dict, lat: Optional[float] = None,
     # span (tools/resnap_nodes.py), which also re-places its stored history;
     # this makes the fallback tolerable in the meantime and for any node that
     # enrols while the road lookup is down.
+    # Cache only, for the same reason as above: this runs on the ingest path.
     try:
         import road
         snapped = road.snap_point(fb_lat, fb_lon,
-                                  seed or f"{nd.get('id','')}:{now()}")
+                                  seed or f"{nd.get('id','')}:{now()}",
+                                  online=False)
         if snapped:
             return snapped
     except Exception:
