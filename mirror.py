@@ -158,6 +158,30 @@ def relay_enabled() -> bool:
 _PRUNE_EVERY_S = 60.0
 _last_prune = 0.0
 
+# 🚨 THE QUARANTINE MUST BE BOUNDED, AND IT WAS NOT.
+#
+# box_puller streams the WHOLE inbox as one tar over ssh, a design sized for
+# "hundreds of tiny files". Once ingest started delivering 100% of the fleet
+# instead of 12%, ~24,000 crops an hour were parked here against a home node
+# that can score a fraction of that, and the pull cadence collapsed:
+#
+#     under 1 min -> 5 -> 12 -> 15 -> 25 -> 93 MINUTES between completed pulls
+#
+# That is a runaway, not a slowdown: a bigger inbox makes the pull slower, which
+# leaves the inbox bigger. Measured at the time - 48,640 files/hr arriving
+# against 60 files/hr drained, with 93,833 files and 572 MB parked.
+#
+# Crops beyond what the home node can score are wasted whatever we do; they age
+# out at INBOX_TTL having never been looked at. The choice is only whether they
+# are discarded cheaply at write time or expensively after slowing every pull
+# and filling the disk. So: park up to a bound, then stop.
+#
+# ⚠️ THE SIGHTING IS NEVER FAILED FOR THIS. Only the crop is not quarantined;
+# the row is stored and the map is unaffected. That is already how this function
+# behaves on any error.
+_INBOX_MAX_FILES = 12000
+_inbox_count = None          # cached; refreshed by the prune, not per write
+
 
 def _scandir_json(d: Path):
     """Entries ending .json, without building a Path per file.
@@ -187,8 +211,10 @@ def _prune_inbox(force: bool = False) -> None:
     if not force and now_ - _last_prune < _PRUNE_EVERY_S:
         return
     _last_prune = now_
+    global _inbox_count
     try:
         cutoff = time.time() - INBOX_TTL
+        seen = 0
         for j in _scandir_json(INBOX):
             try:
                 # 🚨 stat(), NOT read_text()+json.loads().
@@ -205,11 +231,17 @@ def _prune_inbox(force: bool = False) -> None:
                 #
                 # These files are written once and never touched, so mtime and
                 # the "written" field it used to parse are the same number.
+                seen += 1
                 if j.stat().st_mtime < cutoff:
                     Path(j.path).with_suffix(".jpg").unlink(missing_ok=True)
                     Path(j.path).unlink(missing_ok=True)
+                    seen -= 1
             except Exception:
                 continue
+        # The count is a by-product of the walk we already did, so the bound
+        # below costs nothing per write. Counting 90,000 files on every POST is
+        # the exact mistake this function was just fixed for.
+        _inbox_count = seen
     except Exception:
         pass
 
@@ -228,6 +260,10 @@ def quarantine_write(sighting_id: int, crop_bytes: bytes,
     try:
         INBOX.mkdir(parents=True, exist_ok=True)
         _prune_inbox()
+        # Bounded. See _INBOX_MAX_FILES: past this the home node is not going to
+        # get to these crops anyway, and parking them makes every pull slower.
+        if _inbox_count is not None and _inbox_count >= _INBOX_MAX_FILES:
+            return None
         stem = str(int(sighting_id))
         (INBOX / f"{stem}.jpg").write_bytes(crop_bytes)
         (INBOX / f"{stem}.json").write_text(json.dumps(
