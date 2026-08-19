@@ -716,7 +716,17 @@ _WAYS_CACHE: dict[tuple[int, int], list] = {}
 # ⚠️ Memory is what caused the one real outage, on the old 4 GB box. On that
 # machine this number could not have been raised. Check free memory before
 # raising it further; 8,001 cells - everything on disk - would be about 940 MB.
-_WAYS_CACHE_MAX = 4000
+# ⚠️ RAISED AGAIN 4000 -> 12000, BECAUSE 4000 STILL THRASHED.
+# The working set is about 6,200 cells and eviction drops HALF the cache when
+# it fills, so 4,000 slots guaranteed a permanent cycle of fill-and-dump.
+# Measured after the raise to 4,000: still 27 of ~64 threads sitting in
+# read_text/open, and /api/nodes held for 176s during a publish burst.
+#
+# 12,000 is above everything on disk (8,044 cells), so after warmup the ingest
+# path stops touching the disk entirely. At the measured 0.12 MB per cell that
+# is about 965 MB for the current disk cache, against 26 GB free on this box -
+# and it is still a CEILING, not a reservation, so it only holds what is used.
+_WAYS_CACHE_MAX = 12000
 
 # 🚨 ROADS DO NOT MOVE, SO THIS MUST NOT DIE WITH THE PROCESS.
 #
