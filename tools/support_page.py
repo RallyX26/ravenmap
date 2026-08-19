@@ -270,14 +270,25 @@ def _page(s: dict, c: dict, gauges: str, need: str, goals_block: str) -> str:
             f"<span class=n>{e(str(i.get('detail','')))}</span></td>"
             f"<td class=num>${float(i.get('usd_month') or 0):,.2f}</td></tr>"
             for i in items)
+        # 🚨 "TAKEN FROM THE ACTUAL INVOICES" WAS NOT TRUE YET, AND THIS IS
+        # THE ONE PAGE WHERE THAT MATTERS. The camera machines were created on
+        # 2026-08-15 and Hetzner does not bill until the first month closes, so
+        # these are the per-month prices the console states - which costs.json
+        # has recorded as `invoiced: false` all along while the page said
+        # otherwise. Read the flag and say the true thing; a transparency page
+        # claiming a stronger source than it has is worse than a weaker claim.
+        srcline = ("Taken from the actual invoices, not estimated."
+                   if c.get("invoiced")
+                   else "Taken from the per-month price each server shows in the "
+                        "hosting console, not estimated. The first month has not "
+                        "closed yet, so these are not invoiced figures.")
         cost_block = f"""
 <table>
 <tr><th>What</th><th class=num>Per month</th></tr>
 {rows}
 <tr class=tot><td><b>Total</b></td><td class=num><b>${total:,.2f}</b></td></tr>
 </table>
-<p class=n>Last updated {e(str(c.get('updated','')))}. Taken from the actual
-invoices, not estimated.</p>"""
+<p class=n>Last updated {e(str(c.get('updated','')))}. {srcline}</p>"""
         # His framing, with the arithmetic done rather than asserted.
         need = int(total // 1) + (1 if total % 1 else 0)
         supporters = f"""
