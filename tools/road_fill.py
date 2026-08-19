@@ -48,6 +48,46 @@ import road                                             # noqa: E402
 REMOTE_CACHE = "/opt/sparrowmap/data/roadcache"
 
 
+# 🚨 ASK OVERPASS WHEN IT IS READY INSTEAD OF GUESSING.
+#
+# road.py cools a mirror for 600s after any failure, which is right for the HUB
+# - a request handler cannot sit and wait. It is wrong here. Measured: a run
+# earned one 429, road.py then cooled every mirror for ten minutes, and the run
+# resolved nothing and exited 0. Meanwhile /api/status reported "2 slots
+# available now" seconds later.
+#
+# Overpass publishes its own rate-limit state, so this asks rather than assumes:
+# it waits for a slot, then queries. That is both faster and politer than a
+# blind backoff, and it is what the endpoint is documented to want.
+STATUS_URL = "https://overpass-api.de/api/status"
+_SLOT_RE = __import__("re").compile(r"Slot available after:.*?in (\d+) seconds")
+
+
+def wait_for_slot(max_wait: float = 90.0, quiet: bool = False) -> bool:
+    """Block until Overpass has a free slot. False if it never frees up."""
+    import re
+    import urllib.request
+    deadline = time.time() + max_wait
+    while time.time() < deadline:
+        try:
+            req = urllib.request.Request(
+                STATUS_URL,
+                headers={"User-Agent": "SparrowMap/0.1 (citizen ALPR; road snapping)"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                txt = r.read().decode("utf-8", "replace")
+        except Exception:
+            return True          # cannot ask: proceed and let the query decide
+        m = re.search(r"(\d+) slots? available now", txt)
+        if m and int(m.group(1)) > 0:
+            return True
+        waits = [int(x) for x in _SLOT_RE.findall(txt)] or [5]
+        nap = min(max(min(waits), 2), max(1.0, deadline - time.time()))
+        if not quiet:
+            print("   (overpass busy, waiting %ds for a slot)" % int(nap))
+        time.sleep(nap)
+    return False
+
+
 def sh(box: str, key: str, cmd: str, timeout: int = 300) -> str:
     r = subprocess.run(["ssh", "-i", key, "-o", "BatchMode=yes", box, cmd],
                        capture_output=True, timeout=timeout)
@@ -142,6 +182,13 @@ def main() -> None:
         lat = (y + 0.5) * road.GRID_DEG
         dlon = road.GRID_DEG / max(math.cos(math.radians(lat)), 1e-6)
         lon = (x + 0.5) * dlon
+        # Wait for a slot, and clear the hub-style cooldown first: this tool
+        # manages its own rate against /api/status, so the 600s blanket that is
+        # correct inside a request handler would only make it idle here.
+        if not wait_for_slot():
+            print("   overpass has no free slot; stopping politely.")
+            break
+        road._MIRROR_DOWN.clear()
         try:
             ways = road.fetch_ways(lat, lon, timeout=25.0)
         except Exception as exc:
