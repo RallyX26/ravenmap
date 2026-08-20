@@ -134,3 +134,10 @@ camsurvey/
 # (public/checksums.html is DIFFERENT: it is built from published release assets,
 # so it is reproducible anywhere and is tracked.)
 public/support.html
+
+# Personal-data working drafts (abuse reports, email/reply drafts). They hold
+# real addresses and IPs, so they stay local and never reach this public repo -
+# preflight's personal-data gate fails on them by design if they ever get added.
+docs/abuse_reports_*.md
+docs/email_replies_*.md
+docs/replies_*.md

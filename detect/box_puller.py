@@ -39,6 +39,7 @@ tools/box_retract.py.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import subprocess
@@ -299,6 +300,15 @@ def run_once(vid: VehicleIdentifier, args) -> dict:
                 # both CLIP and the head called clearly-marked - the ones that
                 # used to publish themselves.
                 "strong": bool(marked),
+                # 🚨 CARRY THE CROP TO THE PEN. The box moves its own inbox
+                # copy into the review pen - but mirror._prune_inbox deletes
+                # inbox crops after 12h, so if this puller was delayed (a
+                # backlog, an outage) the box copy is already gone when the
+                # verdict lands, and box_publish.review_one would park a
+                # crop-less card the reviewer can never see. Sending the
+                # sub-resolution, plate-less crop we just scored makes the pen
+                # image independent of whether the box copy survived the wait.
+                "crop_b64": base64.b64encode(jpg_path.read_bytes()).decode("ascii"),
                 "why": (f"contributor ({meta.get('node_name') or 'a phone'}); "
                         + ("clearly-marked " if marked else "")
                         + f"{r['vclass']} conf {r['conf']:.2f}"

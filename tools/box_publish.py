@@ -103,8 +103,28 @@ def review_one(item: dict) -> None:
     meta["head"] = {"conf": item.get("head_conf"), "vclass": item.get("vclass"),
                     "threshold": item.get("head_threshold"),
                     "why": item.get("why"), "at": time.time()}
+    # The crop the reviewer sees. Prefer the box's own inbox copy; fall back to
+    # the crop the puller carried in the verdict. mirror._prune_inbox deletes
+    # inbox crops after 12h, so a delayed verdict can arrive to find the inbox
+    # copy already gone - and a pen entry with no crop is a black hole the
+    # reviewer can never act on (28 such cards is what surfaced this bug).
+    crop = None
     if ij.exists():
-        rj.write_bytes(ij.read_bytes())
+        crop = ij.read_bytes()
+    elif item.get("crop_b64"):
+        try:
+            crop = base64.b64decode(item["crop_b64"])
+        except Exception:
+            crop = None
+    if not crop:
+        # No image from either source: do NOT park a crop-less card. Leave the
+        # row private and drop any stale inbox remnant; it re-pulls next cycle
+        # while a crop still exists. Silence here beats a permanent black hole.
+        _delete(ij, im)
+        print(f"  review {sid}: no crop (inbox pruned, none carried) - skipped",
+              file=sys.stderr)
+        return
+    rj.write_bytes(crop)
     rm.write_text(json.dumps(meta, indent=1), encoding="utf-8")
     _delete(ij, im)
 
