@@ -164,7 +164,12 @@ const state = {
  * unaffected either way.
  */
 const map = L.map('map', { zoomControl: false, attributionControl: true,
-                           preferCanvas: true })
+                           preferCanvas: true,
+                           // Smoother desktop feel: settle at half-zoom steps
+                           // and need more wheel travel per level, so scroll
+                           // glides instead of jumping a whole level at a time.
+                           zoomSnap: 0.5, zoomDelta: 0.5,
+                           wheelPxPerZoomLevel: 120 })
   .setView([42.7, -84.5], 8);
 // No zoom buttons at all: pinch and scroll zoom the map, and the buttons only
 // got in the way - on a phone they sat over the SparrowMap logo. `zoomControl:
@@ -2027,12 +2032,17 @@ async function loadHeat() {
 function drawHeat() {
   const cells = state.heatCells || [], max = state.heatMax || 1;
   state.heatLayer.clearLayers();
+  const z = map.getZoom();
   const mpp = 156543.03392 * Math.cos(map.getCenter().lat * Math.PI / 180)
-              / Math.pow(2, map.getZoom());        // metres per screen pixel
+              / Math.pow(2, z);                    // metres per screen pixel
+  // Keep the generous on-screen minimum at local/regional zoom (a lone hotspot
+  // is easy to spot), but ramp it down past the state level so the dots shrink
+  // back into a fine pattern when you pull out to the whole country.
+  const zf = Math.max(0, Math.min(1, (z - 5) / 3));  // 0 at USA-wide, 1 at z>=8
   for (const c of cells) {
     const t = c.n / max;
     const meters = 90 + t * 220;                   // physical footprint
-    const floorPx = 9 + t * 9;                     // never smaller than ~9-18 px
+    const floorPx = 2 + (7 + t * 9) * zf;          // ~2px zoomed way out, 9-18px local
     L.circle([c.lat, c.lon], {
       radius: Math.max(meters, floorPx * mpp),
       stroke: true, color: '#ff453a', weight: 1.5, opacity: 0.55 + t * 0.35,
