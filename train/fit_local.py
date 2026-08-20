@@ -114,6 +114,7 @@ EXCLUDE_FROM_TRAINING = {"handheld", "scraped"}
 # because press-style photographs teach photography rather than policing.
 APPROVED_FOR_TRAINING = {
     "review",      # random draw, his
+    "review_public",  # random draw restricted to public/other-node cameras
     "likely",      # highest-government-confidence queue, his
     "hunt",        # CLIP's hardest cases, his
     "split",       # police-vs-gov re-ask, his
@@ -136,7 +137,7 @@ APPROVED_FOR_TRAINING = {
 # But only a RANDOM sample can measure anything, so this is his random draw plus
 # the community's random stratified slice - never the patrol queue, whose whole
 # purpose is to be biased toward the model's mistakes.
-MEASURABLE = {"review", "community_random"}
+MEASURABLE = {"review", "review_public", "community_random"}
 
 
 def _trainable(src):
@@ -465,13 +466,13 @@ def main() -> None:
     thrs = [x for x in thrs if x is not None]
     thr = float(np.median(thrs)) if thrs else None
 
-    if a.no_save:
+    if args.no_save:
         print()
         print(f"--no-save: the live head was NOT touched "
               f"(would have been threshold {thr if thr else 'UNREACHABLE'}).")
         return
 
-    out_path = Path(a.out) if a.out else MODEL_OUT
+    out_path = Path(args.out) if args.out else MODEL_OUT
     out_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(out_path, w=clf.coef_, b=clf.intercept_,
              mean=scaler.mean_, scale=scaler.scale_,

@@ -186,6 +186,14 @@ QUERIES = {
     # Unbiased. The ONLY mode whose labels may be quoted as precision or recall.
     "review": ("SELECT * FROM crops WHERE " + _UNLABELLED +
                " ORDER BY RANDOM() LIMIT :n"),
+    # Unbiased too, but RESTRICTED to the non-window population - public traffic
+    # cams and other people's nodes, the ~86% the his-camera test set is blind
+    # to. Random order, so it still MAY MEASURE (a stratified random slice, the
+    # same standing his call granted the community's slice). This is the queue
+    # that closes the 08-18 measurement gap: every label is a fair public-cam
+    # sample instead of a his-window crop already covered.
+    "review_public": ("SELECT * FROM crops WHERE " + _UNLABELLED +
+                      " AND source = 'remote_node' ORDER BY RANDOM() LIMIT :n"),
     # Crops from other people's nodes, oldest first.
     "remote": ("SELECT * FROM crops WHERE " + _UNLABELLED +
                " AND source = 'remote_node' ORDER BY ts ASC LIMIT :n"),

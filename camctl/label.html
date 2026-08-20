@@ -103,6 +103,7 @@ main{flex:1;display:flex;align-items:center;justify-content:center;
   <div><b>LABEL VEHICLES</b><span class="sub">ground truth for the classifier</span></div>
   <div class="modes">
     <button class="mode on" data-m="review">Review</button>
+    <button class="mode" data-m="review_public">Review · public cams</button>
     <button class="mode" data-m="patrol">Patrol gap</button>
     <button class="mode" data-m="gap">Gap</button>
     <button class="mode" data-m="likely">Likely gov</button>
@@ -181,6 +182,12 @@ const NOTES = {
   review: `<b>Review mode:</b> random order, so these labels are a fair sample and
            can be used to MEASURE precision and recall. This is the mode that
            decides whether the public tier is safe to turn on.`,
+  review_public: `<b>Review &middot; public cams:</b> the same fair random draw, but
+           only from public traffic cams and other people's nodes &mdash; the ~86%
+           of traffic the his-camera test set never saw. Also measurable. This is
+           the queue that lets a retrain be judged on the cameras it actually runs
+           against. Government vehicles are rare here, so most crops are civilian;
+           every one still counts.`,
   hunt:   `<b>Hunt mode:</b> the cases the model finds hardest, first. Fastest way
            to IMPROVE it &mdash; but these labels are a biased sample by
            construction and must never be quoted as a performance figure.`,
