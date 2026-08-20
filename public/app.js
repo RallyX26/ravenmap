@@ -2012,17 +2012,35 @@ async function loadHeat() {
   let cells;
   try { cells = (await (await fetch('/api/heat')).json()).cells || []; }
   catch (e) { return; }
-  state.heatLayer.clearLayers();
   let max = 1;
   for (const c of cells) if (c.n > max) max = c.n;
+  state.heatCells = cells;
+  state.heatMax = max;
+  drawHeat();
+}
+/* Draw (or redraw) the hotspots. Each cell is a translucent red circle whose
+ * size and fill grow with how many patrols were logged there, so overlapping
+ * cells still glow into a detailed picture zoomed out. Two things keep a LONE
+ * hotspot readable without zooming all the way in: a crisp stroked edge, and a
+ * floor on its ON-SCREEN radius so it never shrinks to an invisible dot at low
+ * zoom. Redrawn on zoom because that floor is measured in screen pixels. */
+function drawHeat() {
+  const cells = state.heatCells || [], max = state.heatMax || 1;
+  state.heatLayer.clearLayers();
+  const mpp = 156543.03392 * Math.cos(map.getCenter().lat * Math.PI / 180)
+              / Math.pow(2, map.getZoom());        // metres per screen pixel
   for (const c of cells) {
     const t = c.n / max;
+    const meters = 90 + t * 220;                   // physical footprint
+    const floorPx = 9 + t * 9;                     // never smaller than ~9-18 px
     L.circle([c.lat, c.lon], {
-      radius: 70 + t * 140, stroke: false,
-      fillColor: '#ff3b30', fillOpacity: 0.12 + t * 0.30,
+      radius: Math.max(meters, floorPx * mpp),
+      stroke: true, color: '#ff453a', weight: 1.5, opacity: 0.55 + t * 0.35,
+      fillColor: '#ff3b30', fillOpacity: 0.18 + t * 0.32,
     }).addTo(state.heatLayer);
   }
 }
+map.on('zoomend', () => { if (state.heatOn && state.heatCells) drawHeat(); });
 /* ⚠️ THE CHECKBOX IS THE STATE NOW, not a button's background colour. This
  * used to tint #heatBtn, which no longer exists - the control moved into the
  * Layers menu. Keeping the box in sync matters because the menu can be closed
