@@ -115,11 +115,20 @@ def pull(args) -> tuple[Path, bool]:
     # so the ssh exit code alone cannot distinguish the two. What can: ssh
     # returns 255 for its own failures, and a reachable host with an empty
     # directory still produces a valid (tiny) tar on stdout.
-    proc = subprocess.run(
-        ["ssh", "-i", args.key, "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
-         "-o", "StrictHostKeyChecking=accept-new", args.box,
-         f"tar -C {args.remote} -cf - . 2>/dev/null || true"],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+    try:
+        proc = subprocess.run(
+            ["ssh", "-i", args.key, "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
+             "-o", "StrictHostKeyChecking=accept-new", args.box,
+             f"tar -C {args.remote} -cf - . 2>/dev/null || true"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+    except subprocess.TimeoutExpired:
+        # 🚨 A STALLED SSH IS "COULD NOT REACH THE BOX THIS CYCLE", NOT A CRASH.
+        # His uplink blips, and a hung ssh raised TimeoutExpired straight past
+        # the loop's BoxUnreachable handler and KILLED the puller - which then
+        # stayed dead while the box's 12h inbox TTL deleted crops unread. The
+        # remote tar itself takes ~0.1s; the timeout only ever fires on the
+        # link, so convert it to the recoverable error the loop already retries.
+        raise BoxUnreachable(f"ssh to {args.box} timed out reading the inbox")
     if proc.returncode != 0 or not proc.stdout:
         err = (proc.stderr or b"").decode("utf-8", "replace").strip()[:200]
         raise BoxUnreachable(
