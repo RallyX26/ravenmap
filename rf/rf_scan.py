@@ -187,33 +187,82 @@ def read_gps() -> tuple | None:
     return None
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--demo", action="store_true", help="dry run on built-in sample frames")
-    ap.add_argument("--json", action="store_true", help="print candidates as JSON")
-    args = ap.parse_args()
+def scan_once(demo: bool) -> tuple[list, int]:
+    """One scan -> (surveillance candidates, count of private devices dropped).
 
+    The private side never leaves this function: a dropped device is counted and
+    its hash forgotten when the process exits. This is the edge-discard rule.
+    """
     oui_db = load_oui_db()
     gps = read_gps()
-    devices = capture(args.demo)
-
-    kept, dropped, seen = [], 0, set()
-    for dev in devices:
+    kept, dropped = [], 0
+    for dev in capture(demo):
         keep, reason = is_surveillance(dev, oui_db)
         if keep:
             kept.append(to_candidate(dev, reason, gps))
         else:
-            # de-dup only; the hash never leaves this process and is discarded
-            # when it exits. Nothing about a civilian device is stored.
-            seen.add(hashlib.sha256(SALT + _norm_mac(dev.get("mac", "")).encode()).digest())
             dropped += 1
+    return kept, dropped
 
+
+def post(hub: str, node: str, token: str, candidates: list) -> str:
+    """Upload surveillance candidates to the hub's /api/rf. Parks for review;
+    never publishes. Fire-and-forget-ish: a failed post just retries next scan."""
+    import urllib.request
+    body = json.dumps({"node_id": node, "candidates": candidates}).encode()
+    req = urllib.request.Request(
+        hub.rstrip("/") + "/api/rf", data=body, method="POST",
+        headers={"Content-Type": "application/json",
+                 "Authorization": "Bearer " + token,
+                 "User-Agent": "sparrowmap-rf-node"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return r.read().decode("utf-8", "replace")[:200]
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--demo", action="store_true", help="dry run on built-in sample frames")
+    ap.add_argument("--json", action="store_true", help="print candidates as JSON")
+    # Pi / uploading node mode:
+    ap.add_argument("--post", action="store_true",
+                    help="scan in a loop and upload surveillance candidates to the hub")
+    ap.add_argument("--hub", default="https://map.sparrowmap.com", help="hub base URL")
+    ap.add_argument("--node", default="", help="your node id from /api/enroll")
+    ap.add_argument("--token", default="", help="your node token from /api/enroll")
+    ap.add_argument("--interval", type=int, default=30, help="seconds between scans in --post mode")
+    args = ap.parse_args()
+
+    if args.post:
+        # A Pi node: enroll once (see /rfbeta), then this loops, scans, keeps
+        # only surveillance devices, and uploads them. The hub parks every one
+        # for human review - nothing this posts reaches the public map on its own.
+        if not args.node or not args.token:
+            raise SystemExit("--post needs --node and --token (enroll first, see /rfbeta)")
+        print(f"RF node {args.node} -> {args.hub}  (scan every {args.interval}s, Ctrl-C to stop)")
+        try:
+            while True:
+                kept, dropped = scan_once(args.demo)
+                if kept:
+                    try:
+                        res = post(args.hub, args.node, args.token, kept)
+                        print(f"  uploaded {len(kept)} surveillance device(s), "
+                              f"dropped {dropped} private at the edge  [{res}]")
+                    except Exception as e:
+                        print(f"  scan kept {len(kept)}, upload failed (will retry): {e}")
+                else:
+                    print(f"  no surveillance devices; {dropped} private ignored")
+                time.sleep(max(5, args.interval))
+        except KeyboardInterrupt:
+            print("\nstopped.")
+        return
+
+    kept, dropped = scan_once(args.demo)
     if args.json:
         print(json.dumps({"candidates": kept, "dropped_private": dropped}, indent=2))
         return
+    oui_db = load_oui_db()
     print(f"OUI db: {'loaded ' + str(len(oui_db)) + ' entries' if oui_db else 'MISSING (SSID/BLE match only) - see load_oui_db()'}")
-    print(f"scanned {len(devices)} devices -> kept {len(kept)} surveillance, "
-          f"discarded {dropped} private at the edge")
+    print(f"kept {len(kept)} surveillance, discarded {dropped} private at the edge")
     for c in kept:
         print(f"  + {c['vendor_reason']:22} rssi={c['rssi']} ssid={c['ssid']!r}")
     if not kept:

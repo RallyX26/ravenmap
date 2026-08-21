@@ -425,6 +425,9 @@ _HIT_LOCK = threading.Lock()
 # is refused) and no longer refuses a crowd.
 RATE = {"/api/enroll": (600, 3600), "/api/sightings": (900, 3600),
         "_all_sightings": (20000, 3600),
+        # RF scans post a whole batch of nearby surveillance devices at once,
+        # not one row at a time, so the per-node ceiling is lower than sightings.
+        "/api/rf": (300, 3600),
         "/api/drive/report": (40, 3600), "/api/drive/vote": (120, 3600),
         # 🚨 TILES: 600/300s WAS 2 A SECOND FOR THE WHOLE WORLD.
         # One map load pulls roughly twenty tiles, so that bucket allowed about
@@ -1459,6 +1462,8 @@ class Handler(BaseHTTPRequestHandler):
             # (no path from the request), so this cannot serve anything else.
             if p == "/rf/phone_scan.py":
                 return self._file(PUBLIC.parent / "rf" / "phone_scan.py")
+            if p == "/rf/rf_scan.py":
+                return self._file(PUBLIC.parent / "rf" / "rf_scan.py")
             if p == "/transparency":     return self._file(PUBLIC / "transparency.html")
             # 🚨 THE ANSWER TO "YOUR SITE IS BLOCKED, SO IT IS FAKE".
             # A filter's block page is served before the request ever leaves the
@@ -2721,6 +2726,34 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(503, "the map is at capacity right now - "
                                           "your camera will retry")
                 return self._ingest(b)
+
+            if p == "/api/rf":
+                # 🚨 RF SURVEILLANCE-DEVICE CANDIDATES. No image, no civilian
+                # data - the client dropped every private device at the edge, so
+                # a payload here is only ever known surveillance hardware (a
+                # Flock/ALPR camera) heard at a position. Same auth as a camera
+                # node (enroll gives the token), and it NEVER publishes: every
+                # candidate parks in the RF pen for a human, exactly like the
+                # government-vehicle review pen. A false RF guess costs a review
+                # click, never a wrong dot on the public map.
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if nd["status"] != "active":
+                    return self._err(403, f"node is {nd['status']}")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                if not rate_ok(p, self.client_ip, who=nd["id"]):
+                    return self._err(429, "this node is posting too fast")
+                cands = b.get("candidates") or []
+                if not isinstance(cands, list):
+                    return self._err(400, "candidates must be a list")
+                parked = 0
+                for c in cands[:200]:   # a single scan cannot see more than this
+                    if isinstance(c, dict) and mirror.rf_park(nd["id"], c):
+                        parked += 1
+                return self._json({"parked": parked, "reviewed": "pending"})
 
             # A stranger's judgement about one crop. It is written to
             # label_votes.db and nowhere else - not to sightings, not to the

@@ -275,6 +275,36 @@ def quarantine_write(sighting_id: int, crop_bytes: bytes,
 
 
 REVIEW = INBOX.parent / "review"
+RF_PEN = INBOX.parent / "rf_pen"
+
+
+def rf_park(node_id: str, candidate: dict) -> Optional[str]:
+    """Park ONE RF surveillance-device candidate for human review.
+
+    RF candidates carry no image and no civilian data - the client already
+    dropped every private device at the edge, so this is only ever a claim that
+    a KNOWN surveillance device (a Flock/ALPR camera, etc.) was heard at a
+    position. It NEVER publishes: it lands in the RF pen and waits for a person,
+    exactly like the government-vehicle review pen. A false RF guess must cost a
+    review click, never a wrong dot on the public map.
+
+    Stored as one json per (node, device), so re-hearing the same camera updates
+    rather than piling up.
+    """
+    try:
+        RF_PEN.mkdir(parents=True, exist_ok=True)
+        dev = str(candidate.get("dev_id") or "")[:32] or "unknown"
+        stem = f"{str(node_id)[:24]}_{dev}"
+        # keep only fields that describe the surveillance device + where/when.
+        safe = {k: candidate.get(k) for k in
+                ("dev_id", "ssid", "vendor_reason", "band", "rssi",
+                 "lat", "lon", "ts")}
+        (RF_PEN / f"{stem}.json").write_text(json.dumps(
+            {**safe, "node_id": str(node_id)[:24], "reviewed": None,
+             "written": time.time()}, indent=1), encoding="utf-8")
+        return stem
+    except Exception:
+        return None
 
 
 def review_write(sighting_id: int, crop_bytes: bytes, meta: dict) -> Optional[str]:

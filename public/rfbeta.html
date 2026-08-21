@@ -71,8 +71,26 @@ python phone_scan.py --watch   # keep scanning while you walk or drive</code></p
     </ul>
   </div>
 
-  <h2>📤 Sending results</h2>
-  <p>For the beta, just paste the copied block to us (DM or email) with a rough location. Once we've confirmed the scanner reliably spots real cameras, the next version will upload straight to a new map layer, behind the same human review the vehicle map already uses.</p>
+  <h2>📤 Sending results (phone)</h2>
+  <p>For the phone beta, just paste the copied block to us (DM or email) with a rough location. It's reviewed before anything goes on the map.</p>
+
+  <h2>🖥️ Raspberry Pi (auto-upload)</h2>
+  <div class="card">
+    <p>If you have a Pi (or any Linux box) it can scan and <b>upload on its own</b>, no copy-paste. Same rule: only surveillance devices leave the box, every private network is dropped there. Uploads land in a review pen — <b>nothing goes on the public map without a person confirming it.</b></p>
+    <p><b>1. Get the scanner:</b></p>
+    <pre><code>sudo apt install -y network-manager python3
+curl -O https://map.sparrowmap.com/rf/rf_scan.py</code></pre>
+    <p><b>2. Enroll once</b> to get a node id + token (save the token, shown once):</p>
+    <pre><code>curl -X POST https://map.sparrowmap.com/api/enroll \
+  -H "Content-Type: application/json" \
+  -d '{"name":"My RF Pi","lat":XX.XXXX,"lon":-YY.YYYY,"kind":"rf"}'</code></pre>
+    <p><b>3. Run it</b> (loops, scans, uploads surveillance devices only):</p>
+    <pre><code>python3 rf_scan.py --post --node n_YOURID --token YOURTOKEN</code></pre>
+    <p style="margin-bottom:0">Mount it in a vehicle or a window overlooking a road. A GPS dongle is optional now (position is added in the next version); for a fixed spot the enroll location is enough. The monitor-mode + Bluetooth upgrade (an Alfa adapter) comes later — plain wifi scanning already catches broadcasting cameras.</p>
+  </div>
+
+  <h2>🔜 What's next</h2>
+  <p>Once field tests confirm the scanner reliably spots real cameras, we turn on a dedicated <b>surveillance map layer</b> so confirmed devices show up alongside the vehicle map — always behind the same human review.</p>
 
   <p class="foot">Open source, free, government and surveillance hardware only. Your neighbours and your own devices are destroyed at the edge and never leave your phone. That's the whole point.</p>
 
