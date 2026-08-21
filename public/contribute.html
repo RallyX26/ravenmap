@@ -62,7 +62,7 @@
     <p>Send a name and a rough starting position. For anything that <b>moves</b> (a dashcam, a car, a phone), set <code>"kind": "mobile"</code>. A fixed camera can omit it.</p>
     <pre><code><span class="k">curl</span> -X POST https://map.sparrowmap.com/api/enroll \
   -H <span class="s">"Content-Type: application/json"</span> \
-  -d <span class="s">'{"name":"My Pi node","lat":XX.XXXX,"lon":-YY.YYYY,"kind":"mobile","contact":"you@example.com"}'</span></code></pre>
+  -d <span class="s">'{"name":"My Pi node","lat":XX.XXXX,"lon":-YY.YYYY,"kind":"mobile","contact":"your handle or email"}'</span></code></pre>
     <p><b>Response</b> (the token is shown <b>once</b> &mdash; save it):</p>
     <pre><code>{ <span class="k">"id"</span>: <span class="s">"n_1a2b3c4d"</span>, <span class="k">"status"</span>: <span class="s">"active"</span>, <span class="k">"token"</span>: <span class="s">"KEEP-THIS-SECRET"</span>,
   <span class="k">"review_url"</span>: <span class="s">"/rv"</span>, <span class="k">"review_token"</span>: <span class="s">"…"</span> }</code></pre>
