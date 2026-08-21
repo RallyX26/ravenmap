@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RF Beta — SparrowMap</title>
+<style>
+  :root{--bg:#0a0d12;--card:#111621;--line:#1e2733;--ink:#e7edf5;--dim:#9fb0c3;
+    --red:#ff3b47;--green:#3ddc97;--amber:#ffb020;--blue:#5cc8ff;--code:#0c1119;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-text-size-adjust:100%}
+  .wrap{max-width:820px;margin:0 auto;padding:26px 18px 70px}
+  h1{font-size:26px;margin:0 0 4px}
+  .sub{color:var(--dim);margin:0 0 22px}
+  h2{font-size:19px;margin:30px 0 10px;display:flex;align-items:center;gap:9px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:14px 0}
+  .rule{border-left:4px solid var(--green)} .note{border-left:4px solid var(--amber)}
+  .beta{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.5px;color:#08110b;
+    background:var(--green);border-radius:999px;padding:2px 9px;vertical-align:middle;margin-left:8px}
+  p{margin:8px 0} ol,ul{margin:8px 0;padding-left:22px} li{margin:7px 0}
+  code{font:13px ui-monospace,Consolas,monospace;background:var(--code);border:1px solid var(--line);
+    border-radius:6px;padding:1px 6px;color:var(--blue);word-break:break-word}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto;
+    -webkit-overflow-scrolling:touch;margin:8px 0}
+  pre code{background:none;border:0;padding:0;color:#cfe3f5;white-space:pre;display:block}
+  .foot{color:var(--dim);font-size:13px;margin-top:34px;border-top:1px solid var(--line);padding-top:14px}
+  a{color:var(--blue)} b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Help test the RF scanner <span class="beta">BETA</span></h1>
+  <p class="sub">Find surveillance cameras by the wifi they broadcast. No hardware, no money, just your phone.</p>
+
+  <div class="card rule">
+    <h2 style="margin-top:0">🔒 What it does, and what it never does</h2>
+    <p>Flock and other ALPR cameras broadcast a wifi name. This scanner watches for those names and <b>only</b> those. Every other network your phone sees — homes, other phones, shops — is <b>counted and thrown away instantly</b>, never shown, never saved, never sent. Same rule SparrowMap uses for licence plates: the private side is destroyed on your device.</p>
+    <p style="margin-bottom:0">It uploads <b>nothing on its own</b>. You look at what it flags and send it to us by hand. Nothing hits the map without a person reviewing it.</p>
+  </div>
+
+  <h2>📱 What you need</h2>
+  <ul>
+    <li>An <b>Android</b> phone (iPhone can't scan wifi like this — Android only for now).</li>
+    <li><b>Termux</b> and <b>Termux:API</b> — both free from <a href="https://f-droid.org">F-Droid</a> (not the Play Store versions, they're outdated).</li>
+  </ul>
+
+  <h2>▶️ Setup (one time, ~2 minutes)</h2>
+  <div class="card">
+    <p>Open Termux and paste:</p>
+    <pre><code>pkg install -y python termux-api
+curl -O https://map.sparrowmap.com/rf/phone_scan.py</code></pre>
+    <p style="margin-bottom:0">Then install the <b>Termux:API</b> app from F-Droid if you haven't (it's what lets the script read wifi).</p>
+  </div>
+
+  <h2>🚗 Run it</h2>
+  <div class="card">
+    <pre><code>python phone_scan.py            # one scan, right where you are
+python phone_scan.py --watch   # keep scanning while you walk or drive</code></pre>
+    <p>Best test: drive or walk past a spot you know has a Flock or ALPR camera (intersections, town entrances, parking lots). If it broadcasts wifi, you'll see a <b>🚨 SURVEILLANCE</b> line.</p>
+    <p style="margin-bottom:0">When you're done, it prints a block starting <code>--- copy everything below ---</code>. Copy that and send it to us, along with roughly where you were (a cross street is plenty).</p>
+  </div>
+
+  <div class="card note">
+    <h2 style="margin-top:0">⚠️ What we're actually testing</h2>
+    <ul style="margin-bottom:0">
+      <li>Whether real Flock/ALPR cameras <b>show up</b> at all, and what names they use — that's the data we need to make this reliable.</li>
+      <li>Phones only see cameras that <b>broadcast</b> a name. Silent devices and deeper Bluetooth need the Raspberry Pi version (coming later). Broadcast is plenty to prove it works.</li>
+      <li>False alarms are fine and useful — send them too. Nothing you send goes public without us reviewing it.</li>
+    </ul>
+  </div>
+
+  <h2>📤 Sending results</h2>
+  <p>For the beta, just paste the copied block to us (DM or email) with a rough location. Once we've confirmed the scanner reliably spots real cameras, the next version will upload straight to a new map layer, behind the same human review the vehicle map already uses.</p>
+
+  <p class="foot">Open source, free, government and surveillance hardware only. Your neighbours and your own devices are destroyed at the edge and never leave your phone. That's the whole point.</p>
+
+</div>
+</body>
+</html>
