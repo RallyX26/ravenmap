@@ -1452,6 +1452,7 @@ class Handler(BaseHTTPRequestHandler):
 
             if p == "/":                 return self._file(PUBLIC / "index.html")
             if p == "/about":            return self._file(PUBLIC / "about.html")
+            if p == "/contribute":       return self._file(PUBLIC / "contribute.html")
             if p == "/transparency":     return self._file(PUBLIC / "transparency.html")
             # 🚨 THE ANSWER TO "YOUR SITE IS BLOCKED, SO IT IS FAKE".
             # A filter's block page is served before the request ever leaves the
