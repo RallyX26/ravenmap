@@ -1456,6 +1456,8 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/":                 return self._file(PUBLIC / "index.html")
             if p == "/about":            return self._file(PUBLIC / "about.html")
             if p == "/contribute":       return self._file(PUBLIC / "contribute.html")
+            if p == "/guides":           return self._file(PUBLIC / "guides.html")
+            if p == "/guide":            return self._file(PUBLIC / "guide.html")
             if p == "/rfbeta":           return self._file(PUBLIC / "rfbeta.html")
             # The phone beta scanner, served as plain text so a tester can
             # `curl` it straight onto their phone. Read-only, single known file

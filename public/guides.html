@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Guides — SparrowMap</title>
+<style>
+  :root{--bg:#0a0d12;--card:#111621;--line:#1e2733;--ink:#e7edf5;--dim:#9fb0c3;
+    --green:#3ddc97;--amber:#ffb020;--blue:#5cc8ff;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-text-size-adjust:100%}
+  .wrap{max-width:820px;margin:0 auto;padding:26px 18px 90px}
+  h1{font-size:27px;margin:0 0 4px}
+  .sub{color:var(--dim);margin:0 0 22px}
+  h2{font-size:14px;text-transform:uppercase;letter-spacing:.6px;color:var(--dim);margin:26px 0 8px}
+  a.tile{display:block;text-decoration:none;color:inherit;background:var(--card);
+    border:1px solid var(--line);border-radius:14px;padding:15px 17px;margin:10px 0;
+    transition:border-color .15s,transform .05s}
+  a.tile:hover{border-color:#31465c}
+  a.tile:active{transform:translateY(1px)}
+  .tt{font-size:17px;font-weight:700;display:flex;align-items:center;gap:10px}
+  .tt .ic{font-size:20px}
+  .td{color:var(--dim);font-size:14.5px;margin-top:3px}
+  .beta{font-size:10px;font-weight:700;letter-spacing:.5px;color:#08110b;background:var(--green);
+    border-radius:999px;padding:2px 8px;margin-left:8px}
+  .foot{color:var(--dim);font-size:13px;margin-top:34px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Guides</h1>
+  <p class="sub">Everything you can do with SparrowMap, and how. Pick a path.</p>
+
+  <h2>Start here</h2>
+  <a class="tile" href="/guide">
+    <div class="tt"><span class="ic">📖</span> How SparrowMap works</div>
+    <div class="td">What it is, what it watches, and the privacy promises — plates destroyed at the camera, only government vehicles published.</div>
+  </a>
+
+  <h2>Add coverage</h2>
+  <a class="tile" href="/app">
+    <div class="tt"><span class="ic">📷</span> Add a camera</div>
+    <div class="td">Turn a spare phone or PC into a camera node in a couple of taps. The easiest way to put your street on the map.</div>
+  </a>
+  <a class="tile" href="/IPCamera">
+    <div class="tt"><span class="ic">🎥</span> Add an IP camera</div>
+    <div class="td">Already have a wifi or PoE camera pointed at a road? Point it at SparrowMap with an RTSP link. Includes which cameras work and how to mount them.</div>
+  </a>
+
+  <h2>Build your own</h2>
+  <a class="tile" href="/contribute">
+    <div class="tt"><span class="ic">🔌</span> Contribute via the API</div>
+    <div class="td">Feed sightings from your own code or device using two endpoints. For a Pi, an SBC, or a custom rig.</div>
+  </a>
+  <a class="tile" href="/rfbeta">
+    <div class="tt"><span class="ic">📡</span> RF scanner <span class="beta">BETA</span></div>
+    <div class="td">No camera needed. Find surveillance cameras by the wifi they broadcast, from an Android phone or a Raspberry Pi.</div>
+  </a>
+
+  <h2>Review &amp; trust</h2>
+  <a class="tile" href="/rv">
+    <div class="tt"><span class="ic">✅</span> Review the queue</div>
+    <div class="td">Confirm or reject what the cameras caught. Nothing reaches the public map without a human.</div>
+  </a>
+  <a class="tile" href="/transparency">
+    <div class="tt"><span class="ic">👁️</span> Transparency</div>
+    <div class="td">Exactly what is kept, what is thrown away, and why. The rules the whole project is built on.</div>
+  </a>
+
+  <p class="foot">Open source, free, and privacy-first. Compute stays on your device, video never leaves it, and only public government vehicles are ever published.</p>
+
+</div>
+</body>
+</html>
