@@ -295,16 +295,56 @@ def rf_park(node_id: str, candidate: dict) -> Optional[str]:
         RF_PEN.mkdir(parents=True, exist_ok=True)
         dev = str(candidate.get("dev_id") or "")[:32] or "unknown"
         stem = f"{str(node_id)[:24]}_{dev}"
-        # keep only fields that describe the surveillance device + where/when.
+        # keep only fields that describe the surveillance device + where/when,
+        # plus the police-equipment tag used to corroborate a visual sighting.
         safe = {k: candidate.get(k) for k in
                 ("dev_id", "ssid", "vendor_reason", "band", "rssi",
-                 "lat", "lon", "ts")}
+                 "lat", "lon", "ts", "police_conf", "police_reason")}
         (RF_PEN / f"{stem}.json").write_text(json.dumps(
             {**safe, "node_id": str(node_id)[:24], "reviewed": None,
              "written": time.time()}, indent=1), encoding="utf-8")
         return stem
     except Exception:
         return None
+
+
+# How close in space and time an RF police-equipment hit must be to a visual
+# police sighting to count as corroboration. Tight on purpose: a patrol car and
+# the camera that saw it are within a block and a minute, so a wider window would
+# start matching unrelated traffic.
+RF_CORROBORATE_M = 150.0
+RF_CORROBORATE_S = 120.0
+
+
+def rf_corroborates(sighting: dict, candidate: dict) -> tuple[bool, str]:
+    """Does this RF police-equipment candidate back up a visual police sighting?
+
+    True only when the candidate is police-vehicle gear (police_conf set) AND it
+    was heard within RF_CORROBORATE_M metres and RF_CORROBORATE_S seconds of the
+    sighting. This is a SECOND signal on an already-visual sighting - it raises a
+    reviewer's confidence, it never creates a sighting or publishes on its own.
+
+    A 'weak' vendor (in-car router, also commercial) only ever means anything
+    HERE, tied to a visual police call; on its own it is ignored.
+    """
+    import math
+    conf = candidate.get("police_conf") or ""
+    if conf not in ("strong", "weak"):
+        return False, ""
+    try:
+        slat, slon, sts = float(sighting["lat"]), float(sighting["lon"]), float(sighting["ts"])
+        clat, clon, cts = float(candidate["lat"]), float(candidate["lon"]), float(candidate["ts"])
+    except (KeyError, TypeError, ValueError):
+        return False, ""
+    if abs(sts - cts) > RF_CORROBORATE_S:
+        return False, ""
+    # rough metres: 111,320 m per degree lat; scale lon by cos(lat)
+    dlat = (slat - clat) * 111320.0
+    dlon = (slon - clon) * 111320.0 * math.cos(math.radians(slat))
+    dist = math.hypot(dlat, dlon)
+    if dist > RF_CORROBORATE_M:
+        return False, ""
+    return True, f"{conf} RF {candidate.get('police_reason','')} {int(dist)}m/{int(abs(sts-cts))}s away"
 
 
 def review_write(sighting_id: int, crop_bytes: bytes, meta: dict) -> Optional[str]:

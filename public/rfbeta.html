@@ -32,12 +32,17 @@
 <div class="wrap">
 
   <h1>Help test the RF scanner <span class="beta">BETA</span></h1>
-  <p class="sub">Find surveillance cameras by the wifi they broadcast. No hardware, no money, just your phone.</p>
+  <p class="sub">Find surveillance cameras — and help confirm police vehicles — by the wifi they broadcast. No plates, no faces, just signal.</p>
 
   <div class="card rule">
     <h2 style="margin-top:0">🔒 What it does, and what it never does</h2>
-    <p>Flock and other ALPR cameras broadcast a wifi name. This scanner watches for those names and <b>only</b> those. Every other network your phone sees — homes, other phones, shops — is <b>counted and thrown away instantly</b>, never shown, never saved, never sent. Same rule SparrowMap uses for licence plates: the private side is destroyed on your device.</p>
-    <p style="margin-bottom:0">It uploads <b>nothing on its own</b>. You look at what it flags and send it to us by hand. Nothing hits the map without a person reviewing it.</p>
+    <p>Two things, both by wifi/Bluetooth only:</p>
+    <ul style="margin:6px 0">
+      <li><b>Find surveillance cameras.</b> Flock and other ALPR cameras broadcast a wifi name; the scanner watches for those and only those.</li>
+      <li><b>Corroborate a police sighting.</b> Patrol cars carry gear that broadcasts too — Axon body/dash cameras especially. Hearing that gear <b>at the same place and time a camera already saw a police vehicle</b> is a strong second signal that confirms the sighting.</li>
+    </ul>
+    <p>Every <b>other</b> device your scanner sees — homes, other phones, ordinary cars — is <b>counted and thrown away instantly</b>, never shown, never saved, never sent. Same rule SparrowMap uses for licence plates: the private side is destroyed on your device.</p>
+    <p style="margin-bottom:0"><b>Honest limit:</b> RF alone can't name a cop car — some in-car gear also lives in work trucks. It <b>confirms</b> what a camera already saw; it never invents a sighting, and it uploads <b>nothing on its own</b>. Nothing hits the map without a person reviewing it.</p>
   </div>
 
   <h2>📱 What you need</h2>
@@ -66,7 +71,8 @@ python phone_scan.py --watch   # keep scanning while you walk or drive</code></p
     <h2 style="margin-top:0">⚠️ What we're actually testing</h2>
     <ul style="margin-bottom:0">
       <li>Whether real Flock/ALPR cameras <b>show up</b> at all, and what names they use — that's the data we need to make this reliable.</li>
-      <li>Phones only see cameras that <b>broadcast</b> a name. Silent devices and deeper Bluetooth need the Raspberry Pi version (coming later). Broadcast is plenty to prove it works.</li>
+      <li>Whether <b>police in-car gear</b> (Axon docks/cameras especially) shows up near a real patrol car — that's what powers the police-sighting confirmation.</li>
+      <li>Phones only see devices that <b>broadcast</b> a name. Silent devices and deeper Bluetooth need the Raspberry Pi version. Broadcast is plenty to prove it works.</li>
       <li>False alarms are fine and useful — send them too. Nothing you send goes public without us reviewing it.</li>
     </ul>
   </div>
@@ -90,7 +96,7 @@ curl -O https://map.sparrowmap.com/rf/rf_scan.py</code></pre>
   </div>
 
   <h2>🔜 What's next</h2>
-  <p>Once field tests confirm the scanner reliably spots real cameras, we turn on a dedicated <b>surveillance map layer</b> so confirmed devices show up alongside the vehicle map — always behind the same human review.</p>
+  <p>Once field tests confirm the scanner reliably spots real cameras and police gear, two things turn on, both behind the same human review: a dedicated <b>surveillance map layer</b> for confirmed cameras, and <b>police-sighting confirmation</b> — when the scanner hears patrol gear right where a camera saw a police vehicle, that sighting gets a second, independent confirmation before it's published.</p>
 
   <p class="foot">Open source, free, government and surveillance hardware only. Your neighbours and your own devices are destroyed at the edge and never leave your phone. That's the whole point.</p>
 

@@ -47,6 +47,28 @@ SSID_PATTERNS = [
     "flock", "falcon", "vigilant", "alpr", "axon", "verkada",
 ]
 
+# 🚔 POLICE-VEHICLE equipment, for CORROBORATING a visual police sighting.
+# These ride IN a patrol car (body/dash cams, in-car MDT/router), so hearing one
+# next to a camera's police sighting is a strong second signal. This is NOT a
+# way to name a cop car from RF alone: the "weak" vendors below also live in
+# utility and commercial trucks, so on their own they mean little. Confidence:
+#   strong  -> police-dominant (Axon body/dash). A hit is real corroboration.
+#   weak    -> in-car comms also found in commercial fleets. Corroborates only
+#              WHEN it lines up with a visual police sighting; never alone.
+POLICE_EQUIPMENT = {
+    "axon": "strong",              # body/dash cameras + docks, police-dominant
+    "digital ally": "strong",      # in-car/​body police video
+    "watchguard": "strong",        # Motorola police in-car video
+    "utility associates": "strong",  # BodyWorn / police in-car
+    "sierra wireless": "weak",     # in-car routers - also commercial
+    "cradlepoint": "weak",         # in-car routers - also commercial
+    "panasonic": "weak",           # Toughbook MDTs - also field service
+}
+POLICE_SSID_PATTERNS = [
+    ("axon", "strong"), ("bodyworn", "strong"), ("watchguard", "strong"),
+    ("mdt", "weak"), ("patrol", "weak"), ("cradlepoint", "weak"),
+]
+
 SALT = secrets.token_bytes(16)  # per-process; civilian hashes never persist
 
 
@@ -91,8 +113,29 @@ def is_surveillance(dev: dict, oui_db: dict) -> tuple[bool, str]:
     return False, ""
 
 
-def to_candidate(dev: dict, reason: str, gps: tuple | None) -> dict:
+def police_signal(dev: dict, oui_db: dict) -> tuple[str, str]:
+    """Is this device POLICE-VEHICLE equipment? Return (confidence, reason).
+
+    confidence is "strong", "weak", or "" (not police gear). Used to CORROBORATE
+    a visual police sighting, never to name a cop car from RF alone - see the
+    POLICE_EQUIPMENT note. A 'weak' hit is only meaningful once it lines up in
+    space and time with a camera's police sighting.
+    """
+    vendor = (oui_db.get(oui_of(dev.get("mac", ""))) or "").lower()
+    for v, conf in POLICE_EQUIPMENT.items():
+        if v in vendor:
+            return conf, f"police-vendor:{v}"
+    name = (dev.get("ssid") or dev.get("name") or "").lower()
+    for p, conf in POLICE_SSID_PATTERNS:
+        if p in name:
+            return conf, f"police-ssid:{p}"
+    return "", ""
+
+
+def to_candidate(dev: dict, reason: str, gps: tuple | None,
+                 oui_db: dict | None = None) -> dict:
     """A publishable RF candidate. Note there is NO raw civilian data here."""
+    pconf, preason = police_signal(dev, oui_db or {})
     return {
         "source": "rf",
         "vendor_reason": reason,
@@ -102,6 +145,10 @@ def to_candidate(dev: dict, reason: str, gps: tuple | None) -> dict:
         "lat": gps[0] if gps else None,
         "lon": gps[1] if gps else None,
         "ts": dev.get("ts") or time.time(),
+        # Police-vehicle equipment tag, for corroborating a visual police
+        # sighting. "" means not police gear; "strong"/"weak" per POLICE_EQUIPMENT.
+        "police_conf": pconf,
+        "police_reason": preason,
         # the surveillance device's own MAC is fair to keep (it is public
         # infrastructure), UNLIKE a civilian's. Kept for de-dup on the map.
         "dev_id": hashlib.sha256(_norm_mac(dev.get("mac", "")).encode()).hexdigest()[:16],
@@ -199,7 +246,7 @@ def scan_once(demo: bool) -> tuple[list, int]:
     for dev in capture(demo):
         keep, reason = is_surveillance(dev, oui_db)
         if keep:
-            kept.append(to_candidate(dev, reason, gps))
+            kept.append(to_candidate(dev, reason, gps, oui_db))
         else:
             dropped += 1
     return kept, dropped
