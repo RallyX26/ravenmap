@@ -171,10 +171,29 @@ CLIP_CLASSES = ("police", "emergency", "gov_dot", "fleet", "civilian")
 _WITH_CLIP = os.environ.get("SPARROW_NO_CLIP_FEATURES") != "1"
 
 
+def _labelled_paths() -> list:
+    """Image paths of every crop that carries a usable label.
+
+    🚨 EMBED ONLY THESE, NOT THE WHOLE BANK. embed_dir used to walk all 655k
+    crops and embed every unlabelled one - hours on the GPU, and it deadlocked
+    box_puller's CLIP. The measurement only ever uses labelled crops, so ask the
+    index which those are (fast) and hand embed_dir exactly that list.
+    """
+    from tools import bank_index
+    db = bank_index.read()
+    try:
+        rows = db.execute(
+            "SELECT day, stem FROM crops WHERE label IN "
+            "('police','gov','civilian','fleet')").fetchall()
+    finally:
+        db.close()
+    return [BANK / r["day"] / f"{r['stem']}.jpg" for r in rows]
+
+
 def load() -> tuple[np.ndarray, np.ndarray, np.ndarray, list]:
     """Embeddings, labels, and which distribution each row came from."""
     from train.embed import embed_dir
-    e = embed_dir(BANK)
+    e = embed_dir(BANK, only=_labelled_paths())
     by_rel = {rel: vec for vec, rel in zip(e["vecs"], e["paths"])}
 
     X, y, src, meta = [], [], [], []
