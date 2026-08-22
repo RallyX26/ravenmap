@@ -317,6 +317,8 @@ if ('serviceWorker' in navigator) {
   open.addEventListener('click', show);
   bg.addEventListener('click', hide);
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hide(); });
+  // Deep link from the landing page's "What's new" button: /?news=1 opens the panel.
+  try { if (/[?&]news=1(&|$)/.test(location.search)) show(); } catch (e) {}
 })();
 </script>
 </body>
