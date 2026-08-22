@@ -80,9 +80,16 @@ python phone_scan.py --watch   # keep scanning while you walk or drive</code></p
   <h2>📤 Sending results (phone)</h2>
   <p>For the phone beta, just paste the copied block to us (DM or email) with a rough location. It's reviewed before anything goes on the map.</p>
 
+  <h2>🚔 Confirming police vehicles (not just cameras)</h2>
+  <div class="card" style="border-left:4px solid var(--amber)">
+    <p style="margin-top:0">The scanner also flags <b>police in-car equipment</b> — Axon body/dash cameras and docks especially, which are police-dominant. It reports those with a confidence tag alongside the camera finds.</p>
+    <p>On its own that isn't proof — some in-car gear also lives in work trucks. But mounted in a moving vehicle (a Pi on the dash), hearing patrol gear <b>right where a camera already saw a police vehicle</b> is a strong second signal. That's the goal: RF <b>confirms</b> a visual police sighting, it never names a cop car by itself.</p>
+    <p style="margin-bottom:0">So a Pi in a car does double duty: it maps surveillance cameras as you drive, and it corroborates police sightings along the same route. All of it human-reviewed before anything publishes.</p>
+  </div>
+
   <h2>🖥️ Raspberry Pi (auto-upload)</h2>
   <div class="card">
-    <p>If you have a Pi (or any Linux box) it can scan and <b>upload on its own</b>, no copy-paste. Same rule: only surveillance devices leave the box, every private network is dropped there. Uploads land in a review pen — <b>nothing goes on the public map without a person confirming it.</b></p>
+    <p>If you have a Pi (or any Linux box) it can scan and <b>upload on its own</b>, no copy-paste. It flags surveillance cameras <b>and</b> police in-car gear; every private network is dropped on the box. Uploads land in a review pen — <b>nothing goes on the public map without a person confirming it.</b></p>
     <p><b>1. Get the scanner:</b></p>
     <pre><code>sudo apt install -y network-manager python3
 curl -O https://map.sparrowmap.com/rf/rf_scan.py</code></pre>
@@ -90,13 +97,19 @@ curl -O https://map.sparrowmap.com/rf/rf_scan.py</code></pre>
     <pre><code>curl -X POST https://map.sparrowmap.com/api/enroll \
   -H "Content-Type: application/json" \
   -d '{"name":"My RF Pi","lat":XX.XXXX,"lon":-YY.YYYY,"kind":"rf"}'</code></pre>
-    <p><b>3. Run it</b> (loops, scans, uploads surveillance devices only):</p>
+    <p><b>3. Run it</b> (loops, scans, uploads surveillance + police gear only):</p>
     <pre><code>python3 rf_scan.py --post --node n_YOURID --token YOURTOKEN</code></pre>
-    <p style="margin-bottom:0">Mount it in a vehicle or a window overlooking a road. A GPS dongle is optional now (position is added in the next version); for a fixed spot the enroll location is enough. The monitor-mode + Bluetooth upgrade (an Alfa adapter) comes later — plain wifi scanning already catches broadcasting cameras.</p>
+    <p style="margin-bottom:0">Mount it in a vehicle (best for confirming patrol cars) or a window overlooking a road. A GPS dongle is optional now (position is added in the next version); for a fixed spot the enroll location is enough. A monitor-mode + Bluetooth upgrade (an Alfa adapter) comes later — plain wifi scanning already catches broadcasting cameras and Axon gear.</p>
+  </div>
+
+  <h2>🔧 ESP32 &amp; tiny boards</h2>
+  <div class="card">
+    <p style="margin-top:0">An <b>ESP32</b> (about $5) can scan wifi and Bluetooth too, so it's an ideal cheap always-on RF sensor — a matchbox you leave in a car or a window. Firmware for it is <b>on the roadmap, not ready yet</b>: it will post to the same enroll + upload endpoints the Pi uses, with the same rule (only surveillance and police gear leaves the device, everything private is dropped on-chip).</p>
+    <p style="margin-bottom:0">If you build with ESP32, other microcontrollers, or an SDR and want to feed SparrowMap, the endpoints are open and documented on the <a href="/contribute">Contribute</a> page — get in touch and we'll help you wire it in.</p>
   </div>
 
   <h2>🔜 What's next</h2>
-  <p>Once field tests confirm the scanner reliably spots real cameras and police gear, two things turn on, both behind the same human review: a dedicated <b>surveillance map layer</b> for confirmed cameras, and <b>police-sighting confirmation</b> — when the scanner hears patrol gear right where a camera saw a police vehicle, that sighting gets a second, independent confirmation before it's published.</p>
+  <p>Once field tests confirm the scanner reliably spots real cameras and police gear, two things turn on, both behind the same human review: a dedicated <b>surveillance map layer</b> for confirmed cameras, and <b>police-sighting confirmation</b> — when the scanner hears patrol gear right where a camera saw a police vehicle, that sighting gets a second, independent confirmation before it's published. Cheap ESP32 sensors are how this scales past hobbyists.</p>
 
   <p class="foot">Open source, free, government and surveillance hardware only. Your neighbours and your own devices are destroyed at the edge and never leave your phone. That's the whole point.</p>
 
