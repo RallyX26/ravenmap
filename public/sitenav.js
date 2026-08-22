@@ -44,6 +44,9 @@
     { href: "/about",        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.8" r=".9" fill="currentColor" stroke="none"/></svg>',       label: "About",        mode: "about" },
     { href: "/transparency", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.8-6.5 10-6.5S22 12 22 12s-3.8 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/></svg>', label: "Transparency", mode: "transparency" },
     { href: "/status",       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19v-4M9.3 19V11M14.7 19V7M20 19V4"/></svg>', label: "Status" },
+    // The Tor onion mirror - a censorship-resistant way to reach the map. Here
+    // so people who need it can find it from any page.
+    { href: "/tor",          icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-3 3-4.5 6-4.5 9a4.5 4.5 0 0 0 9 0c0-3-1.5-6-4.5-9z"/><path d="M12 21v-4.5"/></svg>', label: "Tor" },
     // Growth, live capacity and costs, generated from the database. Labelled
     // "Support" rather than "Donate" because the page is mostly numbers - the
     // costs and the bad retention figure included - and the ask is the last

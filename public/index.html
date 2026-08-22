@@ -50,6 +50,10 @@
     <div class="pmodal-bg" id="newsclose"></div>
     <div class="pmodal-card" role="dialog" aria-modal="true" aria-label="What's new">
       <div class="newshead">&#10024; What&#39;s new</div>
+      <a class="newsitem" href="/tor">
+        <b>SparrowMap on Tor &#129477;</b>
+        <span>The map now has a .onion address. Reach it privately in Tor Browser or Brave, harder to block and nobody sees you visit.</span>
+      </a>
       <a class="newsitem" href="/rfbeta">
         <b>RF scanner <span class="newsbeta">BETA</span></b>
         <span>Find surveillance cameras &mdash; and help confirm police vehicles by their in-car gear &mdash; from a phone, a Raspberry Pi, or a $5 ESP32. No camera needed.</span>
@@ -271,7 +275,7 @@
 <script src="/vendor/leaflet.js"></script>
 <script src="/static/transparency.js?v=20"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
-<script src="/static/sitenav.js?v=32"></script>
+<script src="/static/sitenav.js?v=33"></script>
 <script src="/static/app.js?v=114"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->
@@ -296,7 +300,7 @@ if ('serviceWorker' in navigator) {
      feature ships and the dot lights up again for everyone. -->
 <script>
 (function () {
-  var NEWS_VERSION = '2026-08-22-rf';
+  var NEWS_VERSION = '2026-08-22-tor';
   var open = document.getElementById('newsopen');
   var modal = document.getElementById('newsmodal');
   var bg = document.getElementById('newsclose');
