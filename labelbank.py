@@ -175,6 +175,29 @@ def _row_to_item(r) -> dict:
     }
 
 
+def next_batch(mode: str = "likely", n: int = 24) -> list[dict]:
+    """A whole grid of crops at once, for the fast grid picker (/grid).
+
+    Same source as next_item (bank_index.pick), N at a time. Over-fetches and
+    drops any crop whose image is missing, so a pruned one shrinks the grid
+    rather than leaving a broken tile. Underscore keys (the model's guess) are
+    stripped: the grid must not anchor on what CLIP thought, the same rule
+    next_item follows.
+    """
+    import bank_index
+    rows = bank_index.pick(mode, thr=_head_threshold(), n=n * 2)
+    out = []
+    for r in rows:
+        it = _row_to_item(r)
+        p = image_path(it["day"], it["stem"])
+        if p is None or not p.exists():
+            continue
+        out.append({k: v for k, v in it.items() if not k.startswith("_")})
+        if len(out) >= n:
+            break
+    return out
+
+
 def _items_by_walk() -> list[dict]:
     """The old full-bank walk. Kept ONLY for rebuilding, never for serving."""
     out = []

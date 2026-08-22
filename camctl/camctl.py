@@ -607,8 +607,21 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, f.read_bytes(), "text/html")
         if p == "/label":
             return self._send(200, (HERE / "label.html").read_bytes(), "text/html")
+        if p == "/grid":
+            return self._send(200, (HERE / "grid.html").read_bytes(), "text/html")
         if p == "/api/bank/stats":
             return self._json(labelbank.stats())
+        if p == "/api/bank/grid":
+            # A whole screen of crops to label at once. Click the police ones;
+            # the rest save as not-police. Far faster than one crop at a time
+            # for a class as rare as police.
+            mode = q.get("mode", ["likely"])[0]
+            try:
+                n = max(6, min(48, int(q.get("n", ["24"])[0])))
+            except (TypeError, ValueError):
+                n = 24
+            return self._json({"items": labelbank.next_batch(mode, n),
+                               "mode": mode, **labelbank.stats()})
         if p == "/api/bank/next":
             bank_mode = q.get("mode", ["review"])[0]
             it = labelbank.next_item(bank_mode)
@@ -761,6 +774,27 @@ class Handler(BaseHTTPRequestHandler):
                                    **res, **labelbank.stats()})
             except (KeyError, ValueError, FileNotFoundError) as exc:
                 return self._json({"error": str(exc)}, 400)
+
+        if u.path == "/api/bank/grid_label":
+            # Batch label from the grid picker: the crops he clicked are police,
+            # the rest of the shown grid are not-police (civilian). One request
+            # instead of one per tile. Best-effort per crop - a single bad stem
+            # never loses the rest of the screen's work.
+            if not is_operator_addr(self.client_address[0]):
+                return self._json({"error": "not an operator address"}, 403)
+            mode = body.get("mode", "likely")
+            done = {"police": 0, "civilian": 0, "published": 0, "failed": 0}
+            for lab, key in (("police", "police"), ("civilian", "other")):
+                for it in (body.get(key) or [])[:64]:
+                    try:
+                        res = labelbank.set_label(it["day"], it["stem"], lab, mode)
+                        done[lab] += 1
+                        syn = str(res.get("synced") or "")
+                        if syn.startswith("promot") or syn.startswith("reclassif"):
+                            done["published"] += 1
+                    except (KeyError, ValueError, FileNotFoundError, TypeError):
+                        done["failed"] += 1
+            return self._json({"ok": True, **done, **labelbank.stats()})
 
         if u.path == "/api/confirm":
             # Pushed by the node the moment a government-looking pass ends, so
