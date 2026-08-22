@@ -86,6 +86,9 @@
   var picked = {};           // "day\tstem" -> true
   var busy = false;
   var nextGrid = null;       // prefetched next batch, so "next" is instant
+  var saved = {};            // crops already saved this session - the server
+                             // updates its index in the background, so filter
+                             // these out ourselves rather than re-show them
 
   function key(it) { return it.day + '\t' + it.stem; }
   function say(t, k) { msgEl.textContent = t; msgEl.className = 'msg on ' + (k || ''); }
@@ -128,7 +131,9 @@
                 .catch(function () {});
   }
   function applyBatch(j) {
-    items = j.items || [];
+    // Drop anything already saved this session (the server's index is updated
+    // in the background, so a fresh draw can still include them for a moment).
+    items = (j.items || []).filter(function (it) { return !saved[key(it)]; });
     if (j.positive_passes != null) countEl.textContent = j.positive_passes;
     clearMsg();
     render();
@@ -157,7 +162,10 @@
     if (busy || !items.length) return;
     busy = true; saveBtn.disabled = true; skipBtn.disabled = true;
     var police = [], other = [];
-    items.forEach(function (it) { (picked[key(it)] ? police : other).push({ day: it.day, stem: it.stem }); });
+    items.forEach(function (it) {
+      (picked[key(it)] ? police : other).push({ day: it.day, stem: it.stem });
+      saved[key(it)] = true;   // never show this crop again this session
+    });
     say('Saving ' + police.length + ' police, ' + other.length + ' not…');
     fetch('/api/bank/grid_label', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

@@ -650,13 +650,21 @@ def _gov_score(item: dict) -> float:
     return float(c.get("conf") or 0.0)
 
 
-def set_label(day: str, stem: str, label: str, sampling: str = "review") -> dict:
+def set_label(day: str, stem: str, label: str, sampling: str = "review",
+              sync: bool = True, db=None, defer_index: bool = False) -> dict:
     """Write a human's call into the sidecar. Returns what CLIP had thought.
 
     The model's guess comes back in the RESPONSE rather than being available
     before the call, so the page can reveal it afterwards without ever having
     been able to show it first. The ordering is enforced here rather than
     trusted to the front end.
+
+    `sync=False` skips the box round-trip _sync_sighting normally does - UNLESS
+    the crop is already ON the map, which still needs correcting. The grid picker
+    uses it for the bulk 'not-police' labels: each was doing a network round-trip
+    to demote a sighting that was private anyway, which made a 24-crop save take
+    seconds. A crop that was actually published still syncs so a correction is
+    never silently dropped.
     """
     if label not in VALID:
         raise ValueError(f"label must be one of {sorted(VALID)}")
@@ -723,8 +731,14 @@ def set_label(day: str, stem: str, label: str, sampling: str = "review") -> dict
     # published, but only because a DIFFERENT guard happened to be in the way.
     # Relying on that would be relying on the labeller never running anywhere
     # privileged, which is not a property anybody checked or wrote down.
+    _was_public = (d.get("synced") == "promoted"
+                   or str(d.get("synced") or "").startswith("reclassified"))
     if sampling == "machine":
         synced = "not synced: machine label, training only"
+    elif not sync and not _was_public:
+        # Local-only fast path (grid bulk not-police): the crop was never on the
+        # map, so there is nothing to demote and no reason to pay a round-trip.
+        synced = None
     else:
         synced = _sync_sighting(d.get("sighting_id"), label, day=day, stem=stem)
     if synced:
@@ -752,11 +766,23 @@ def set_label(day: str, stem: str, label: str, sampling: str = "review") -> dict
     # already written by this point. A cache that cannot be updated must never
     # cost a human's judgement - the label survives, the ordering is stale until
     # the next `tools/bank_index.py`, and that is the right way round.
-    try:
-        import bank_index
-        bank_index.update_one(bank_index.connect(), day, stem)
-    except Exception as exc:                                   # noqa: BLE001
-        print(f"labelbank: label saved, index not updated ({exc})")
+    # `defer_index` lets a batch caller (the grid picker) skip the per-crop
+    # index write and fold all of them into one transaction afterwards - the
+    # sidecar above is the truth, so the index being a beat stale is fine. The
+    # old per-crop path opened a fresh connection (schema executescript, ~100 ms)
+    # AND committed (an fsync) every label, which is what made a 24-crop save
+    # take ~2 s. It also leaked the connection; opening our own now closes it.
+    if not defer_index:
+        try:
+            import bank_index
+            _bidx = db if db is not None else bank_index.connect()
+            try:
+                bank_index.update_one(_bidx, day, stem)
+            finally:
+                if db is None:
+                    _bidx.close()
+        except Exception as exc:                               # noqa: BLE001
+            print(f"labelbank: label saved, index not updated ({exc})")
 
     clip = d.get("clip") or {}
     return {"clip": {"vclass": clip.get("vclass"), "conf": clip.get("conf"),

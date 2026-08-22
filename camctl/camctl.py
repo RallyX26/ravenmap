@@ -783,32 +783,59 @@ class Handler(BaseHTTPRequestHandler):
             if not is_operator_addr(self.client_address[0]):
                 return self._json({"error": "not an operator address"}, 403)
             mode = body.get("mode", "likely")
-            # 🚀 PARALLEL, because each set_label does a network round-trip to the
-            # box (_sync_sighting) for any crop that carries a sighting. Done
-            # serially, a 24-crop grid was ~24 round-trips through Cloudflare -
-            # seconds of "loading the next page". The sidecar writes are
-            # per-file and the index write serialises on SQLite's WAL lock, so
-            # running these in a thread pool overlaps the network wait safely.
-            import concurrent.futures as _cf
+            # ⚡ ONE shared index connection for the whole batch, sequential.
+            # The real cost was NOT the network: set_label opened a fresh
+            # bank_index connection per crop and connect() re-runs the schema
+            # executescript (~100 ms), so 24 crops = ~2 s of pure overhead. With
+            # one reused connection the not-police writes are a few ms each.
+            # Not-police labels also skip the box round-trip (sync=False) unless
+            # the crop was actually published, and police are few per grid, so a
+            # thread pool is no longer worth its foot-guns (a SQLite connection
+            # is not shareable across threads anyway).
+            # 🚀 SIDECARS NOW, INDEX LATER. Measured: a sidecar write is ~11 ms
+            # but one bank_index INSERT+commit is ~160 ms on the 260 MB index, so
+            # the index update - NOT the sidecar and NOT the network - was the
+            # whole 2-8 s of a grid save. The sidecar is the truth, so write all
+            # of them (fast, and police still sync to the map), return at once,
+            # and fold the slow index updates into a background thread. The page
+            # de-dups the crops it just saved, so a momentarily-stale index never
+            # re-shows them.
+            import bank_index
+            import threading as _th
             jobs = ([(it, "police") for it in (body.get("police") or [])[:64]]
                     + [(it, "civilian") for it in (body.get("other") or [])[:64]])
-
-            def _one(job):
-                it, lab = job
-                try:
-                    res = labelbank.set_label(it["day"], it["stem"], lab, mode)
-                    syn = str(res.get("synced") or "")
-                    return (lab, syn.startswith("promot") or syn.startswith("reclassif"))
-                except (KeyError, ValueError, FileNotFoundError, TypeError):
-                    return ("failed", False)
-
             done = {"police": 0, "civilian": 0, "published": 0, "failed": 0}
-            if jobs:
-                with _cf.ThreadPoolExecutor(max_workers=min(16, len(jobs))) as ex:
-                    for lab, published in ex.map(_one, jobs):
-                        done[lab] = done.get(lab, 0) + 1
-                        if published:
-                            done["published"] += 1
+            written = []
+            for it, lab in jobs:
+                try:
+                    res = labelbank.set_label(it["day"], it["stem"], lab, mode,
+                                              sync=(lab == "police"),
+                                              defer_index=True)
+                    done[lab] += 1
+                    written.append((it["day"], it["stem"]))
+                    syn = str(res.get("synced") or "")
+                    if syn.startswith("promot") or syn.startswith("reclassif"):
+                        done["published"] += 1
+                except (KeyError, ValueError, FileNotFoundError, TypeError):
+                    done["failed"] += 1
+
+            def _reindex(rows):
+                try:
+                    db = bank_index.connect()
+                    try:
+                        for day, stem in rows:
+                            try:
+                                bank_index.update_one(db, day, stem)
+                            except Exception:
+                                pass
+                    finally:
+                        db.close()
+                except Exception:
+                    pass
+            if written:
+                _th.Thread(target=_reindex, args=(written,), daemon=True).start()
+            # stats() reads the index, which is a beat behind now - fine, it
+            # catches up. The client tracks its own saved crops for the queue.
             return self._json({"ok": True, **done, **labelbank.stats()})
 
         if u.path == "/api/confirm":
