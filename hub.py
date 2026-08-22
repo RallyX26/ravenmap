@@ -442,6 +442,10 @@ RATE = {"/api/enroll": (600, 3600), "/api/sightings": (900, 3600),
         # only needs to stop somebody scraping the basemap, and 10/s does that
         # while leaving a crowd alone.
         "/api/tile": (3000, 300), "/api/report": (20, 3600),
+        # Public camera-spot reports from the no-install /spot page. Each carries
+        # a full JPEG and parks for review, so the ceiling is low: a flood is a
+        # flood of pictures a human must wade through, not a map defacement.
+        "/api/spot": (12, 3600),
         # Network-wide (client_ip is 127.0.0.1 for everyone), so this is
         # a flood guard on the whole site rather than a per-person cap.
         # bugs.py enforces its own per-hour ceiling as well.
@@ -1458,6 +1462,7 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/contribute":       return self._file(PUBLIC / "contribute.html")
             if p == "/guides":           return self._file(PUBLIC / "guides.html")
             if p == "/tor":              return self._file(PUBLIC / "tor.html")
+            if p == "/spot":             return self._file(PUBLIC / "spot.html")
             if p == "/guide":            return self._file(PUBLIC / "guide.html")
             if p == "/rfbeta":           return self._file(PUBLIC / "rfbeta.html")
             # The phone beta scanner, served as plain text so a tester can
@@ -3406,6 +3411,48 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(404, "no such sighting")
                 db.set_sighting_desc(sid, body=b.get("body"), color=b.get("color"))
                 db.audit("edit_desc", str(sid), actor="operator",
+                         ip=privacy.audit_ip(self.client_ip))
+                return self._json({"ok": True})
+
+            if p == "/api/spot":
+                # A public "I see a fixed surveillance camera here" report from
+                # the no-install /spot page. It is the camera equivalent of a
+                # flag: a CLAIM, backed by a photograph, that parks for review
+                # and NEVER draws on the map by itself.
+                #
+                # 🚨 THE PHOTO IS MANDATORY, AND THIS IS WHY THE FEATURE IS SAFE.
+                # /api/drive/report was withdrawn because it asserted a police
+                # presence from a pair of numbers - no picture, no review. A
+                # camera spot without a photo would be the same mistake wearing
+                # a different hat, so a report with no decodable image is a 400,
+                # not a maybe. A person looks at every picture before anything
+                # is ever published.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "the network is sending a lot of "
+                                          "camera reports right now - please "
+                                          "try again in a few minutes")
+                b = self._body()
+                raw = str(b.get("photo") or "")
+                if "," in raw and raw[:5].lower() == "data:":
+                    raw = raw.split(",", 1)[1]
+                try:
+                    import base64 as _b64
+                    photo = _b64.b64decode(raw, validate=False) if raw else b""
+                except Exception:
+                    photo = b""
+                if not photo:
+                    return self._err(400, "a photo of the camera is required")
+                stem = mirror.camera_park({
+                    "lat": b.get("lat"), "lon": b.get("lon"),
+                    "note": b.get("note"), "kind": b.get("kind"),
+                    "accuracy_m": b.get("accuracy_m"),
+                    "ip": privacy.audit_ip(self.client_ip),
+                }, photo)
+                if not stem:
+                    # camera_park rejects a missing/oversize photo or bad coords.
+                    return self._err(400, "need a photo (under 4 MB) and a "
+                                          "valid location")
+                db.audit("camera_spot", stem, actor="public",
                          ip=privacy.audit_ip(self.client_ip))
                 return self._json({"ok": True})
 

@@ -50,6 +50,10 @@
     <div class="pmodal-bg" id="newsclose"></div>
     <div class="pmodal-card" role="dialog" aria-modal="true" aria-label="What's new">
       <div class="newshead">&#10024; What&#39;s new</div>
+      <a class="newsitem" href="/spot">
+        <b>Report a camera from your browser <span class="newsbeta">BETA</span></b>
+        <span>See a Flock or ALPR camera on a pole? Photograph it right in your browser &mdash; no app, no hardware. A reviewer checks every one.</span>
+      </a>
       <a class="newsitem" href="/tor">
         <b>SparrowMap on Tor &#129477;</b>
         <span>The map now has a .onion address. Reach it privately in Tor Browser or Brave, harder to block and nobody sees you visit.</span>
@@ -300,7 +304,7 @@ if ('serviceWorker' in navigator) {
      feature ships and the dot lights up again for everyone. -->
 <script>
 (function () {
-  var NEWS_VERSION = '2026-08-22-tor';
+  var NEWS_VERSION = '2026-08-22-spot';
   var open = document.getElementById('newsopen');
   var modal = document.getElementById('newsmodal');
   var bg = document.getElementById('newsclose');

@@ -48,6 +48,7 @@ transmitted.**
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -276,6 +277,10 @@ def quarantine_write(sighting_id: int, crop_bytes: bytes,
 
 REVIEW = INBOX.parent / "review"
 RF_PEN = INBOX.parent / "rf_pen"
+# Public "I spotted a fixed surveillance camera here" reports from the no-install
+# browser page (/spot). Every one carries a PHOTO and waits for a person - see
+# camera_park for why the photo is mandatory, not optional.
+CAMERA_PEN = INBOX.parent / "camera_pen"
 
 
 def rf_park(node_id: str, candidate: dict) -> Optional[str]:
@@ -304,6 +309,54 @@ def rf_park(node_id: str, candidate: dict) -> Optional[str]:
         (RF_PEN / f"{stem}.json").write_text(json.dumps(
             {**safe, "node_id": str(node_id)[:24], "reviewed": None,
              "written": time.time()}, indent=1), encoding="utf-8")
+        return stem
+    except Exception:
+        return None
+
+
+# A public camera report must carry a real photograph. This is the whole safety
+# property: /api/drive/report was withdrawn precisely because it let anyone
+# assert a location from a pair of numbers with no picture and no review. A
+# camera spot is only ever a CLAIM until a person looks at the photo, so it lands
+# in the pen with reviewed=None and never, ever touches the public map.
+CAMERA_MIN_PHOTO = 2 * 1024          # smaller than this is not a real JPEG
+CAMERA_MAX_PHOTO = 4 * 1024 * 1024   # a phone photo, not a video
+
+
+def camera_park(report: dict, photo: bytes) -> Optional[str]:
+    """Park ONE public "surveillance camera spotted here" report for review.
+
+    Requires a photograph (the caller guarantees it is non-empty; the size
+    bounds are enforced here). Stores the photo and a small json side by side in
+    the camera pen. No identity is kept - only a truncated hash of the address,
+    enough to rate-limit and spot a flood, never enough to name a reporter.
+    Returns the stem, or None if the photo is missing/oversize/undersize.
+    """
+    if not photo or not (CAMERA_MIN_PHOTO <= len(photo) <= CAMERA_MAX_PHOTO):
+        return None
+    try:
+        lat = float(report.get("lat"))
+        lon = float(report.get("lon"))
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    try:
+        CAMERA_PEN.mkdir(parents=True, exist_ok=True)
+        # A content hash names the pair, so the same photo submitted twice
+        # updates one entry instead of piling up duplicates in the pen.
+        stem = hashlib.sha256(photo).hexdigest()[:20]
+        ip_hash = hashlib.sha256(
+            str(report.get("ip") or "").encode()).hexdigest()[:12]
+        (CAMERA_PEN / f"{stem}.jpg").write_bytes(photo)
+        (CAMERA_PEN / f"{stem}.json").write_text(json.dumps({
+            "lat": round(lat, 6), "lon": round(lon, 6),
+            "note": str(report.get("note") or "")[:280],
+            "kind": str(report.get("kind") or "camera")[:24],
+            "accuracy_m": report.get("accuracy_m"),
+            "ip_hash": ip_hash, "photo": f"{stem}.jpg",
+            "reviewed": None, "written": time.time(),
+        }, indent=1), encoding="utf-8")
         return stem
     except Exception:
         return None
