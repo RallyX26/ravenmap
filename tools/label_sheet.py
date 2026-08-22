@@ -45,7 +45,8 @@ SHEET = DATA / "label_sheet.jpg"
 MANIFEST = DATA / "label_sheet.json"
 
 # One letter per class, because the whole point is a short reply.
-KEYS = {"p": "police", "g": "gov", "f": "fleet", "c": "civilian", "u": "unsure"}
+KEYS = {"p": "police", "g": "gov", "f": "fleet", "c": "civilian", "u": "unsure",
+        "s": "screen"}
 
 CELL = 300          # px per cell; crops are 100-450 wide so this is near native
 COLS = 5
@@ -113,7 +114,7 @@ def build(mode: str, n: int) -> dict:
     print("manifest: %s" % MANIFEST)
     print()
     print("reply with:  python tools/label_sheet.py --apply \"1=p 2=c 3=u ...\"")
-    print("classes   :  p police   g gov(not police)   f fleet   c civilian   u unsure")
+    print("classes   :  p police   g gov(not police)   f fleet   c civilian   u unsure   s screen(fake, on a display)")
     return man
 
 

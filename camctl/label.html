@@ -72,6 +72,8 @@ main{flex:1;display:flex;align-items:center;justify-content:center;
 
 .b.civ{background:#1a1f28}
 .b.unsure{background:#241f14;border-color:#4a3a1c}
+.b.screen{background:#1c1426;border-color:#5a3a7a}
+.b.screen:hover{border-color:#a97fe0}
 .b.undo{flex:0 0 110px;background:#0a0e15;color:var(--dim)}
 
 .reveal{max-width:900px;margin:10px auto 0;min-height:34px;
@@ -142,6 +144,7 @@ main{flex:1;display:flex;align-items:center;justify-content:center;
     <button class="b fleet"  data-l="fleet">Fleet / commercial<kbd>F</kbd></button>
     <button class="b civ"    data-l="civilian">Private vehicle<kbd>C</kbd></button>
     <button class="b unsure" data-l="unsure">Can't tell<kbd>U</kbd></button>
+    <button class="b screen" data-l="screen" title="A photo of a vehicle on a screen or phone - someone faking a sighting, not a real car on the street">On a screen (fake)<kbd>S</kbd></button>
     <button class="b undo"   id="undo">Undo<kbd>Z</kbd></button>
   </div>
   <div class="reveal" id="reveal"></div>
@@ -378,6 +381,7 @@ addEventListener('keydown', e => {
   else if (k === 'f') label('fleet');
   else if (k === 'c') label('civilian');
   else if (k === 'u' || k === ' ') { e.preventDefault(); label('unsure'); }
+  else if (k === 's') label('screen');   // a fake: a car photographed off a screen
   else if (k === 'z') $('#undo').click();
 });
 

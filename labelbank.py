@@ -76,7 +76,15 @@ BANK = DATA / "training"
 # as such: `label_vocab` 1 = the merged government bucket, 2 = police and gov
 # are distinct. `split` mode re-opens the vocab-1 crops so a human resolves
 # them, one pass at a time. Nothing is inferred.
-VALID = {"police", "gov", "fleet", "civilian", "unsure"}
+VALID = {"police", "gov", "fleet", "civilian", "unsure", "screen"}
+# 🖥️ `screen` = a photo of a vehicle ON A SCREEN (a monitor or phone showing a
+# police car), i.e. someone trying to fake a sighting rather than a real vehicle
+# on the street. Kept as its own class, NOT a training negative: to CLIP a police
+# car on a screen still looks like a police car, so feeding these to the
+# government head as "not government" would teach it to distrust real police
+# vehicles and cost recall. fit_local's POSITIVE/NEGATIVE sets both exclude it,
+# so it is collected here for a future dedicated spoof/replay detector and never
+# pollutes the police-vs-not decision.
 
 # Bumped when a key's MEANING changes, never when a key is merely added.
 LABEL_VOCAB = 2
