@@ -375,6 +375,7 @@ the map is public and stays public either way.</p>"""
 {time.strftime('%Y-%m-%d %H:%M', time.localtime(s['generated']))}. Every number
 here is produced by <code>tools/support_page.py</code> reading the database, not
 typed in by hand.</p>
+<p><a class=cta href="https://buymeacoffee.com/sparrowmap">Chip in</a></p>
 
 <h2>The volunteer network</h2>
 <div class=big>
