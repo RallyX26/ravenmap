@@ -727,7 +727,20 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if body.get("clear"):
                     undone = labelbank.clear_label(body["day"], body["stem"])
+                    # An undo must reverse the WHOLE action. When the label was
+                    # applied to a same-vehicle group (`also`), clearing only the
+                    # primary left the siblings mislabelled - the exact hole that
+                    # let two civilian cars keep a `police` label after an undo.
+                    also_cleared = 0
+                    for g in (body.get("also") or [])[:7]:
+                        try:
+                            labelbank.clear_label(g["day"], g["stem"])
+                            also_cleared += 1
+                        except (KeyError, ValueError, FileNotFoundError,
+                                TypeError):
+                            pass
                     return self._json({"ok": True, "undone": undone,
+                                       "also_cleared": also_cleared,
                                        **labelbank.stats()})
                 res = labelbank.set_label(body["day"], body["stem"],
                                           body["label"],

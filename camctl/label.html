@@ -150,7 +150,7 @@ main{flex:1;display:flex;align-items:center;justify-content:center;
 
 <script>
 const $ = s => document.querySelector(s);
-let cur = null, last = null, mode = 'review', busy = false;
+let cur = null, last = null, lastAlso = [], mode = 'review', busy = false;
 
 const NOTES = {
   patrol: `<b>Patrol gap:</b> the queue to actually work. Crops where CLIP said
@@ -302,14 +302,16 @@ async function label(l){
   if (!cur || busy) return;
   busy = true;
   const item = cur;
+  // Only when he chose it, and he was looking at every crop in the strip when
+  // he did. Remembered so Undo can reverse the whole group, not just the primary.
+  const applied = ($('#passall').checked && item.group) ? item.group : [];
   const r = await api('/api/bank/label', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({day:item.day, stem:item.stem, label:l, mode,
-      // Only sent when he chose it, and he was looking at every crop in the
-      // strip when he did.
-      also: ($('#passall').checked && item.group) ? item.group : []})
+      also: applied})
   });
   last = item;
+  lastAlso = applied;
   showCounts(r);
   // The model's guess appears only NOW. Before the call it is not sent to this
   // page at all, so it cannot anchor the decision it is being measured against.
@@ -328,14 +330,18 @@ $('#undo').onclick = async () => {
   if (!last) return;
   const undo = await api('/api/bank/label', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({day:last.day, stem:last.stem, clear:true})
+    // Reverse the whole action, including any same-vehicle group it applied to.
+    body: JSON.stringify({day:last.day, stem:last.stem, clear:true,
+                          also: lastAlso})
   });
+  lastAlso = [];
   // Say what the undo REVERSED. Labelling a crop "Government" also puts its
   // sighting on the public map, and for a while Undo silently left it there -
   // #27421, a night frame nobody can identify, sat published for 14 hours
   // after an accidental keypress. An undo has to report what it undid.
   if (undo && undo.undone){
-    $('#reveal').innerHTML = `<span class="agree">Undone — <b>${undo.undone}</b>.</span>`;
+    const grp = undo.also_cleared ? ` (+${undo.also_cleared} in its group)` : '';
+    $('#reveal').innerHTML = `<span class="agree">Undone — <b>${undo.undone}</b>${grp}.</span>`;
   }
   cur = last; last = null;
   $('#reveal').innerHTML = '';
