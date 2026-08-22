@@ -69,6 +69,31 @@ POLICE_SSID_PATTERNS = [
     ("mdt", "weak"), ("patrol", "weak"), ("cradlepoint", "weak"),
 ]
 
+# 🛸 DRONES. Since 2023 the FAA requires most drones to broadcast Remote ID over
+# 2.4/5 GHz (WiFi Beacon/NAN or Bluetooth) - the exact band this scanner reads.
+# A broadcast SSID scan catches the control link and the vendor; full Remote ID
+# (the drone's id + operator position) needs monitor mode (an Alfa adapter or an
+# ESP32 in promiscuous mode) and is the next hardware step. A drone alone is not
+# proof of a POLICE drone - like the in-car gear, it corroborates when it lines
+# up with a visual police presence, and agencies fly mostly DJI/Skydio too.
+DRONE_VENDORS = {"dji", "szdji", "parrot", "autel", "skydio", "yuneec"}
+DRONE_SSID_PATTERNS = ["dji", "mavic", "mini se", "anafi", "autel", "skydio",
+                       "drone", "remoteid", "remote id"]
+
+
+def drone_signal(dev, oui_db) -> str:
+    """Return a reason if this looks like a drone, else ''. WiFi/BLE only."""
+    vendor = (oui_db.get(oui_of(dev.get("mac", ""))) or "").lower()
+    for v in DRONE_VENDORS:
+        if v in vendor:
+            return f"drone-vendor:{v}"
+    name = (dev.get("ssid") or dev.get("name") or "").lower()
+    for p in DRONE_SSID_PATTERNS:
+        if p in name:
+            return f"drone-ssid:{p}"
+    return ""
+
+
 SALT = secrets.token_bytes(16)  # per-process; civilian hashes never persist
 
 
@@ -110,6 +135,9 @@ def is_surveillance(dev: dict, oui_db: dict) -> tuple[bool, str]:
     for p in SSID_PATTERNS:
         if p in name:
             return True, f"ssid:{p}"
+    d = drone_signal(dev, oui_db)   # drones are kept too (Remote ID broadcast)
+    if d:
+        return True, d
     return False, ""
 
 
@@ -136,9 +164,12 @@ def to_candidate(dev: dict, reason: str, gps: tuple | None,
                  oui_db: dict | None = None) -> dict:
     """A publishable RF candidate. Note there is NO raw civilian data here."""
     pconf, preason = police_signal(dev, oui_db or {})
+    dreason = drone_signal(dev, oui_db or {})
     return {
         "source": "rf",
         "vendor_reason": reason,
+        "is_drone": bool(dreason),
+        "drone_reason": dreason,
         "ssid": dev.get("ssid") or dev.get("name") or "",
         "band": dev.get("band", ""),
         "rssi": dev.get("rssi"),

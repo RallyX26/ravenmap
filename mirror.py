@@ -299,7 +299,8 @@ def rf_park(node_id: str, candidate: dict) -> Optional[str]:
         # plus the police-equipment tag used to corroborate a visual sighting.
         safe = {k: candidate.get(k) for k in
                 ("dev_id", "ssid", "vendor_reason", "band", "rssi",
-                 "lat", "lon", "ts", "police_conf", "police_reason")}
+                 "lat", "lon", "ts", "police_conf", "police_reason",
+                 "is_drone", "drone_reason")}
         (RF_PEN / f"{stem}.json").write_text(json.dumps(
             {**safe, "node_id": str(node_id)[:24], "reviewed": None,
              "written": time.time()}, indent=1), encoding="utf-8")

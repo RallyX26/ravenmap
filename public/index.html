@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
-<link rel="stylesheet" href="/static/style.css?v=107">
+<link rel="stylesheet" href="/static/style.css?v=108">
 </head>
 <body>
 
@@ -39,6 +39,32 @@
        the same #plateform and #plateq, so this moved the furniture without
        touching the machinery. -->
   <button type="button" class="platebtn" id="plateopen">🔍 Search plates</button>
+
+  <!-- What's new: a small header button so people discover features (RF beta,
+       contribute, ESP32) they would otherwise never find. A dot shows until it
+       has been opened once; NEWS_VERSION below bumps it back on when something
+       new ships. Same modal pattern as the plate search. -->
+  <button type="button" class="newsbtn" id="newsopen">&#10024; What's new<i class="newsdot" id="newsdot"></i></button>
+
+  <div class="pmodal" id="newsmodal" hidden>
+    <div class="pmodal-bg" id="newsclose"></div>
+    <div class="pmodal-card" role="dialog" aria-modal="true" aria-label="What's new">
+      <div class="newshead">&#10024; What&#39;s new</div>
+      <a class="newsitem" href="/rfbeta">
+        <b>RF scanner <span class="newsbeta">BETA</span></b>
+        <span>Find surveillance cameras &mdash; and help confirm police vehicles by their in-car gear &mdash; from a phone, a Raspberry Pi, or a $5 ESP32. No camera needed.</span>
+      </a>
+      <a class="newsitem" href="/contribute">
+        <b>Contribute from your own device</b>
+        <span>Feed sightings from a Pi, an SBC or your own code using two simple endpoints.</span>
+      </a>
+      <a class="newsitem" href="/guides">
+        <b>Guides</b>
+        <span>Every how-to in one place &mdash; add a camera, IP cameras, the API, the RF beta.</span>
+      </a>
+      <p class="pmodal-hint">Open source, free, privacy-first. Only government vehicles are ever published.</p>
+    </div>
+  </div>
 
   <div class="pmodal" id="platemodal" hidden>
     <div class="pmodal-bg" id="plateclose"></div>
@@ -264,6 +290,30 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(function () {});
   });
 }
+</script>
+
+<!-- What's-new panel: open/close + a "seen" dot. Bump NEWS_VERSION when a new
+     feature ships and the dot lights up again for everyone. -->
+<script>
+(function () {
+  var NEWS_VERSION = '2026-08-22-rf';
+  var open = document.getElementById('newsopen');
+  var modal = document.getElementById('newsmodal');
+  var bg = document.getElementById('newsclose');
+  var dot = document.getElementById('newsdot');
+  if (!open || !modal) return;
+  try { if (localStorage.getItem('news_seen') !== NEWS_VERSION) dot.classList.add('on'); }
+  catch (e) { dot.classList.add('on'); }
+  function show() {
+    modal.hidden = false;
+    dot.classList.remove('on');
+    try { localStorage.setItem('news_seen', NEWS_VERSION); } catch (e) {}
+  }
+  function hide() { modal.hidden = true; }
+  open.addEventListener('click', show);
+  bg.addEventListener('click', hide);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hide(); });
+})();
 </script>
 </body>
 </html>

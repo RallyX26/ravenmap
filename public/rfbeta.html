@@ -87,6 +87,12 @@ python phone_scan.py --watch   # keep scanning while you walk or drive</code></p
     <p style="margin-bottom:0">So a Pi in a car does double duty: it maps surveillance cameras as you drive, and it corroborates police sightings along the same route. All of it human-reviewed before anything publishes.</p>
   </div>
 
+  <h2>🛸 Drones</h2>
+  <div class="card">
+    <p style="margin-top:0">Since 2023 most drones must broadcast <b>Remote ID</b> over the same 2.4/5&nbsp;GHz wifi and Bluetooth this scanner reads — so it flags drones too (DJI, Skydio, Autel and friends). A drone alone isn't proof of a <i>police</i> drone, and agencies fly the same models everyone else does, so it's treated like the in-car gear: it corroborates when it shows up over a police presence.</p>
+    <p style="margin-bottom:0">A plain scan catches the drone's control link and maker. The full Remote ID broadcast (its id and the operator's location) needs monitor mode — an Alfa adapter on a Pi, or an ESP32 in promiscuous mode — which is the next step. For manned aircraft (police helicopters and surveillance planes) the tool is different: a ~$25 <b>RTL-SDR</b> reading ADS-B on 1090&nbsp;MHz. That's a separate build; get in touch on <a href="/contribute">Contribute</a> if you want to help with it.</p>
+  </div>
+
   <h2>🖥️ Raspberry Pi (auto-upload)</h2>
   <div class="card">
     <p>If you have a Pi (or any Linux box) it can scan and <b>upload on its own</b>, no copy-paste. It flags surveillance cameras <b>and</b> police in-car gear; every private network is dropped on the box. Uploads land in a review pen — <b>nothing goes on the public map without a person confirming it.</b></p>
@@ -102,10 +108,22 @@ curl -O https://map.sparrowmap.com/rf/rf_scan.py</code></pre>
     <p style="margin-bottom:0">Mount it in a vehicle (best for confirming patrol cars) or a window overlooking a road. A GPS dongle is optional now (position is added in the next version); for a fixed spot the enroll location is enough. A monitor-mode + Bluetooth upgrade (an Alfa adapter) comes later — plain wifi scanning already catches broadcasting cameras and Axon gear.</p>
   </div>
 
-  <h2>🔧 ESP32 &amp; tiny boards</h2>
+  <h2>🔧 ESP32 (about $5)</h2>
   <div class="card">
-    <p style="margin-top:0">An <b>ESP32</b> (about $5) can scan wifi and Bluetooth too, so it's an ideal cheap always-on RF sensor — a matchbox you leave in a car or a window. Firmware for it is <b>on the roadmap, not ready yet</b>: it will post to the same enroll + upload endpoints the Pi uses, with the same rule (only surveillance and police gear leaves the device, everything private is dropped on-chip).</p>
-    <p style="margin-bottom:0">If you build with ESP32, other microcontrollers, or an SDR and want to feed SparrowMap, the endpoints are open and documented on the <a href="/contribute">Contribute</a> page — get in touch and we'll help you wire it in.</p>
+    <p style="margin-top:0">An <b>ESP32</b> is a tiny cheap chip that scans wifi and Bluetooth — a matchbox you leave in a car or a window. There's a ready-to-flash sketch: it keeps only surveillance cameras and police gear and uploads them, dropping everything private on-chip, same rule as the rest.</p>
+    <p><b>1. Enroll once</b> (from any computer) for a node id + token:</p>
+    <pre><code>curl -X POST https://map.sparrowmap.com/api/enroll \
+  -H "Content-Type: application/json" \
+  -d '{"name":"My ESP32","lat":XX.XXXX,"lon":-YY.YYYY,"kind":"rf"}'</code></pre>
+    <p><b>2. Flash it</b> with the Arduino IDE (install the "esp32" boards package):</p>
+    <pre><code># get the sketch, open it in Arduino IDE
+curl -O https://map.sparrowmap.com/rf/esp32_sparrow.ino</code></pre>
+    <p style="margin-bottom:0">Fill in the CONFIG block at the top (the wifi it uploads through, plus your node id + token), then upload. Open the Serial Monitor at 115200 to watch it scan. For a moving sensor, tether it to a phone hotspot. <b>Honest note:</b> the sketch is new and hasn't been proven on real hardware in the field yet — if you flash one, tell us what it catches.</p>
+  </div>
+
+  <h2>🛠️ Other hardware</h2>
+  <div class="card">
+    <p style="margin-bottom:0">Any device that can see wifi/Bluetooth can feed SparrowMap — another microcontroller, an SDR, a router, whatever you've got. The upload endpoint is open and documented on the <a href="/contribute">Contribute</a> page. Build with it and get in touch; if it works, we'll add a guide for it. The goal is to use <b>any hardware that works</b>, not lock people to one board.</p>
   </div>
 
   <h2>🔜 What's next</h2>
@@ -114,5 +132,6 @@ curl -O https://map.sparrowmap.com/rf/rf_scan.py</code></pre>
   <p class="foot">Open source, free, government and surveillance hardware only. Your neighbours and your own devices are destroyed at the edge and never leave your phone. That's the whole point.</p>
 
 </div>
+<script src="/static/sitenav.js?v=32"></script>
 </body>
 </html>

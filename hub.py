@@ -1466,6 +1466,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._file(PUBLIC.parent / "rf" / "phone_scan.py")
             if p == "/rf/rf_scan.py":
                 return self._file(PUBLIC.parent / "rf" / "rf_scan.py")
+            if p == "/rf/esp32_sparrow.ino":
+                return self._file(PUBLIC.parent / "rf" / "esp32_sparrow.ino")
             if p == "/transparency":     return self._file(PUBLIC / "transparency.html")
             # 🚨 THE ANSWER TO "YOUR SITE IS BLOCKED, SO IT IS FAKE".
             # A filter's block page is served before the request ever leaves the
