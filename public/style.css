@@ -525,6 +525,7 @@ nav .addcam{color:var(--cam);font-weight:600}
 .pmodal[hidden]{display:none}
 .pmodal-bg{position:absolute;inset:0;background:rgba(4,7,12,.72)}
 .pmodal-card{position:relative;margin-top:14vh;width:min(460px,92vw);
+  max-height:78vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
   background:var(--panel,#111823);border:1px solid var(--line2);
   border-radius:14px;padding:16px;box-shadow:0 18px 50px rgba(0,0,0,.55)}
 /* Inside the dialog the form is the whole content, so it fills the width
