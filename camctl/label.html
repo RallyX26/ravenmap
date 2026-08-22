@@ -151,7 +151,6 @@ main{flex:1;display:flex;align-items:center;justify-content:center;
 <script>
 const $ = s => document.querySelector(s);
 let cur = null, last = null, mode = 'review', busy = false;
-const PASSKEY = 'sparrow.passall';
 
 const NOTES = {
   patrol: `<b>Patrol gap:</b> the queue to actually work. Crops where CLIP said
@@ -247,14 +246,16 @@ function showCounts(s){
 }
 
 /* Show the rest of the pass, so one decision can cover the whole car. */
-/* ⚠️ DEFAULTS TO OFF, AND THAT IS DELIBERATE.
+/* ⚠️ OFF FOR EVERY CROP, AND NEVER REMEMBERED.
    The 2-second window is generous on purpose - being wrong costs a glance, not
-   a bad label - but at a busy moment it will put two different cars in one
-   strip, and it visibly does. Ticking this by default would spend that
-   generosity on silent mislabels, and a wrong label is worse than no label:
-   it is indistinguishable from signal at training time.
-   The choice is remembered, so a run of clean groups costs one tick, not one
-   per car. */
+   a bad label - but at a busy moment it puts two DIFFERENT cars in one strip,
+   and it visibly does. This used to persist the tick across crops "for
+   convenience", which meant one forgotten tick silently applied later answers
+   to unrelated vehicles: click police, and two civilian cars sharing the window
+   got police too. That happened. A wrong label is worse than no label - it is
+   indistinguishable from signal at training time - so this now resets to
+   unchecked on every crop. Tick it only when you have looked and the strip
+   really is one vehicle; it never carries over on its own. */
 function renderPass(d){
   const g = d.group || [];
   const box = $('#pass');
@@ -262,17 +263,12 @@ function renderPass(d){
   box.style.display = '';
   box.querySelector('.passhint').textContent =
     `${g.length} more crop${g.length===1?'':'s'} from the same second — probably `
-    + `this same vehicle. Check they are before answering.`;
-  $('#passall').checked = localStorage.getItem(PASSKEY) === '1';
+    + `this same vehicle. Check they are before ticking below.`;
+  $('#passall').checked = false;
   box.querySelector('.strip').innerHTML = g.map(x =>
     `<img src="/api/bank/img/${encodeURIComponent(x.day)}/${encodeURIComponent(x.stem)}" alt="">`
   ).join('');
 }
-
-document.addEventListener('change', (e) => {
-  if (e.target && e.target.id === 'passall')
-    localStorage.setItem(PASSKEY, e.target.checked ? '1' : '0');
-});
 
 async function load(){
   // Deliberately does NOT clear the reveal. It describes the crop you just
