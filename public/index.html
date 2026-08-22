@@ -310,8 +310,10 @@ if ('serviceWorker' in navigator) {
   var bg = document.getElementById('newsclose');
   var dot = document.getElementById('newsdot');
   if (!open || !modal) return;
-  try { if (localStorage.getItem('news_seen') !== NEWS_VERSION) dot.classList.add('on'); }
-  catch (e) { dot.classList.add('on'); }
+  var unseen = false;
+  try { unseen = localStorage.getItem('news_seen') !== NEWS_VERSION; }
+  catch (e) { unseen = true; }
+  if (unseen) dot.classList.add('on');
   function show() {
     modal.hidden = false;
     dot.classList.remove('on');
@@ -321,8 +323,14 @@ if ('serviceWorker' in navigator) {
   open.addEventListener('click', show);
   bg.addEventListener('click', hide);
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hide(); });
-  // Deep link from the landing page's "What's new" button: /?news=1 opens the panel.
-  try { if (/[?&]news=1(&|$)/.test(location.search)) show(); } catch (e) {}
+  // Auto-open on the first visit that has not seen THIS news version yet (and
+  // via the landing page's /?news=1 deep link). show() marks it seen, so it
+  // opens once per news version, never on every load - a returning visitor who
+  // already dismissed it is not nagged again. The short delay lets the map paint
+  // first so the panel animates in over a drawn map, not a blank one.
+  var auto = unseen;
+  try { if (/[?&]news=1(&|$)/.test(location.search)) auto = true; } catch (e) {}
+  if (auto) setTimeout(show, 500);
 })();
 </script>
 </body>
