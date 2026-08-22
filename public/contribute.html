@@ -28,9 +28,12 @@
     -webkit-overflow-scrolling:touch;margin:8px 0}
   pre code{background:none;border:0;padding:0;color:#cfe3f5;white-space:pre;display:block}
   .k{color:#8fd0ff} .s{color:#a6e3a1} .c{color:#6c7a8a}
-  table{width:100%;border-collapse:collapse;margin:6px 0;font-size:14px}
+  table{width:100%;min-width:560px;border-collapse:collapse;margin:6px 0;font-size:14px}
   .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
   th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  /* field-name and required/optional columns should not wrap - let the whole
+     table scroll sideways on a phone instead of stacking each cell. */
+  td:first-child,td:nth-child(2),th:first-child,th:nth-child(2){white-space:nowrap}
   th{color:var(--dim);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.4px}
   td b{color:var(--ink)} .req{color:var(--green);font-weight:700} .opt{color:var(--dim)}
   .note{border-left:4px solid var(--amber)}
