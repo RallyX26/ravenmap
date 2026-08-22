@@ -783,17 +783,32 @@ class Handler(BaseHTTPRequestHandler):
             if not is_operator_addr(self.client_address[0]):
                 return self._json({"error": "not an operator address"}, 403)
             mode = body.get("mode", "likely")
+            # 🚀 PARALLEL, because each set_label does a network round-trip to the
+            # box (_sync_sighting) for any crop that carries a sighting. Done
+            # serially, a 24-crop grid was ~24 round-trips through Cloudflare -
+            # seconds of "loading the next page". The sidecar writes are
+            # per-file and the index write serialises on SQLite's WAL lock, so
+            # running these in a thread pool overlaps the network wait safely.
+            import concurrent.futures as _cf
+            jobs = ([(it, "police") for it in (body.get("police") or [])[:64]]
+                    + [(it, "civilian") for it in (body.get("other") or [])[:64]])
+
+            def _one(job):
+                it, lab = job
+                try:
+                    res = labelbank.set_label(it["day"], it["stem"], lab, mode)
+                    syn = str(res.get("synced") or "")
+                    return (lab, syn.startswith("promot") or syn.startswith("reclassif"))
+                except (KeyError, ValueError, FileNotFoundError, TypeError):
+                    return ("failed", False)
+
             done = {"police": 0, "civilian": 0, "published": 0, "failed": 0}
-            for lab, key in (("police", "police"), ("civilian", "other")):
-                for it in (body.get(key) or [])[:64]:
-                    try:
-                        res = labelbank.set_label(it["day"], it["stem"], lab, mode)
-                        done[lab] += 1
-                        syn = str(res.get("synced") or "")
-                        if syn.startswith("promot") or syn.startswith("reclassif"):
+            if jobs:
+                with _cf.ThreadPoolExecutor(max_workers=min(16, len(jobs))) as ex:
+                    for lab, published in ex.map(_one, jobs):
+                        done[lab] = done.get(lab, 0) + 1
+                        if published:
                             done["published"] += 1
-                    except (KeyError, ValueError, FileNotFoundError, TypeError):
-                        done["failed"] += 1
             return self._json({"ok": True, **done, **labelbank.stats()})
 
         if u.path == "/api/confirm":

@@ -85,6 +85,7 @@
   var items = [];            // {day, stem}
   var picked = {};           // "day\tstem" -> true
   var busy = false;
+  var nextGrid = null;       // prefetched next batch, so "next" is instant
 
   function key(it) { return it.day + '\t' + it.stem; }
   function say(t, k) { msgEl.textContent = t; msgEl.className = 'msg on ' + (k || ''); }
@@ -117,21 +118,33 @@
     updateSel();
   }
 
+  function fetchBatch() {
+    return fetch('/api/bank/grid?mode=' + encodeURIComponent(modeSel.value) + '&n=24')
+      .then(function (r) { return r.json(); });
+  }
+  function prefetch() {
+    var m = modeSel.value;
+    fetchBatch().then(function (j) { if (modeSel.value === m) nextGrid = j; })
+                .catch(function () {});
+  }
+  function applyBatch(j) {
+    items = j.items || [];
+    if (j.positive_passes != null) countEl.textContent = j.positive_passes;
+    clearMsg();
+    render();
+    prefetch();                       // warm the next grid while he works
+  }
   function load() {
     if (busy) return;
-    busy = true; saveBtn.disabled = true; skipBtn.disabled = true;
     picked = {};
+    if (nextGrid) {                   // instant: the next grid is already here
+      var j = nextGrid; nextGrid = null; applyBatch(j); return;
+    }
+    busy = true; saveBtn.disabled = true; skipBtn.disabled = true;
     say('Loading…');
-    fetch('/api/bank/grid?mode=' + encodeURIComponent(modeSel.value) + '&n=24')
-      .then(function (r) { return r.json(); })
-      .then(function (j) {
-        items = j.items || [];
-        if (j.positive_passes != null) countEl.textContent = j.positive_passes;
-        clearMsg();
-        render();
-      })
-      .catch(function () { say('Could not load the grid.', 'err'); })
-      .then(function () { busy = false; saveBtn.disabled = false; skipBtn.disabled = false; });
+    fetchBatch()
+      .then(function (j) { busy = false; saveBtn.disabled = false; skipBtn.disabled = false; applyBatch(j); })
+      .catch(function () { busy = false; saveBtn.disabled = false; skipBtn.disabled = false; say('Could not load the grid.', 'err'); });
   }
 
   function save() {
@@ -156,7 +169,7 @@
 
   saveBtn.addEventListener('click', save);
   skipBtn.addEventListener('click', load);
-  modeSel.addEventListener('change', load);
+  modeSel.addEventListener('change', function () { nextGrid = null; load(); });
   addEventListener('keydown', function (e) {
     if (e.key === 'Enter') { e.preventDefault(); save(); }
     else if (e.key.toLowerCase() === 's' || e.key === 'Escape') { e.preventDefault(); load(); }
