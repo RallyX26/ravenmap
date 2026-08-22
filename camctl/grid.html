@@ -132,6 +132,12 @@
     if (j.positive_passes != null) countEl.textContent = j.positive_passes;
     clearMsg();
     render();
+    // Always re-enable here: the instant-prefetch path returns through this
+    // function too, and if only the slow fetch path re-enabled, the buttons
+    // stayed dead after a save and the grid looked stuck until a refresh.
+    busy = false;
+    saveBtn.disabled = false;
+    skipBtn.disabled = false;
     prefetch();                       // warm the next grid while he works
   }
   function load() {
