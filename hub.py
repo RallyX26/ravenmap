@@ -59,6 +59,21 @@ from core import CONFIG, DATA, PUBLIC, SNAPS, is_operator_addr, now
 #
 # The cache means upstream sees each tile once, not once per viewer.
 TILES = DATA / "tiles"
+
+# US police-station points [lat, lon, name], fetched from OpenStreetMap on the
+# desktop and scp'd here (the box cannot reach Overpass, same as road snapping).
+# Loaded once and served bounded by viewport, so the nationwide ~15k points
+# never reach a phone at once. Static data; refresh with tools/police_fetch.py.
+_POLICE_CACHE = None
+def _police_stations():
+    global _POLICE_CACHE
+    if _POLICE_CACHE is None:
+        try:
+            _POLICE_CACHE = json.loads(
+                (DATA / "police_stations.json").read_text(encoding="utf-8"))
+        except Exception:
+            _POLICE_CACHE = []
+    return _POLICE_CACHE
 TILE_UPSTREAM = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
 TILE_SUBDOMAINS = "abcd"
 TILE_MAX_ZOOM = 20
@@ -2364,6 +2379,30 @@ class Handler(BaseHTTPRequestHandler):
 
             if p.startswith("/api/tile/"):
                 return self._tile(p)
+
+            if p == "/api/police":
+                # Police-station overlay (OpenStreetMap), bounded by viewport.
+                # The client sends its box and gets only the stations inside it,
+                # so the nationwide ~15k points never reach a phone at once; the
+                # map only asks for this above a zoom threshold. Capped as a
+                # backstop. A distinct layer, deliberately NOT a sighting.
+                _q = parse_qs(urlparse(self.path).query)
+                box = _q.get("box", [None])[0]
+                pts = _police_stations()
+                out = []
+                if box:
+                    try:
+                        s, w, n, e = (float(x) for x in box.split(","))
+                        for row in pts:
+                            lat, lon = row[0], row[1]
+                            if s <= lat <= n and w <= lon <= e:
+                                out.append({"lat": lat, "lon": lon,
+                                            "name": row[2] if len(row) > 2 else ""})
+                                if len(out) >= 1500:
+                                    break
+                    except (ValueError, AttributeError):
+                        out = []
+                return self._json({"stations": out, "total": len(pts)})
 
             if p == "/api/nodes":
                 # 🚨 4,800 PUBLIC CAMERAS WERE DOWNLOADED ON EVERY MAP LOAD IN

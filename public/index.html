@@ -205,6 +205,10 @@
                layer was fine at eighteen cameras and made the map lag the moment
                the fleet landed. -->
           <label class="cams"><input type="checkbox" id="showpubcams"> traffic cams</label>
+          <!-- Police stations from OpenStreetMap. Context behind the dots, not a
+               sighting: fixed buildings, drawn distinctly and only when zoomed
+               in, fetched bounded to the viewport like the traffic cams. -->
+          <label class="cams"><input type="checkbox" id="showpolice"> police stations</label>
           <!-- 🚁 Aircraft, and ONLY the ones that mean something. A police
                helicopter holding a circle over one place is the single most
                recognisable pattern in this whole project - people have been asking
@@ -280,7 +284,7 @@
 <script src="/static/transparency.js?v=20"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
 <script src="/static/sitenav.js?v=34"></script>
-<script src="/static/app.js?v=114"></script>
+<script src="/static/app.js?v=115"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->
 <script src="/static/updates.js?v=2"></script>

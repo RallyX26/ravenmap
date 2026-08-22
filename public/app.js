@@ -109,6 +109,7 @@ const state = {
   // not what the map should be doing before anybody asks. See the viewport
   // bound on /api/nodes, which is the other half of this.
   showPubCams: false,
+  showPolice: false,          // OpenStreetMap police-station overlay
   // 🚁 TWO AIRCRAFT SWITCHES, NOT ONE, AND THAT IS THE WHOLE POINT.
   //
   // "Government" is a registration category, and most of what falls in it is
@@ -1356,6 +1357,68 @@ if (_showpubcams) {
   };
 }
 
+/* 🚔 POLICE-STATION OVERLAY (OpenStreetMap).
+ *
+ * Context behind the dots, NOT a sighting: fixed buildings a viewer can use to
+ * orient, drawn as a distinct navy "PD" badge so it can never be mistaken for a
+ * government-vehicle dot. Bounded to the viewport and gated on zoom for the same
+ * reason the traffic cameras are - there are ~15k nationwide, and dumping them
+ * at country zoom is both a huge draw and useless. The hub serves only the ones
+ * in the current box (/api/police?box=), so a phone gets the few dozen on screen.
+ */
+const POLICE_MIN_ZOOM = 10;
+const POLICE_ICON = L.divIcon({
+  className: 'polstn-wrap',
+  html: '<div style="background:#16305c;color:#cfe3ff;border:1px solid #4f7fc7;'
+      + 'border-radius:5px;font:700 10px/16px ui-monospace,Consolas,monospace;'
+      + 'text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.55)">PD</div>',
+  iconSize: [26, 18], iconAnchor: [13, 9], popupAnchor: [0, -9],
+});
+let _policeBox = null;
+async function loadPolice() {
+  state.policeLayer = state.policeLayer || L.layerGroup().addTo(map);
+  // Clear FIRST so unticking (or zooming out) removes what is drawn instead of
+  // leaving stale badges until the next reload - the trap the pubcam layer names.
+  state.policeLayer.clearLayers();
+  if (!state.showPolice) { _policeBox = null; return; }
+  if (map.getZoom() < POLICE_MIN_ZOOM) return;   // too far out: skip, not a mess
+  let data;
+  try { data = await (await fetch('/api/police?box=' + camBoxKey())).json(); }
+  catch (err) { return; }
+  (data.stations || []).forEach((p) => {
+    L.marker([p.lat, p.lon], { icon: POLICE_ICON, keyboard: false })
+      .bindPopup('<b>' + esc(p.name || 'Police station') + '</b><br>'
+        + '<span style="color:#93a3b3">A police station (OpenStreetMap). '
+        + 'Context, not a sighting.</span>')
+      .addTo(state.policeLayer);
+  });
+}
+const SHOWPOLICE_KEY = 'sparrow.showPolice';
+try {
+  const saved = localStorage.getItem(SHOWPOLICE_KEY);
+  if (saved !== null) state.showPolice = saved === '1';
+} catch (err) { /* default stands */ }
+const _showpolice = $('#showpolice');
+if (_showpolice) {
+  _showpolice.checked = state.showPolice;
+  _showpolice.onchange = (e) => {
+    state.showPolice = e.target.checked;
+    try { localStorage.setItem(SHOWPOLICE_KEY, state.showPolice ? '1' : '0'); }
+    catch (err) { /* not remembering is survivable */ }
+    _policeBox = null;
+    loadPolice();
+  };
+}
+// Refetch on pan/zoom, but only when the box actually changed - same grid-snap
+// discipline as the traffic cameras, so a nudge does not re-ask.
+map.on('moveend', () => {
+  if (!state.showPolice) return;
+  const k = map.getZoom() + ':' + camBoxKey();
+  if (k === _policeBox) return;
+  _policeBox = k;
+  loadPolice();
+});
+
 /* 🚁 AIRCRAFT ON THE MAP.
  *
  * The detector has existed for a while and only /planes could see it, which is
@@ -1964,6 +2027,7 @@ drawSnapshot();
 refresh();
 loadPending();
 loadCameras();
+loadPolice();   // draws only if the toggle was left on and we are zoomed in
 // Towns are independent of the watched-roads toggle: they are what the map
 // shows INSTEAD of spans when zoomed out, not a second copy of them, so they
 // load whether or not the bands are switched on.
