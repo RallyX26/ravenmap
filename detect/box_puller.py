@@ -367,6 +367,11 @@ def main() -> None:
                     help="read a LOCAL inbox dir instead of ssh (staging)")
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--interval", type=float, default=0.0)
+    ap.add_argument("--idle-max", type=float, default=15.0,
+                    help="when the inbox has been empty, back off the poll up to "
+                         "this many seconds (snaps back to --interval the instant "
+                         "a crop arrives). Cuts idle ssh churn; a live drive is "
+                         "untouched. Set equal to --interval to disable.")
     ap.add_argument("--limit", type=int, default=0,
                     help="process at most N crops this run (0 = all)")
     ap.add_argument("--dry-run", action="store_true",
@@ -474,14 +479,22 @@ def main() -> None:
     # quiet night, while the box's 12h inbox TTL quietly deleted the crops it
     # was failing to collect.
     if args.interval and not args.once:
-        print(f"polling the box every {args.interval:.0f}s; Ctrl-C to stop")
+        print(f"polling the box every {args.interval:.0f}s "
+              f"(backing off to {args.idle_max:.0f}s when idle); Ctrl-C to stop")
         fails = 0
+        idle = 0
         while True:
             try:
-                report(run_once(vid, args))
+                result = run_once(vid, args)
+                report(result)
                 fails = 0
+                # An empty pull means nobody is contributing right now. A crop
+                # resets this to 0 immediately, so a live drive always polls at
+                # the fast rate - only genuine quiet stretches slow down.
+                idle = 0 if result.get("pulled") else idle + 1
             except BoxUnreachable as exc:
                 fails += 1
+                idle = 0                      # a failure is not a quiet inbox
                 print(f"BOX UNREACHABLE ({fails} in a row): {exc}",
                       file=sys.stderr)
                 # A blip is not an outage; a run of them is. Keep polling either
@@ -491,7 +504,16 @@ def main() -> None:
                           "running. Crops on the box expire after 12 hours, so "
                           "contributions are being lost while this persists.",
                           file=sys.stderr)
-            time.sleep(args.interval)
+            # 🔌 ADAPTIVE BACKOFF, because SSH multiplexing is impossible here:
+            # both ssh clients on Windows (MSYS Cygwin sockets, native named
+            # pipes) refuse ControlMaster, so every cycle is a fresh connection.
+            # Polling an empty inbox every 2s opened ~10 ssh/min around the
+            # clock. Instead, double the wait each consecutive empty cycle up to
+            # --idle-max, and snap back to the fast rate the instant a crop
+            # lands. Idle connections drop several-fold; a live drive is
+            # untouched (its first crop waits at most --idle-max, then fast).
+            wait = min(args.idle_max, args.interval * (2 ** min(idle, 6)))
+            time.sleep(wait)
     else:
         try:
             report(run_once(vid, args))
