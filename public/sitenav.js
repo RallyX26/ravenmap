@@ -26,6 +26,11 @@
   var ITEMS = [
     { href: "/",             icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6.5v13L9 17l6 3 6-2.5v-13L15 7z"/><path d="M9 4v13M15 7v13"/></svg>', label: "Map",          mode: "map" },
     { href: "/drive",        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 16v2a1 1 0 0 1-1 1H3.5A1.5 1.5 0 0 1 2 17.5V12l2.2-5.1A2 2 0 0 1 6 5.6h12a2 2 0 0 1 1.8 1.3L22 12v5.5a1.5 1.5 0 0 1-1.5 1.5H20a1 1 0 0 1-1-1v-2"/><path d="M2 12h20"/><circle cx="6.5" cy="15" r="1"/><circle cx="17.5" cy="15" r="1"/></svg>', label: "Driving" },
+    // Growth, live capacity and costs, generated from the database. Labelled
+    // "Support" rather than "Donate" because the page is mostly numbers - the
+    // costs and the bad retention figure included - and the ask is the last
+    // thing on it rather than the point of it.
+    { href: "/support",      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 5.6a5 5 0 0 0-7.1 0L12 7.3l-1.7-1.7a5 5 0 0 0-7.1 7.1l8.8 8.8 8.8-8.8a5 5 0 0 0 0-7.1z"/></svg>', label: "Support" },
     { href: "/app",          icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2l1.2-2h8.2l1.2 2h2.2A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/><circle cx="12" cy="13" r="3.2"/></svg>', label: "Add a camera" },
     // Businesses already pointing a camera at a street are the cheapest
     // coverage this project can get - the hardware and the sightline are
@@ -46,12 +51,7 @@
     { href: "/status",       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19v-4M9.3 19V11M14.7 19V7M20 19V4"/></svg>', label: "Status" },
     // The Tor onion mirror - a censorship-resistant way to reach the map. Here
     // so people who need it can find it from any page.
-    { href: "/tor",          icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-3 3-4.5 6-4.5 9a4.5 4.5 0 0 0 9 0c0-3-1.5-6-4.5-9z"/><path d="M12 21v-4.5"/></svg>', label: "Tor" },
-    // Growth, live capacity and costs, generated from the database. Labelled
-    // "Support" rather than "Donate" because the page is mostly numbers - the
-    // costs and the bad retention figure included - and the ask is the last
-    // thing on it rather than the point of it.
-    { href: "/support",      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 5.6a5 5 0 0 0-7.1 0L12 7.3l-1.7-1.7a5 5 0 0 0-7.1 7.1l8.8 8.8 8.8-8.8a5 5 0 0 0 0-7.1z"/></svg>', label: "Support" }
+    { href: "/tor",          icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-3 3-4.5 6-4.5 9a4.5 4.5 0 0 0 9 0c0-3-1.5-6-4.5-9z"/><path d="M12 21v-4.5"/></svg>', label: "Tor" }
   ];
 
   // Self-contained styling, so this works on a page that does not load
