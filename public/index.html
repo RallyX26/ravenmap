@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
-<link rel="stylesheet" href="/static/style.css?v=110">
+<link rel="stylesheet" href="/static/style.css?v=111">
 </head>
 <body>
 
@@ -56,7 +56,7 @@
       </a>
       <a class="newsitem" href="/sensors">
         <b>Build or buy your own sensors <span class="newsbeta">NEW</span></b>
-        <span>Every way to feed the map from your own gear &mdash; planes, drones, police radio, radar, plate readers &mdash; with build routes and buy routes, prices, and dashcams. Plug-and-play, wireless, usable anywhere.</span>
+        <span>Feed the map from your own gear &mdash; planes, drones, police radio, radar, plate readers, dashcams &mdash; each with a build route and a buy route. New live layers under <b>Layers</b>, and step‑by‑step <a href="/setup">setup guides</a> for every one.</span>
       </a>
       <a class="newsitem" href="/rfbeta#cameras-layer">
         <b>Flock &amp; ALPR cameras on the map <span class="newsbeta">NEW</span></b>
@@ -80,7 +80,7 @@
       </a>
       <a class="newsitem" href="/guides">
         <b>Guides</b>
-        <span>Every how-to in one place &mdash; add a camera, IP cameras, the API, the RF beta.</span>
+        <span>Every how-to in one place &mdash; add a camera, IP cameras, the API, the RF beta, and now setting up radar, planes, drones and police radio.</span>
       </a>
       <p class="pmodal-hint">Open source, free, privacy-first. Only government vehicles are ever published.</p>
     </div>
@@ -231,6 +231,10 @@
                was detected here in the last few minutes, and it fades on its
                own. Empty until a detector is feeding the network. See /radar. -->
           <label class="cams"><input type="checkbox" id="showradar"> radar / speed traps <span style="color:#6b7a8d;font-size:11px">(beta)</span></label>
+          <!-- 🛸 Drones broadcasting Remote ID + 📻 police-radio activity, both
+               from paired hardware via /api/sensor. Empty until a feeder runs. -->
+          <label class="cams"><input type="checkbox" id="showdrones"> drones (Remote ID) <span style="color:#6b7a8d;font-size:11px">(beta)</span></label>
+          <label class="cams"><input type="checkbox" id="showradio"> police radio activity <span style="color:#6b7a8d;font-size:11px">(beta)</span></label>
           <!-- 🚁 Aircraft, and ONLY the ones that mean something. A police
                helicopter holding a circle over one place is the single most
                recognisable pattern in this whole project - people have been asking
@@ -306,7 +310,7 @@
 <script src="/static/transparency.js?v=20"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
 <script src="/static/sitenav.js?v=34"></script>
-<script src="/static/app.js?v=119"></script>
+<script src="/static/app.js?v=120"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->
 <script src="/static/updates.js?v=2"></script>
@@ -330,7 +334,7 @@ if ('serviceWorker' in navigator) {
      feature ships and the dot lights up again for everyone. -->
 <script>
 (function () {
-  var NEWS_VERSION = '2026-08-23-radar-sensors';
+  var NEWS_VERSION = '2026-08-23-sensor-layers';
   var open = document.getElementById('newsopen');
   var modal = document.getElementById('newsmodal');
   var bg = document.getElementById('newsclose');

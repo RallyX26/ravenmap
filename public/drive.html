@@ -74,6 +74,11 @@
      but clearly not the bright-red LIVE patrol banner. */
   #alert.cam{background:linear-gradient(180deg,rgba(190,24,93,.97),rgba(190,24,93,.82));
     color:#fff}
+  /* An ACTIVE speed-radar source ahead (from the network's detectors) - the most
+     actionable warning of all, so it gets its own hot orange-red and outranks
+     the rest. */
+  #alert.radar{background:linear-gradient(180deg,rgba(220,38,38,.98),rgba(234,88,12,.85));
+    color:#fff}
   #calbar{position:absolute;left:12px;z-index:1000;bottom:calc(env(safe-area-inset-bottom) + 250px);
     background:rgba(13,18,25,.86);border:1px solid var(--line);border-radius:12px;
     padding:8px 12px;font-family:var(--mono);font-size:.72rem;color:var(--dim);
@@ -333,12 +338,13 @@
   var trailLayer=L.layerGroup().addTo(map);
   var cameraLayer=L.layerGroup().addTo(map);   // Flock/ALPR cameras ahead
   var stationLayer=L.layerGroup().addTo(map);  // police stations (context)
+  var radarLayer=L.layerGroup().addTo(map);    // live speed-radar sources (network)
   var heatLayer=L.layerGroup(), heatOn=false;
 
   // Flock/ALPR cameras and police stations around the driver. Fetched in a box
   // centred on YOU (not the map view, which may be zoomed tight), refreshed when
   // you've moved out of it, so the alert always has the cameras up ahead.
-  var cameras=[], stations=[], _fetchAt=null;
+  var cameras=[], stations=[], radars=[], _fetchAt=null;
   function nearBox(m){ if(!me) return null;
     var dLat=m/111000, dLon=m/(111000*Math.cos(me[0]*Math.PI/180));
     return [(me[0]-dLat),(me[1]-dLon),(me[0]+dLat),(me[1]+dLon)]
@@ -350,6 +356,14 @@
       .then(function(d){ cameras=(d&&d.cameras)||[]; drawCameras(); }).catch(function(){});
     fetch('/api/police?box='+box).then(function(r){return r.json();})
       .then(function(d){ stations=(d&&d.stations)||[]; drawStations(); }).catch(function(){});
+    loadRadarOnly();
+  }
+  // Radar sources are transient (they fade in ~5 min), so refresh them on their
+  // own faster timer, not just when you cross out of the nearby box.
+  function loadRadarOnly(){
+    var box=nearBox(2500); if(!box) return;
+    fetch('/api/radar?box='+box).then(function(r){return r.json();})
+      .then(function(d){ radars=(d&&d.dots)||[]; drawRadar(); }).catch(function(){});
   }
   function maybeRefetchNearby(){
     if(!me) return;
@@ -363,6 +377,11 @@
     stations.forEach(function(p){ L.circleMarker([p.lat,p.lon],{radius:4,weight:2,
       color:'#4f7fc7',fillColor:'#16305c',fillOpacity:.9,interactive:false})
       .addTo(stationLayer); }); }
+  function drawRadar(){ radarLayer.clearLayers();
+    radars.forEach(function(d){ var r=6+Math.round(6*(d.conf||0));
+      var col=d.band==='ka'?'#ef2b2b':d.band==='laser'?'#c026d3':d.band==='k'?'#f59e0b':'#8a8a8a';
+      L.circleMarker([d.lat,d.lon],{radius:r,weight:2,color:col,
+        fillColor:col,fillOpacity:.5,interactive:false}).addTo(radarLayer); }); }
   function loadHeat(){ fetch('/api/heat').then(function(r){return r.json();})
     .then(function(d){ var cells=(d&&d.cells)||[]; heatLayer.clearLayers();
       var max=1; cells.forEach(function(c){if(c.n>max)max=c.n;});
@@ -706,7 +725,8 @@
    * distance live, and beeps INTERMITTENTLY the whole time you're in range -
    * faster as you close in, like a radar detector - instead of chirping once. */
   var CAM_NEAR_M=250;               // warn this far out from a fixed camera
-  var warn=null;                    // {type:'patrol'|'camera', dist} or null
+  var RADAR_NEAR_M=500;             // active radar reaches further; warn earlier
+  var warn=null;                    // {type:'radar'|'patrol'|'camera', dist} or null
   function nearestAhead(list, maxM){
     var bd=maxM, best=null;
     for(var i=0;i<list.length;i++){ var t=list[i];
@@ -726,9 +746,13 @@
     for(var i=0;i<patrols.length;i++){
       if(haversine(me[0],me[1],patrols[i].lat,patrols[i].lon)<=NEAR_M) n++; }
     $('#near').textContent=n;
+    var nr=nearestAhead(radars, RADAR_NEAR_M);
     var np=nearestAhead(patrols, NEAR_M);
     var nc=nearestAhead(cameras, CAM_NEAR_M);
-    if(np!=null)      warn={type:'patrol', dist:Math.round(np)};
+    // Priority: an ACTIVE radar source ahead is the most actionable, then a live
+    // patrol, then a fixed plate reader. Nearest of the winning kind sets the beep.
+    if(nr!=null)      warn={type:'radar',  dist:Math.round(nr)};
+    else if(np!=null) warn={type:'patrol', dist:Math.round(np)};
     else if(nc!=null) warn={type:'camera', dist:Math.round(nc)};
     else              warn=null;
     updateWarn();
@@ -737,7 +761,10 @@
   function updateWarn(){
     var a=$('#alert');
     if(!warn){ if(!hotShowing) a.className=''; stopWarnBeep(); return; }
-    if(warn.type==='patrol'){
+    if(warn.type==='radar'){
+      $('#alertTxt').textContent='📡 Radar ahead — '+warn.dist+' m';
+      a.className='show radar';
+    } else if(warn.type==='patrol'){
       $('#alertTxt').textContent='🚨 Patrol ahead — '+warn.dist+' m';
       a.className='show';
     } else {
@@ -749,9 +776,10 @@
   function warnBeepLoop(){
     if(!warn){ warnTimer=null; return; }
     warnTone(warn.type);
-    if(navigator.vibrate) navigator.vibrate(warn.type==='patrol'?90:45);
-    // closer = faster; a patrol chirps quicker and floors sooner than a camera.
-    var floor=warn.type==='patrol'?340:700;
+    if(navigator.vibrate) navigator.vibrate(warn.type==='camera'?45:warn.type==='radar'?110:90);
+    // closer = faster; radar is the most urgent and floors soonest, then patrol,
+    // then camera.
+    var floor=warn.type==='radar'?300:warn.type==='patrol'?340:700;
     var ms=Math.max(floor, Math.min(2600, warn.dist*8));
     warnTimer=setTimeout(warnBeepLoop, ms);
   }
@@ -761,12 +789,15 @@
   function warnTone(type){ if(!soundOn) return; try{
     audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
     var o=audioCtx.createOscillator(),g=audioCtx.createGain();
-    o.type=type==='patrol'?'sine':'triangle';
-    o.frequency.value=type==='patrol'?880:1320;
+    // radar = a rising two-tone-ish urgent sine (990Hz), patrol = 880Hz sine,
+    // camera = a curt 1320Hz blip, so each is tellable by ear.
+    o.type=type==='camera'?'triangle':'sine';
+    o.frequency.value=type==='radar'?990:type==='patrol'?880:1320;
     o.connect(g);g.connect(audioCtx.destination);
-    var dur=type==='patrol'?0.5:0.16;
+    var dur=type==='camera'?0.16:type==='radar'?0.42:0.5;
+    var peak=type==='camera'?.32:type==='radar'?.42:.4;
     g.gain.setValueAtTime(.001,audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(type==='patrol'?.4:.32,audioCtx.currentTime+.02);
+    g.gain.exponentialRampToValueAtTime(peak,audioCtx.currentTime+.02);
     g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+dur);
     o.start();o.stop(audioCtx.currentTime+dur+.02);}catch(e){} }
   /* HEADING INTO A HOT AREA.
@@ -929,6 +960,8 @@
     // Flock/ALPR cameras + police stations around the driver, refreshed slowly
     // (they're fixed); maybeRefetchNearby() also pulls a fresh box as you drive.
     setInterval(loadNearby, 120000);
+    // Radar sources are live and fade fast, so refresh them on a short timer.
+    setInterval(loadRadarOnly, 20000);
     // "Has the classifier called any of mine a patrol car yet?"
     //
     // 3s, not 15s, and it costs nothing when idle: pollParked returns before

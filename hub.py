@@ -201,6 +201,55 @@ def _radar_dots(box=None):
     return out
 
 
+# ---------------------------------------------------------------------------
+# Generic live-sensor layer for the OTHER hardware feeds - drones (Remote ID)
+# and police-radio activity. Same shape as radar: ephemeral, node-token-written,
+# publicly read, decayed on read. Kept separate from radar so that working code
+# is untouched. Each event carries its kind; TTL and dedup differ per kind:
+#   drone  a moving aircraft - short life, deduped by its Remote ID so a trail
+#          collapses to one current position.
+#   radio  activity heard AT a receiving node - lingers, deduped by node so one
+#          scanner is one pulse, not a stream of them.
+_live_events = []               # {ts,kind,lat,lon,label,key,node}
+_live_lock = threading.Lock()
+LIVE_TTL = {"drone": 180.0, "radio": 300.0}
+LIVE_KINDS = set(LIVE_TTL)
+
+
+def _live_add(kind, lat, lon, label, key, node):
+    now = time.time()
+    with _live_lock:
+        # Replace any prior event with the same (kind,key) so a moving drone or a
+        # chatty scanner is one point, not hundreds.
+        _live_events[:] = [e for e in _live_events
+                           if not (e["kind"] == kind and e["key"] == key)]
+        _live_events.append({"ts": now, "kind": kind, "lat": lat, "lon": lon,
+                             "label": label, "key": key, "node": node})
+        # Global prune by each kind's TTL.
+        _live_events[:] = [e for e in _live_events
+                           if now - e["ts"] < LIVE_TTL.get(e["kind"], 300.0)]
+
+
+def _live_points(kind, box=None):
+    now = time.time()
+    ttl = LIVE_TTL.get(kind, 300.0)
+    with _live_lock:
+        evs = [dict(e) for e in _live_events
+               if e["kind"] == kind and now - e["ts"] < ttl]
+    if box:
+        try:
+            s, w, n, e = box
+            evs = [x for x in evs if s <= x["lat"] <= n and w <= x["lon"] <= e]
+        except (TypeError, ValueError):
+            pass
+    out = []
+    for x in evs:
+        out.append({"lat": round(x["lat"], 5), "lon": round(x["lon"], 5),
+                    "label": x["label"] or "", "age": int(now - x["ts"])})
+    out.sort(key=lambda z: z["age"])
+    return out
+
+
 TILE_UPSTREAM = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
 TILE_SUBDOMAINS = "abcd"
 TILE_MAX_ZOOM = 20
@@ -596,6 +645,12 @@ RATE = {"/api/enroll": (600, 3600), "/api/sightings": (900, 3600),
         # generous - but every hit is node-token authenticated, so this is a
         # flood guard, not the anti-abuse control (the token is).
         "/api/radar/hit": (1200, 3600),
+        # Drone / police-radio events from paired hardware. Also node-token
+        # authenticated; generous bucket, same reasoning as radar.
+        "/api/sensor/hit": (1200, 3600),
+        # Local ADS-B receivers pushing aircraft they see. A busy sky is a lot of
+        # aircraft per push but one push every few seconds, so this is roomy.
+        "/api/aircraft/ingest": (1800, 3600),
         # Network-wide (client_ip is 127.0.0.1 for everyone), so this is
         # a flood guard on the whole site rather than a per-person cap.
         # bugs.py enforces its own per-hour ceiling as well.
@@ -1617,6 +1672,7 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/rfbeta":           return self._file(PUBLIC / "rfbeta.html")
             if p == "/radar":            return self._file(PUBLIC / "radar.html")
             if p == "/sensors":          return self._file(PUBLIC / "sensors.html")
+            if p == "/setup":            return self._file(PUBLIC / "setup.html")
             # The phone beta scanner, served as plain text so a tester can
             # `curl` it straight onto their phone. Read-only, single known file
             # (no path from the request), so this cannot serve anything else.
@@ -2591,6 +2647,27 @@ class Handler(BaseHTTPRequestHandler):
                 dots = _radar_dots(bb)
                 return self._json({"dots": dots, "active": len(dots),
                                    "ttl_s": int(RADAR_TTL_S)})
+
+            if p == "/api/sensor":
+                # Live drone / police-radio events near a viewport. Public read,
+                # like /api/radar. kind selects the feed; empty until hardware
+                # feeds it.
+                _q = parse_qs(urlparse(self.path).query)
+                kind = (_q.get("kind", [""])[0] or "").strip().lower()
+                if kind not in LIVE_KINDS:
+                    return self._err(400, "kind must be one of "
+                                          + ", ".join(sorted(LIVE_KINDS)))
+                box = _q.get("box", [None])[0]
+                bb = None
+                if box:
+                    try:
+                        bb = tuple(float(x) for x in box.split(","))
+                    except ValueError:
+                        bb = None
+                pts = _live_points(kind, bb)
+                return self._json({"kind": kind, "points": pts,
+                                   "active": len(pts),
+                                   "ttl_s": int(LIVE_TTL.get(kind, 300))})
 
             if p == "/api/nodes":
                 # 🚨 4,800 PUBLIC CAMERAS WERE DOWNLOADED ON EVERY MAP LOAD IN
@@ -3729,6 +3806,69 @@ class Handler(BaseHTTPRequestHandler):
                     strength = None
                 _radar_add(lat, lon, band, heading, strength, nd["id"])
                 return self._json({"ok": True})
+
+            if p == "/api/sensor/hit":
+                # Drone (Remote ID) or police-radio activity from paired hardware.
+                # Node-token authenticated, same as radar: a live point on the map
+                # must be attributable to a node, never an anonymous tap.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "a lot of sensor events right now - "
+                                          "retry shortly")
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if not nd.get("token"):
+                    return self._err(401, "this node has no token; re-enroll it")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                kind = str(b.get("kind") or "").strip().lower()
+                if kind not in LIVE_KINDS:
+                    return self._err(400, "kind must be one of "
+                                          + ", ".join(sorted(LIVE_KINDS)))
+                try:
+                    lat = float(b.get("lat")); lon = float(b.get("lon"))
+                except (TypeError, ValueError):
+                    return self._err(400, "a location is required")
+                if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                    return self._err(400, "location out of range")
+                label = str(b.get("label") or "")[:80]
+                # Dedup key: a drone by its own id (so a trail is one point),
+                # radio by the receiving node (one scanner is one pulse).
+                if kind == "drone":
+                    key = str(b.get("id") or ("%.5f,%.5f" % (lat, lon)))
+                else:
+                    key = nd["id"]
+                _live_add(kind, lat, lon, label, key, nd["id"])
+                return self._json({"ok": True})
+
+            if p == "/api/aircraft/ingest":
+                # A LOCAL ADS-B receiver (dump1090 on a Pi) pushing the aircraft it
+                # sees, to augment the OpenSky-fed layer with local coverage. Only
+                # reached when the aircraft preview is on; node-token authenticated
+                # like every other write that puts something on the map.
+                if not CONFIG.get("aircraft_preview"):
+                    return self._err(404, "aircraft layer is not enabled here")
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "a lot of aircraft pushes right now - "
+                                          "retry shortly")
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if not nd.get("token"):
+                    return self._err(401, "this node has no token; re-enroll it")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                craft = b.get("aircraft")
+                if not isinstance(craft, list):
+                    return self._err(400, "aircraft must be a list")
+                try:
+                    import aircraft as _air
+                    n = _air.ingest_local(craft, nd["id"])
+                except Exception as exc:
+                    return self._err(400, "could not ingest: %s" % exc)
+                return self._json({"ok": True, "accepted": n})
 
             if p == "/api/spot":
                 # A public "I see a fixed surveillance camera here" report from

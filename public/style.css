@@ -676,3 +676,7 @@ nav .addcam{color:var(--cam);font-weight:600}
   0%{transform:translate(-50%,-50%) scale(.35);opacity:.85}
   100%{transform:translate(-50%,-50%) scale(1);opacity:0}
 }
+
+/* 🛸 Drone marker (Remote ID) - a small emoji glyph, few on screen at once. */
+.drone-mk{display:flex;align-items:center;justify-content:center}
+.drone-mk .drone-dot{font-size:16px;filter:drop-shadow(0 0 3px rgba(56,189,248,.9))}

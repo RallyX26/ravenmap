@@ -112,6 +112,8 @@ const state = {
   showPolice: false,          // OpenStreetMap police-station overlay
   showCameras: false,         // OpenStreetMap Flock/ALPR surveillance-camera overlay
   showRadar: false,           // live radar / speed-trap sources from paired detectors
+  showDrones: false,          // drones broadcasting Remote ID (paired ESP32/Pi)
+  showRadio: false,           // police-radio activity heard by a paired scanner
   // 🚁 TWO AIRCRAFT SWITCHES, NOT ONE, AND THAT IS THE WHOLE POINT.
   //
   // "Government" is a registration category, and most of what falls in it is
@@ -1637,6 +1639,74 @@ map.on('moveend', () => {
   loadRadar();
 });
 
+/* 🛸 LIVE SENSOR LAYERS: drones (Remote ID) and police-radio activity.
+ *
+ * Both come from paired hardware via /api/sensor and are transient like radar -
+ * a drone is a moving point, radio activity is a soft pulse where a scanner is
+ * hearing dispatch. One small generic driver runs both: a state flag, a layer,
+ * a fetch, a refresh timer, and a draw function per kind. Empty until a feeder
+ * is running (tools/sensors/drone_feed.py, p25_feed.py). */
+function makeSensorLayer(opts) {
+  // opts: {kind, flag, key(storage), checkbox, draw, refreshMs}
+  let box = null, timer = null;
+  async function load() {
+    state[opts.layer] = state[opts.layer] || L.layerGroup().addTo(map);
+    state[opts.layer].clearLayers();
+    if (!state[opts.flag]) return;
+    let data;
+    try { data = await (await fetch('/api/sensor?kind=' + opts.kind + '&box=' + camBoxKey())).json(); }
+    catch (err) { return; }
+    (data.points || []).forEach((pt) => opts.draw(state[opts.layer], pt));
+  }
+  function timerSync() {
+    if (state[opts.flag] && !timer) timer = setInterval(load, opts.refreshMs);
+    else if (!state[opts.flag] && timer) { clearInterval(timer); timer = null; }
+  }
+  try {
+    const saved = localStorage.getItem(opts.key);
+    if (saved !== null) state[opts.flag] = saved === '1';
+  } catch (err) { /* default */ }
+  const cb = $(opts.checkbox);
+  if (cb) {
+    cb.checked = state[opts.flag];
+    cb.onchange = (e) => {
+      state[opts.flag] = e.target.checked;
+      try { localStorage.setItem(opts.key, state[opts.flag] ? '1' : '0'); } catch (err) {}
+      box = null; load(); timerSync();
+    };
+  }
+  map.on('moveend', () => {
+    if (!state[opts.flag]) return;
+    const k = camBoxKey();
+    if (k === box) return;
+    box = k; load();
+  });
+  return { load, timerSync };
+}
+const _droneLayer = makeSensorLayer({
+  kind: 'drone', flag: 'showDrones', layer: 'droneLayer',
+  key: 'sparrow.showDrones', checkbox: '#showdrones', refreshMs: 10000,
+  draw: (lyr, pt) => {
+    L.marker([pt.lat, pt.lon], { icon: L.divIcon({ className: 'drone-mk',
+      iconSize: [22, 22], html: '<span class="drone-dot">🛸</span>' }), keyboard: false })
+      .bindPopup('<b style="color:#38bdf8">🛸 Drone</b><br>'
+        + (pt.label ? esc(pt.label) + '<br>' : '')
+        + '<span style="color:#93a3b3">Broadcasting Remote ID · seen ' + pt.age + 's ago</span>')
+      .addTo(lyr);
+  } });
+const _radioLayer = makeSensorLayer({
+  kind: 'radio', flag: 'showRadio', layer: 'radioLayer',
+  key: 'sparrow.showRadio', checkbox: '#showradio', refreshMs: 20000,
+  draw: (lyr, pt) => {
+    L.circleMarker([pt.lat, pt.lon], { radius: 13, weight: 1.5, color: '#f59e0b',
+      fillColor: '#f59e0b', fillOpacity: 0.16 })
+      .bindPopup('<b style="color:#f59e0b">📻 Police radio active</b><br>'
+        + (pt.label ? esc(pt.label) + '<br>' : '')
+        + '<span style="color:#93a3b3">A scanner here is hearing dispatch · '
+        + pt.age + 's ago. Area, not a pinpoint.</span>')
+      .addTo(lyr);
+  } });
+
 /* 🚁 AIRCRAFT ON THE MAP.
  *
  * The detector has existed for a while and only /planes could see it, which is
@@ -2249,6 +2319,8 @@ loadPolice();   // draws only if the toggle was left on and we are zoomed in
 loadSurveillance();
 loadRadar();    // draws only if the toggle was left on; empty until a detector feeds it
 radarTimerSync();
+_droneLayer.load(); _droneLayer.timerSync();
+_radioLayer.load(); _radioLayer.timerSync();
 // Towns are independent of the watched-roads toggle: they are what the map
 // shows INSTEAD of spans when zoomed out, not a second copy of them, so they
 // load whether or not the bands are switched on.
