@@ -70,6 +70,10 @@
   /* History, not a car that is there now - amber, so the two never read alike. */
   #alert.hot{background:linear-gradient(180deg,rgba(245,158,11,.97),rgba(245,158,11,.82));
     color:#1a1206}
+  /* A fixed plate reader ahead - rose, still red-family (they're red on the map)
+     but clearly not the bright-red LIVE patrol banner. */
+  #alert.cam{background:linear-gradient(180deg,rgba(190,24,93,.97),rgba(190,24,93,.82));
+    color:#fff}
   #calbar{position:absolute;left:12px;z-index:1000;bottom:calc(env(safe-area-inset-bottom) + 250px);
     background:rgba(13,18,25,.86);border:1px solid var(--line);border-radius:12px;
     padding:8px 12px;font-family:var(--mono);font-size:.72rem;color:var(--dim);
@@ -327,7 +331,38 @@
   var verifiedLayer=L.layerGroup().addTo(map);
   var liveLayer=L.layerGroup().addTo(map);
   var trailLayer=L.layerGroup().addTo(map);
+  var cameraLayer=L.layerGroup().addTo(map);   // Flock/ALPR cameras ahead
+  var stationLayer=L.layerGroup().addTo(map);  // police stations (context)
   var heatLayer=L.layerGroup(), heatOn=false;
+
+  // Flock/ALPR cameras and police stations around the driver. Fetched in a box
+  // centred on YOU (not the map view, which may be zoomed tight), refreshed when
+  // you've moved out of it, so the alert always has the cameras up ahead.
+  var cameras=[], stations=[], _fetchAt=null;
+  function nearBox(m){ if(!me) return null;
+    var dLat=m/111000, dLon=m/(111000*Math.cos(me[0]*Math.PI/180));
+    return [(me[0]-dLat),(me[1]-dLon),(me[0]+dLat),(me[1]+dLon)]
+      .map(function(n){return n.toFixed(4);}).join(','); }
+  function loadNearby(){
+    var box=nearBox(2500); if(!box) return;
+    _fetchAt=me.slice();
+    fetch('/api/cameras?box='+box).then(function(r){return r.json();})
+      .then(function(d){ cameras=(d&&d.cameras)||[]; drawCameras(); }).catch(function(){});
+    fetch('/api/police?box='+box).then(function(r){return r.json();})
+      .then(function(d){ stations=(d&&d.stations)||[]; drawStations(); }).catch(function(){});
+  }
+  function maybeRefetchNearby(){
+    if(!me) return;
+    if(!_fetchAt || haversine(me[0],me[1],_fetchAt[0],_fetchAt[1])>1200) loadNearby();
+  }
+  function drawCameras(){ cameraLayer.clearLayers();
+    cameras.forEach(function(c){ L.circleMarker([c.lat,c.lon],{radius:4,weight:2,
+      color:'#ff4d5e',fillColor:'#7a1220',fillOpacity:.95,interactive:false})
+      .addTo(cameraLayer); }); }
+  function drawStations(){ stationLayer.clearLayers();
+    stations.forEach(function(p){ L.circleMarker([p.lat,p.lon],{radius:4,weight:2,
+      color:'#4f7fc7',fillColor:'#16305c',fillOpacity:.9,interactive:false})
+      .addTo(stationLayer); }); }
   function loadHeat(){ fetch('/api/heat').then(function(r){return r.json();})
     .then(function(d){ var cells=(d&&d.cells)||[]; heatLayer.clearLayers();
       var max=1; cells.forEach(function(c){if(c.n>max)max=c.n;});
@@ -661,21 +696,79 @@
   map.on('dragstart',function(){follow=false;$('#recenter').style.display='flex';});
 
   // ---- proximity ----
-  function checkProximity(){ if(!me)return; var n=0, closest=null, cdist=1e9;
-    var all=verified.map(function(s){return {id:'v'+s.id,lat:s.lat,lon:s.lon};})
-      .concat(live.map(function(r){return {id:'l'+r.id,lat:r.lat,lon:r.lon};}));
-    all.forEach(function(t){
+  /* 🚨 ONE CONTINUOUS WARNING FOR THE NEAREST THREAT, NOT ONE PER SIGHTING.
+   *
+   * The old version fired a separate one-shot alert for each un-alerted car in
+   * turn, so with several nearby you got a stutter of alerts, and the distance
+   * shown was whichever one it happened to be firing for - not the nearest, so
+   * it read as "300 m" while a car sat at 60 m. Now it finds the single NEAREST
+   * thing ahead (a live patrol wins over a fixed plate reader), shows that
+   * distance live, and beeps INTERMITTENTLY the whole time you're in range -
+   * faster as you close in, like a radar detector - instead of chirping once. */
+  var CAM_NEAR_M=250;               // warn this far out from a fixed camera
+  var warn=null;                    // {type:'patrol'|'camera', dist} or null
+  function nearestAhead(list, maxM){
+    var bd=maxM, best=null;
+    for(var i=0;i<list.length;i++){ var t=list[i];
+      if(t.lat==null||t.lon==null) continue;
       var d=haversine(me[0],me[1],t.lat,t.lon);
-      if(d<=NEAR_M){ n++;
-        var ahead=true;
-        if(heading!=null){var br=bearing(me[0],me[1],t.lat,t.lon);
-          var diff=Math.abs(((br-heading+540)%360)-180); ahead=diff<=100;}
-        if(!alerted[t.id] && ahead && d<cdist){cdist=d;closest=t;}
-      } else if(d>REARM_M){ delete alerted[t.id]; }
-    });
-    $('#near').textContent=n;
-    if(closest){ alerted[closest.id]=true; fireAlert(Math.round(cdist)); }
+      if(d>bd) continue;
+      if(heading!=null){ var br=bearing(me[0],me[1],t.lat,t.lon);
+        if(Math.abs(((br-heading+540)%360)-180)>100) continue; }  // behind you
+      bd=d; best=d;
+    }
+    return best;
   }
+  function checkProximity(){
+    if(!me){ warn=null; updateWarn(); return; }
+    var patrols=verified.concat(live);
+    var n=0;
+    for(var i=0;i<patrols.length;i++){
+      if(haversine(me[0],me[1],patrols[i].lat,patrols[i].lon)<=NEAR_M) n++; }
+    $('#near').textContent=n;
+    var np=nearestAhead(patrols, NEAR_M);
+    var nc=nearestAhead(cameras, CAM_NEAR_M);
+    if(np!=null)      warn={type:'patrol', dist:Math.round(np)};
+    else if(nc!=null) warn={type:'camera', dist:Math.round(nc)};
+    else              warn=null;
+    updateWarn();
+  }
+  var warnTimer=null;
+  function updateWarn(){
+    var a=$('#alert');
+    if(!warn){ if(!hotShowing) a.className=''; stopWarnBeep(); return; }
+    if(warn.type==='patrol'){
+      $('#alertTxt').textContent='🚨 Patrol ahead — '+warn.dist+' m';
+      a.className='show';
+    } else {
+      $('#alertTxt').textContent='📷 Plate reader — '+warn.dist+' m';
+      a.className='show cam';
+    }
+    if(!warnTimer) warnBeepLoop();
+  }
+  function warnBeepLoop(){
+    if(!warn){ warnTimer=null; return; }
+    warnTone(warn.type);
+    if(navigator.vibrate) navigator.vibrate(warn.type==='patrol'?90:45);
+    // closer = faster; a patrol chirps quicker and floors sooner than a camera.
+    var floor=warn.type==='patrol'?340:700;
+    var ms=Math.max(floor, Math.min(2600, warn.dist*8));
+    warnTimer=setTimeout(warnBeepLoop, ms);
+  }
+  function stopWarnBeep(){ if(warnTimer){ clearTimeout(warnTimer); warnTimer=null; } }
+  // Patrol = urgent 880Hz sine (same as the old beep). Camera = a higher, curter
+  // 1320Hz blip, so you can tell by ear which one is ahead without looking.
+  function warnTone(type){ if(!soundOn) return; try{
+    audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
+    var o=audioCtx.createOscillator(),g=audioCtx.createGain();
+    o.type=type==='patrol'?'sine':'triangle';
+    o.frequency.value=type==='patrol'?880:1320;
+    o.connect(g);g.connect(audioCtx.destination);
+    var dur=type==='patrol'?0.5:0.16;
+    g.gain.setValueAtTime(.001,audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(type==='patrol'?.4:.32,audioCtx.currentTime+.02);
+    g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+dur);
+    o.start();o.stop(audioCtx.currentTime+dur+.02);}catch(e){} }
   /* HEADING INTO A HOT AREA.
    *
    * Avoidance without routing: the hotspot layer already knows where patrols
@@ -693,7 +786,11 @@
     fetch('/api/heat').then(function(r){return r.json();})
       .then(function(d){ heatCells=(d&&d.cells)||[]; }).catch(function(){});
   }
+  var hotShowing=false, hotHide=null;
   function checkHotAhead(){
+    // A live patrol or a camera right ahead outranks a history note - don't let
+    // the hot-area banner stomp the continuous warning.
+    if(warn) return;
     if(!me||heading==null||speedMph<8||!heatCells.length) return;
     var best=null, bd=1e9;
     for(var i=0;i<heatCells.length;i++){
@@ -714,15 +811,11 @@
         + best.cell.n + ' past patrols';
       a.className='show hot'; beep();
       if(navigator.vibrate)navigator.vibrate(80);
-      clearTimeout(fireAlert._t);
-      fireAlert._t=setTimeout(function(){a.className='';},6000);
+      hotShowing=true;
+      clearTimeout(hotHide);
+      hotHide=setTimeout(function(){ hotShowing=false; if(!warn) a.className=''; },6000);
     }
   }
-
-  function fireAlert(dist){ var a=$('#alert');
-    $('#alertTxt').textContent='Patrol ahead — '+dist+' m';
-    a.className='show'; beep(); if(navigator.vibrate)navigator.vibrate([120,60,120]);
-    clearTimeout(fireAlert._t);fireAlert._t=setTimeout(function(){a.className=''},6000);}
 
   // ---- data ----
   /* 🚨 ASK THE SERVER FOR PUBLIC ONES. THIS ASKED FOR EVERYTHING.
@@ -782,6 +875,7 @@
     if(accCircle){accCircle.setLatLng(me).setRadius(c.accuracy||20);}
     else{accCircle=L.circle(me,{radius:c.accuracy||20,color:'#3b82f6',weight:1,
       opacity:.3,fillOpacity:.06,interactive:false}).addTo(map);}
+    maybeRefetchNearby();
     checkProximity();
     checkHotAhead();
   }
@@ -832,6 +926,9 @@
     // Hotspot history for the "hot area ahead" warning. Slow-moving data, so a
     // long refresh; the warning itself is checked on every GPS fix.
     loadHeatCells(); setInterval(loadHeatCells,300000);
+    // Flock/ALPR cameras + police stations around the driver, refreshed slowly
+    // (they're fixed); maybeRefetchNearby() also pulls a fresh box as you drive.
+    setInterval(loadNearby, 120000);
     // "Has the classifier called any of mine a patrol car yet?"
     //
     // 3s, not 15s, and it costs nothing when idle: pollParked returns before

@@ -1367,7 +1367,8 @@ if (_showpubcams) {
  * at country zoom is both a huge draw and useless. The hub serves only the ones
  * in the current box (/api/police?box=), so a phone gets the few dozen on screen.
  */
-const POLICE_MIN_ZOOM = 10;
+const POLICE_MIN_ZOOM = 6;       // show as dots this far out (was 10)
+const POLICE_DETAIL_ZOOM = 12;   // navy PD badges at street level
 const POLICE_ICON = L.divIcon({
   className: 'polstn-wrap',
   html: '<div style="background:#16305c;color:#cfe3ff;border:1px solid #4f7fc7;'
@@ -1382,11 +1383,19 @@ async function loadPolice() {
   // leaving stale badges until the next reload - the trap the pubcam layer names.
   state.policeLayer.clearLayers();
   if (!state.showPolice) { _policeBox = null; return; }
-  if (map.getZoom() < POLICE_MIN_ZOOM) return;   // too far out: skip, not a mess
+  if (map.getZoom() < POLICE_MIN_ZOOM) return;
   let data;
   try { data = await (await fetch('/api/police?box=' + camBoxKey())).json(); }
   catch (err) { return; }
+  // Dots when zoomed out (fast), navy PD badges up close.
+  const detail = map.getZoom() >= POLICE_DETAIL_ZOOM;
   (data.stations || []).forEach((p) => {
+    if (!detail) {
+      L.circleMarker([p.lat, p.lon], { radius: 3.2, weight: 1.4,
+        color: '#4f7fc7', fillColor: '#16305c', fillOpacity: 0.9 })
+        .addTo(state.policeLayer);
+      return;
+    }
     L.marker([p.lat, p.lon], { icon: POLICE_ICON, keyboard: false })
       .bindPopup('<b>' + esc(p.name || 'Police station') + '</b><br>'
         + '<span style="color:#93a3b3">A police station (OpenStreetMap). '
@@ -1429,7 +1438,8 @@ map.on('moveend', () => {
  * A red eye, deliberately unlike the navy police badge and the vehicle dots.
  * Bounded to the viewport and gated on zoom (there are tens of thousands).
  */
-const CAMERA_MIN_ZOOM = 12;
+const CAMERA_MIN_ZOOM = 8;      // show as dots this far out (was 12)
+const CAMERA_DETAIL_ZOOM = 14;  // full cones + report buttons at street level
 // A red camera VIEW CONE that points the way the camera faces (its OSM
 // `direction` bearing). The camera sits at the apex; the wedge fans out toward
 // what it is watching. A camera with no mapped direction gets just the red dot.
@@ -1492,11 +1502,21 @@ async function loadSurveillance() {
   state.cameraLayer = state.cameraLayer || L.layerGroup().addTo(map);
   state.cameraLayer.clearLayers();
   if (!state.showCameras) { _camBox2 = null; return; }
-  if (map.getZoom() < CAMERA_MIN_ZOOM) return;   // too far out to be useful
+  if (map.getZoom() < CAMERA_MIN_ZOOM) return;   // below this it's just noise
   let data;
   try { data = await (await fetch('/api/cameras?box=' + camBoxKey())).json(); }
   catch (err) { return; }
+  // Zoomed out: light canvas dots (thousands stay smooth). Zoomed in: the full
+  // cone + report buttons. So you can SEE the cameras from far out and act on
+  // one up close, without a phone-freezing pile of DOM markers at low zoom.
+  const detail = map.getZoom() >= CAMERA_DETAIL_ZOOM;
   (data.cameras || []).forEach((c) => {
+    if (!detail) {
+      L.circleMarker([c.lat, c.lon], { radius: 3.2, weight: 1.4,
+        color: c.confirmed ? '#3ddc97' : '#ff4d5e',
+        fillColor: '#7a1220', fillOpacity: 0.9 }).addTo(state.cameraLayer);
+      return;
+    }
     const dir = c.dir ? (' Faces about ' + esc(String(c.dir)) + '°.') : '';
     const badge = c.confirmed
       ? '<span style="color:#3ddc97"> ✓ RF-confirmed present.</span>' : '';
