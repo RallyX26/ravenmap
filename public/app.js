@@ -1429,29 +1429,63 @@ map.on('moveend', () => {
  * A red eye, deliberately unlike the navy police badge and the vehicle dots.
  * Bounded to the viewport and gated on zoom (there are tens of thousands).
  */
-const CAMERA_MIN_ZOOM = 11;
-const CAMERA_ICON = L.divIcon({
-  className: 'alprcam-wrap',
-  html: '<div style="width:16px;height:16px;border-radius:50%;background:#7a1220;'
-      + 'border:2px solid #ff4d5e;box-shadow:0 0 0 2px rgba(0,0,0,.4),0 1px 3px rgba(0,0,0,.55);'
-      + 'display:flex;align-items:center;justify-content:center">'
-      + '<span style="width:5px;height:5px;border-radius:50%;background:#ffd0d5"></span></div>',
-  iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -8],
-});
+const CAMERA_MIN_ZOOM = 12;
+// A red camera VIEW CONE that points the way the camera faces (its OSM
+// `direction` bearing). The camera sits at the apex; the wedge fans out toward
+// what it is watching. A camera with no mapped direction gets just the red dot.
+function cameraIcon(dir) {
+  var d = parseFloat(dir);
+  var hasDir = !isNaN(d);
+  // border-top triangle: apex at the bottom-centre (the camera), base at the top
+  // (the view direction) before rotation. translucent red so overlaps still read.
+  var cone = hasDir
+    ? '<div style="position:absolute;top:0;left:50%;transform:translateX(-50%);width:0;height:0;'
+      + 'border-left:13px solid transparent;border-right:13px solid transparent;'
+      + 'border-top:24px solid rgba(255,77,94,.38)"></div>'
+    : '';
+  var dot = '<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);'
+      + 'width:9px;height:9px;border-radius:50%;background:#7a1220;border:2px solid #ff4d5e;'
+      + 'box-shadow:0 0 0 2px rgba(0,0,0,.45)"></div>';
+  var rot = hasDir ? ('transform:rotate(' + d + 'deg);transform-origin:24px 24px;') : '';
+  return L.divIcon({
+    className: 'alprcam',
+    html: '<div style="width:48px;height:48px;position:relative;' + rot + '">' + cone + dot + '</div>',
+    iconSize: [48, 48], iconAnchor: [24, 24], popupAnchor: [0, -12],
+  });
+}
 // Report a camera's status. Exposed globally so the popup buttons can call it.
-window.smCamReport = function (id, kind, lat, lon, btn) {
-  try {
-    const wrap = btn && btn.parentNode;
-    if (wrap) wrap.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+// 🚨 YOU MUST BE STANDING AT THE CAMERA. The report carries your live GPS, and
+// the server refuses it unless you are within a short distance of the camera -
+// so nobody can log on from anywhere and mass-report cameras gone (or present).
+window.smCamReport = function (id, kind, camLat, camLon, btn) {
+  const wrap = btn && btn.parentNode;
+  function msg(t, ok) {
+    if (!wrap) return;
+    let m = wrap.querySelector('.camrep-msg');
+    if (!m) { m = document.createElement('div'); m.className = 'camrep-msg';
+      m.style.cssText = 'font-size:12px;margin-top:6px'; wrap.appendChild(m); }
+    m.style.color = ok ? '#3ddc97' : '#ff8a95'; m.textContent = t;
+  }
+  if (!navigator.geolocation) { msg('Your device has no location — it is needed to prove you are at the camera.', false); return; }
+  if (wrap) wrap.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+  msg('Getting your location…', true);
+  navigator.geolocation.getCurrentPosition((pos) => {
     fetch('/api/camera/report', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: id, kind: kind, lat: lat, lon: lon }),
-    }).then((r) => r.json()).then((j) => {
-      if (wrap) wrap.insertAdjacentHTML('beforeend',
-        '<div style="color:#3ddc97;font-size:12px;margin-top:6px">' +
-        (j.ok ? 'Thanks - sent for review.' : (j.error || 'Could not send.')) + '</div>');
-    }).catch(() => {});
-  } catch (e) { /* a report is never worth breaking the map for */ }
+      body: JSON.stringify({ id: id, kind: kind, lat: camLat, lon: camLon,
+        at_lat: pos.coords.latitude, at_lon: pos.coords.longitude,
+        acc: Math.round(pos.coords.accuracy || 0) }),
+    }).then((r) => r.json().then((j) => ({ ok: r.ok, j: j })))
+      .then((res) => {
+        if (res.ok && res.j.ok) msg('Thanks — recorded for review.', true);
+        else { msg(res.j.error || 'Could not send.', false);
+          if (wrap) wrap.querySelectorAll('button').forEach((b) => { b.disabled = false; }); }
+      }).catch(() => { msg('Network error, try again.', false);
+        if (wrap) wrap.querySelectorAll('button').forEach((b) => { b.disabled = false; }); });
+  }, (err) => {
+    msg('Location needed to confirm you are at the camera: ' + err.message, false);
+    if (wrap) wrap.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+  }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
 };
 let _camBox2 = null;
 async function loadSurveillance() {
@@ -1464,11 +1498,15 @@ async function loadSurveillance() {
   catch (err) { return; }
   (data.cameras || []).forEach((c) => {
     const dir = c.dir ? (' Faces about ' + esc(String(c.dir)) + '°.') : '';
-    L.marker([c.lat, c.lon], { icon: CAMERA_ICON, keyboard: false })
+    const badge = c.confirmed
+      ? '<span style="color:#3ddc97"> ✓ RF-confirmed present.</span>' : '';
+    L.marker([c.lat, c.lon], { icon: cameraIcon(c.dir), keyboard: false })
       .bindPopup(
         '<b>Flock / ALPR camera</b><br>'
         + '<span style="color:#93a3b3">An automated licence-plate reader '
-        + '(OpenStreetMap).' + dir + '</span><br>'
+        + '(OpenStreetMap).' + dir + badge + '</span><br>'
+        + '<span style="color:#7f8ea0;font-size:11.5px">You must be standing at '
+        + 'the camera to report it — the buttons use your location.</span>'
         + '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">'
         + '<button type="button" style="flex:1;padding:7px;border:0;border-radius:7px;'
         + 'background:#173a2a;color:#3ddc97;font-weight:700;cursor:pointer" '

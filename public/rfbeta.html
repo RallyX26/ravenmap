@@ -33,6 +33,13 @@
 
   <h1>Help test the RF scanner <span class="beta">BETA</span></h1>
   <p class="sub">Find surveillance cameras — and help confirm police vehicles — by the wifi they broadcast. No plates, no faces, just signal.</p>
+  <h2 id="cameras-layer">📷 The Flock / ALPR camera layer</h2>
+  <div class="card">
+    <p style="margin-top:0">The map now has a <b>Flock / ALPR camera layer</b> — automated licence-plate readers pulled from OpenStreetMap (the <a href="https://deflock.me" target="_blank" rel="noopener noreferrer">DeFlock</a> project). Turn it on with <b>Layers → “Flock / ALPR cameras”</b> and zoom in. Each camera is a <b>red cone that points the way it faces</b>, so you can see what it's watching.</p>
+    <p><b>Keeping it honest — you have to be there.</b> Cities add and remove these cameras, so every one has <b>“✓ Still here”</b> and <b>“✗ Removed”</b> buttons. Tapping them uses your phone's location, and the report is <b>refused unless you're standing at the camera</b>. That's on purpose: nobody can sit at home and mass-report cameras gone (or invent ones that aren't there).</p>
+    <p style="margin-bottom:0"><b>What happens to a report.</b> It's a vote, not an edit — a camera only comes off the map after it's reviewed. And this is where the RF beta closes the loop: when a scanner <b>hears a real Flock camera's wifi</b> next to a mapped one, that camera is marked <b>✓ confirmed present</b>. So the layer trends toward the cameras that are actually still out there.</p>
+  </div>
+
   <div class="card note">
     <p style="margin:0"><b>No hardware?</b> If you just want to report a camera you can see, skip all of this — <a href="/spot">photograph it from your browser</a>. No app, no ESP32, no Pi. A reviewer checks every photo before it reaches the map.</p>
   </div>

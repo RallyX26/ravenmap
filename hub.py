@@ -100,6 +100,29 @@ def _cameras_removed():
             (DATA / "cameras_removed.json").read_text(encoding="utf-8")))
     except Exception:
         return set()
+
+# osm_ids an RF-beta detection has confirmed still present (a Flock camera heard
+# on WiFi next to a mapped one). Written by tools/camera_rf_confirm.py; re-read
+# each call because it is small and changes as the network reports in.
+def _cameras_confirmed():
+    try:
+        return set(json.loads(
+            (DATA / "cameras_confirmed.json").read_text(encoding="utf-8")))
+    except Exception:
+        return set()
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in metres. Used to prove a camera report was filed
+    while standing at the camera."""
+    import math
+    r = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = (math.sin(dp / 2) ** 2
+         + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2)
+    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
 TILE_UPSTREAM = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
 TILE_SUBDOMAINS = "abcd"
 TILE_MAX_ZOOM = 20
@@ -2420,6 +2443,7 @@ class Handler(BaseHTTPRequestHandler):
                 box = _q.get("box", [None])[0]
                 cams = _surveillance_cameras()
                 gone = _cameras_removed()
+                ok_rf = _cameras_confirmed()
                 out = []
                 if box:
                     try:
@@ -2431,13 +2455,14 @@ class Handler(BaseHTTPRequestHandler):
                                 continue
                             if s <= lat <= n and w <= lon <= e:
                                 out.append({"id": oid, "lat": lat, "lon": lon,
-                                            "dir": row[3] if len(row) > 3 else ""})
-                                if len(out) >= 2500:
+                                            "dir": row[3] if len(row) > 3 else "",
+                                            "confirmed": oid in ok_rf})
+                                if len(out) >= 1500:
                                     break
                     except (ValueError, AttributeError):
                         out = []
                 return self._json({"cameras": out, "total": len(cams),
-                                   "removed": len(gone)})
+                                   "removed": len(gone), "confirmed": len(ok_rf)})
 
             if p == "/api/police":
                 # Police-station overlay (OpenStreetMap), bounded by viewport.
@@ -3524,10 +3549,35 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(429, "a lot of camera reports right now - "
                                           "please try again shortly")
                 b = self._body()
+                # 🚨 PROXIMITY GATE. A report only counts if the reporter's live
+                # GPS is next to the camera, so nobody can log on from anywhere
+                # and mass-report cameras gone (or present). The camera position
+                # is exact (OSM); GPS wobbles, so the reporter's own accuracy is
+                # allowed as slack up to a cap. RF confirmations (source=rf) come
+                # from a trusted local job and skip this.
+                src = str(b.get("source") or "public")
+                if src != "rf":
+                    try:
+                        cam_lat = float(b.get("lat")); cam_lon = float(b.get("lon"))
+                        at_lat = float(b.get("at_lat")); at_lon = float(b.get("at_lon"))
+                    except (TypeError, ValueError):
+                        return self._err(400, "your location is required to "
+                                              "report a camera - stand next to it")
+                    acc = 0.0
+                    try:
+                        acc = min(float(b.get("acc") or 0), 60.0)
+                    except (TypeError, ValueError):
+                        acc = 0.0
+                    dist = _haversine_m(at_lat, at_lon, cam_lat, cam_lon)
+                    if dist > 75.0 + acc:
+                        return self._err(403, "you are about %d m away - stand "
+                                              "at the camera to report it"
+                                              % int(dist))
                 stem = mirror.camera_status_report({
                     "id": b.get("id"), "kind": b.get("kind"),
                     "lat": b.get("lat"), "lon": b.get("lon"),
-                    "note": b.get("note"), "source": b.get("source"),
+                    "at_lat": b.get("at_lat"), "at_lon": b.get("at_lon"),
+                    "note": b.get("note"), "source": src,
                     "ip": privacy.audit_ip(self.client_ip),
                 })
                 if not stem:
