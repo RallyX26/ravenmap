@@ -85,14 +85,25 @@
   <p>A radar detector with <b>Bluetooth</b> output (Uniden R7/R8, Escort, or
      Radenso), and a device to run the bridge (a phone hotspot + laptop, or a Pi
      in the car). A USB GPS or gpsd gives position; otherwise pass a fixed one.</p>
-  <h3>Steps</h3>
+  <h3>Easiest: in your browser</h3>
   <ol>
-    <li>Pair the detector over Bluetooth so it shows up as a serial port
-        (<code>COM5</code> on Windows, <code>/dev/rfcomm0</code> on Linux).</li>
-    <li>Run the bridge:
+    <li>Pair the detector to your phone or computer (it usually appears as a COM
+        port, or a Bluetooth LE device).</li>
+    <li>Open <a class="plain" href="/radarlink">the browser connect page</a>, paste
+        your node id + token, pick your location, and hit <b>Connect via Serial</b>
+        (or Bluetooth LE). That's it — no scripts.</li>
+  </ol>
+  <div class="box">Chrome/Edge on a computer or Android only — Apple blocks
+     browser‑to‑hardware on iPhone. There, use the PC bridge below.</div>
+  <h3>Or: the PC bridge (any detector, incl. iPhone users' setups)</h3>
+  <ol>
+    <li>Pair the detector so it shows up as a serial port (<code>COM5</code> on
+        Windows, <code>/dev/rfcomm0</code> on Linux).</li>
+    <li>Run the bridge (great for a fixed detector on an always‑on PC):
       <pre><code>python tools/radar_bridge.py --hub https://map.sparrowmap.com \
     --node n_abcd1234 --key mynode.token \
-    --serial COM5 --gpsd</code></pre></li>
+    --serial COM5 --gpsd</code></pre>
+      For a fixed spot, drop <code>--gpsd</code> and pass <code>--lat/--lon</code>.</li>
     <li>Watch it on the <a class="plain" href="/radar">radar screen</a>, or turn on
         <b>Layers → radar / speed traps</b> on the map.</li>
   </ol>

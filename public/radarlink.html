@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Connect a radar detector — SparrowMap</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<meta name="theme-color" content="#0B0E13">
+<style>
+  :root{ --bg:#0B0E13; --panel:#121722; --panel2:#0f1420; --ink:#e7edf5;
+         --muted:#93a3b3; --line:#22303f; --accent:#2ee08a; --warn:#f59e0b; --ka:#ef2b2b; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+  header a.back{color:var(--accent);text-decoration:none;font-weight:600}
+  .tag{color:var(--muted);font-size:12px}
+  main{max-width:620px;margin:0 auto;padding:18px 16px 60px}
+  h1{font-size:23px;margin:4px 0} h2{font-size:15px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:22px 0 8px}
+  p{margin:8px 0} .muted{color:var(--muted);font-size:13.5px}
+  label{display:block;font-size:13px;color:var(--muted);margin:10px 0 3px}
+  input{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+        color:var(--ink);padding:9px 11px;font-size:15px}
+  .row2{display:flex;gap:10px} .row2>div{flex:1}
+  button{background:var(--panel);color:var(--ink);border:1px solid var(--line);
+         border-radius:10px;padding:11px 15px;font-size:15px;cursor:pointer;margin:5px 6px 5px 0}
+  button.go{border-color:var(--accent);color:var(--accent);font-weight:600}
+  button:disabled{opacity:.45;cursor:default}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:15px 16px;margin:12px 0}
+  .box{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px 15px;margin:12px 0;color:var(--muted);font-size:13px}
+  .box.warn{border-color:#5e4a1c} .box b{color:var(--ink)}
+  #log{background:#080c12;border:1px solid var(--line);border-radius:10px;padding:10px;
+       font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#8fb8a6;
+       height:150px;overflow:auto;white-space:pre-wrap;margin-top:8px}
+  .status{font-weight:600;margin:6px 0}
+  .bands button{min-width:64px}
+  a.plain{color:var(--accent)}
+  .pill{font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--line);color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/radar">&larr; Radar screen</a>
+  <b>📡 CONNECT A DETECTOR</b>
+  <span class="tag">in your browser</span>
+</header>
+<main>
+  <h1>Connect a radar detector</h1>
+  <p class="muted">Pair your detector to this page and it feeds the live
+     <a class="plain" href="/radar">speed-trap map</a> — no app, no scripts. Works
+     in <b>Chrome / Edge</b> on a computer or Android. (Apple blocks this on
+     iPhone; use the PC bridge there.)</p>
+
+  <div id="unsupported" class="box warn" hidden></div>
+
+  <h2>1 · Your node</h2>
+  <p class="muted">Every dot is tied to a node so it's never anonymous.
+     <a class="plain" href="/app">Enrol one</a> if you haven't, then paste its id
+     and token here (saved on this device only).</p>
+  <label>Node id</label>
+  <input id="node" placeholder="n_abcd1234" autocomplete="off" spellcheck="false">
+  <label>Node token</label>
+  <input id="token" type="password" placeholder="paste token" autocomplete="off">
+
+  <h2>2 · Location</h2>
+  <div class="card">
+    <label><input type="radio" name="loc" id="locgps" checked style="width:auto"> Use my live location (in a car)</label>
+    <label><input type="radio" name="loc" id="locfix" style="width:auto"> Fixed spot (a detector on a desk)</label>
+    <div class="row2" id="fixwrap" hidden>
+      <div><label>Latitude</label><input id="flat" placeholder="42.7300"></div>
+      <div><label>Longitude</label><input id="flon" placeholder="-84.5500"></div>
+    </div>
+    <p class="muted" id="locmsg">Getting your location…</p>
+  </div>
+
+  <h2>3 · Connect the detector</h2>
+  <p class="muted">Pick how yours talks. If it paired to your computer as a COM
+     port (most Bluetooth detectors do), use <b>Serial</b> — it's the reliable
+     one. Newer app-based detectors may use <b>Bluetooth LE</b>.</p>
+  <div class="card">
+    <button class="go" id="btnSerial">🔌 Connect via Serial / COM</button>
+    <button id="btnBle">📶 Connect via Bluetooth LE</button>
+    <button id="btnDisc" disabled>Disconnect</button>
+    <div class="status" id="connStatus">Not connected.</div>
+    <div id="log"></div>
+    <p class="muted">Raw output shows above. If your model isn't parsed yet, this
+       log lets us map its format — send it to Matthew.</p>
+  </div>
+
+  <h2>4 · Not parsed yet? Send a test</h2>
+  <p class="muted">Verify the map end‑to‑end (uses your node + location above).
+     These are tests — real dots should come from the detector.</p>
+  <div class="bands">
+    <button data-band="ka">Ka</button>
+    <button data-band="k">K</button>
+    <button data-band="x">X</button>
+    <button data-band="laser">Laser</button>
+  </div>
+  <div class="status" id="postStatus"></div>
+
+  <div class="box"><b>Bands:</b> Ka (33–35 GHz) is police‑only and shows red; K
+     (24 GHz) is shared with cars' blind‑spot radar and X is mostly doors, so
+     those need corroboration before the map trusts them.</div>
+</main>
+<script>
+(function(){
+  var $=function(s){return document.querySelector(s)};
+  var LS=window.localStorage;
+  try{ $('#node').value=LS.getItem('sparrow.node')||''; $('#token').value=LS.getItem('sparrow.token')||''; }catch(e){}
+  $('#node').oninput=function(){ try{LS.setItem('sparrow.node',this.value.trim())}catch(e){} };
+  $('#token').oninput=function(){ try{LS.setItem('sparrow.token',this.value.trim())}catch(e){} };
+
+  // Capability check. iOS Safari has none of these.
+  var hasSerial=('serial' in navigator), hasBle=('bluetooth' in navigator);
+  if(!hasSerial && !hasBle){
+    var u=$('#unsupported'); u.hidden=false;
+    u.innerHTML='<b>This browser can’t reach hardware.</b> Web Serial and Web '
+      +'Bluetooth aren’t available here (Safari/iOS block them). Use Chrome or '
+      +'Edge on a computer or Android — or run the PC bridge (radar_bridge.py).';
+  }
+  $('#btnSerial').disabled=!hasSerial;
+  $('#btnBle').disabled=!hasBle;
+
+  // Location.
+  var me=null, watchId=null;
+  function useGps(on){
+    if(on){
+      $('#fixwrap').hidden=true;
+      if(navigator.geolocation){
+        watchId=navigator.geolocation.watchPosition(function(p){
+          me=[p.coords.latitude,p.coords.longitude];
+          $('#locmsg').textContent='Live location ready ('+me[0].toFixed(4)+', '+me[1].toFixed(4)+').';
+        },function(){ $('#locmsg').textContent='Location off — allow it, or use a fixed spot.'; },
+        {enableHighAccuracy:true,maximumAge:5000,timeout:10000});
+      }
+    }else{
+      if(watchId!=null && navigator.geolocation){ navigator.geolocation.clearWatch(watchId); watchId=null; }
+      $('#fixwrap').hidden=false;
+      $('#locmsg').textContent='Using the fixed spot above.';
+    }
+  }
+  $('#locgps').onchange=function(){ if(this.checked) useGps(true); };
+  $('#locfix').onchange=function(){ if(this.checked) useGps(false); };
+  useGps(true);
+  function position(){
+    if($('#locfix').checked){
+      var a=parseFloat($('#flat').value), b=parseFloat($('#flon').value);
+      if(isFinite(a)&&isFinite(b)) return [a,b];
+      return null;
+    }
+    return me;
+  }
+
+  function log(s){ var el=$('#log'); el.textContent+=s+'\n'; el.scrollTop=el.scrollHeight; }
+
+  // Parser: same shapes as tools/radar_bridge.py. Returns {band,strength} or null.
+  function parseAlert(line){
+    var s=(line||'').trim().toLowerCase(); if(!s) return null;
+    var m=s.match(/^(ka|laser|k|x)\s*[,: ]?\s*([0-9.]*)$/);
+    if(m){ var st=m[2]?parseFloat(m[2]):null; if(st!=null&&st>1)st=Math.min(1,st/8); return {band:m[1],strength:st}; }
+    var band=null,bs=['laser','ka','k','x'];
+    for(var i=0;i<bs.length;i++){ if(new RegExp('\\b'+bs[i]+'\\b').test(s)){ band=bs[i]; break; } }
+    if(!band) return null;
+    var sm=s.match(/(strength|sig|bars?)\D{0,3}([0-9.]+)/); var stg=null;
+    if(sm){ stg=parseFloat(sm[2]); if(stg>1)stg=Math.min(1,stg/8); }
+    return {band:band,strength:stg};
+  }
+
+  var lastSent={};
+  function postHit(band,strength){
+    var node=$('#node').value.trim(), token=$('#token').value.trim();
+    if(!node||!token){ $('#postStatus').textContent='Enter your node id and token first.'; return; }
+    var pos=position();
+    if(!pos){ $('#postStatus').textContent='No location yet — allow GPS or set a fixed spot.'; return; }
+    var now=Date.now();
+    if(now-(lastSent[band]||0)<3000) return;   // don't spam while an alert holds
+    lastSent[band]=now;
+    var body={node_id:node,lat:pos[0],lon:pos[1],band:band};
+    if(strength!=null) body.strength=strength;
+    fetch('/api/radar/hit',{method:'POST',headers:{'Content-Type':'application/json',
+      'Authorization':'Bearer '+token},body:JSON.stringify(body)})
+      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok,j:j}; }); })
+      .then(function(x){ $('#postStatus').textContent = x.ok ? ('Sent '+band.toUpperCase()+' ✓')
+        : ('Rejected: '+(x.j.error||r.status)); })
+      .catch(function(){ $('#postStatus').textContent='Network error.'; });
+  }
+  function onLine(line){
+    if(line) log('‹ '+line.trim());
+    var a=parseAlert(line);
+    if(a) postHit(a.band,a.strength);
+  }
+
+  // --- Web Serial (COM port; also a BT detector paired as rfcomm/COM) ---
+  var serialPort=null, keepReading=false;
+  $('#btnSerial').onclick=async function(){
+    try{
+      serialPort=await navigator.serial.requestPort();
+      await serialPort.open({baudRate:115200});
+      $('#connStatus').textContent='Serial connected. Listening…';
+      $('#btnDisc').disabled=false;
+      keepReading=true;
+      var dec=new TextDecoder(); var buf='';
+      var reader=serialPort.readable.getReader();
+      while(keepReading){
+        var r=await reader.read();
+        if(r.done) break;
+        buf+=dec.decode(r.value,{stream:true});
+        var parts=buf.split(/\r?\n/); buf=parts.pop();
+        parts.forEach(onLine);
+      }
+      reader.releaseLock();
+    }catch(e){ $('#connStatus').textContent='Serial: '+e.message; }
+  };
+
+  // --- Web Bluetooth LE (needs the detector's GATT service; advanced) ---
+  var bleDev=null;
+  $('#btnBle').onclick=async function(){
+    try{
+      bleDev=await navigator.bluetooth.requestDevice({acceptAllDevices:true,
+        optionalServices:[0xFFE0,0xFFF0,'0000ffe0-0000-1000-8000-00805f9b34fb']});
+      var srv=await bleDev.gatt.connect();
+      $('#connStatus').textContent='BLE connected. Subscribing…';
+      $('#btnDisc').disabled=false;
+      var services=await srv.getPrimaryServices();
+      var subbed=0;
+      for(var i=0;i<services.length;i++){
+        var chs=await services[i].getCharacteristics();
+        for(var j=0;j<chs.length;j++){
+          if(chs[j].properties.notify){
+            await chs[j].startNotifications();
+            chs[j].addEventListener('characteristicvaluechanged',function(ev){
+              var v=ev.target.value, hex=[];
+              for(var k=0;k<v.byteLength;k++) hex.push(v.getUint8(k).toString(16).padStart(2,'0'));
+              var txt=new TextDecoder().decode(v.buffer);
+              log('‹ '+hex.join(' '));
+              onLine(txt);
+            });
+            subbed++;
+          }
+        }
+      }
+      $('#connStatus').textContent = subbed
+        ? ('BLE connected, '+subbed+' stream(s). Watching…')
+        : 'BLE connected but no readable stream found on this model.';
+    }catch(e){ $('#connStatus').textContent='BLE: '+e.message
+        +' (many detectors use classic Bluetooth — try Serial instead).'; }
+  };
+
+  $('#btnDisc').onclick=async function(){
+    keepReading=false;
+    try{ if(serialPort){ await serialPort.close(); serialPort=null; } }catch(e){}
+    try{ if(bleDev&&bleDev.gatt.connected){ bleDev.gatt.disconnect(); bleDev=null; } }catch(e){}
+    $('#connStatus').textContent='Disconnected.';
+    $('#btnDisc').disabled=true;
+  };
+
+  Array.prototype.forEach.call(document.querySelectorAll('.bands button'),function(b){
+    b.onclick=function(){ postHit(b.getAttribute('data-band'), 0.6); };
+  });
+})();
+</script>
+</body>
+</html>

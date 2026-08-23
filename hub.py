@@ -1673,6 +1673,8 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/radar":            return self._file(PUBLIC / "radar.html")
             if p == "/sensors":          return self._file(PUBLIC / "sensors.html")
             if p == "/setup":            return self._file(PUBLIC / "setup.html")
+            if p == "/buy":              return self._file(PUBLIC / "buy.html")
+            if p == "/radarlink":        return self._file(PUBLIC / "radarlink.html")
             # The phone beta scanner, served as plain text so a tester can
             # `curl` it straight onto their phone. Read-only, single known file
             # (no path from the request), so this cannot serve anything else.

@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>What to buy — SparrowMap</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<meta name="theme-color" content="#0B0E13">
+<style>
+  :root{ --bg:#0B0E13; --panel:#121722; --panel2:#0f1420; --ink:#e7edf5;
+         --muted:#93a3b3; --line:#22303f; --accent:#2ee08a; --warn:#f59e0b;
+         --best:#2ee08a; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15.5px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:10px;padding:12px 16px;
+         border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
+  header a.back{color:var(--accent);text-decoration:none;font-weight:600}
+  .tag{color:var(--muted);font-size:12px}
+  main{max-width:840px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:26px;margin:6px 0 4px}
+  h2{font-size:20px;margin:32px 0 6px;padding-top:12px;border-top:1px solid var(--line);scroll-margin-top:56px}
+  h3{font-size:15px;margin:18px 0 6px}
+  p{margin:8px 0} .lede{color:var(--muted);font-size:16px}
+  .muted{color:var(--muted)}
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+  .toc a{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:6px 12px;color:var(--ink);text-decoration:none;font-size:13.5px}
+  .pick{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:14px 16px;margin:12px 0}
+  .pick.best{border-left:3px solid var(--best)}
+  .pick .lbl{font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin-bottom:3px}
+  .pick.best .lbl{color:var(--best)}
+  .pick .name{font-weight:700;font-size:16px}
+  .pick .price{color:var(--accent);font-weight:600;white-space:nowrap}
+  .pick .row{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
+  .pick p{margin:6px 0 0;font-size:14px}
+  .ease{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--line);color:var(--muted);margin-left:8px}
+  .ease.plug{color:#2ee08a;border-color:#1c5e42}
+  .ease.some{color:var(--warn);border-color:#5e4a1c}
+  .ease.hard{color:#ef6b6b;border-color:#5e2222}
+  .box{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:13px 16px;margin:14px 0;color:var(--muted);font-size:13.5px}
+  .box.warn{border-color:#5e4a1c} .box b{color:var(--ink)}
+  a.plain{color:var(--accent)}
+  .foot{color:var(--muted);font-size:12.5px;margin-top:30px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/sensors">&larr; Sensors</a>
+  <b>🛒 WHAT TO BUY</b>
+  <span class="tag">plug-and-play picks, no building</span>
+</header>
+<main>
+  <h1>Just want to buy it and set it up?</h1>
+  <p class="lede">Concrete picks for people who don't want to build anything — buy
+     the box, plug it in, follow the <a class="plain" href="/setup">setup guide</a>.
+     One pick per job, plus the honest runner-up.</p>
+  <div class="box warn"><b>Read this first.</b> These are representative,
+     well-known options as of mid-2026 in the US. Models, prices and stock change
+     constantly and these are not affiliate links — check current reviews and
+     availability before you buy. Prices are rough.</div>
+
+  <div class="toc">
+    <a href="#browser">🌐 In a browser?</a>
+    <a href="#radar">📡 Radar</a>
+    <a href="#camera">📷 Cameras</a>
+    <a href="#planes">✈️ Planes</a>
+    <a href="#drones">🛸 Drones</a>
+    <a href="#radio">📻 Radio</a>
+    <a href="#extras">🔌 Extras</a>
+  </div>
+
+  <!-- BROWSER -->
+  <h2 id="browser">🌐 Does it work in just a browser?</h2>
+  <p>Mostly yes. Chrome and Edge (on a computer or Android) can talk to hardware
+     directly — the camera, a detector over <b>Serial</b> or <b>Bluetooth</b>, an
+     ESP32 over Serial — so no scripts. Here's the honest picture and the easy way
+     around each gap.</p>
+  <div class="pick"><div class="row"><span class="name">📷 Cameras / plates</span><span class="ease plug">full browser</span></div>
+    <p>The browser opens your webcam or phone camera directly. Already works — the
+       <a class="plain" href="/guide">camera setup</a> and drive mode use it.</p></div>
+  <div class="pick"><div class="row"><span class="name">📡 Radar</span><span class="ease plug">browser</span></div>
+    <p>Pair the detector and connect it at <a class="plain" href="/radarlink">the browser link</a> — Serial covers detectors paired as a COM port (most of them), Bluetooth LE covers the app-based ones.</p></div>
+  <div class="pick"><div class="row"><span class="name">🛸 Drones</span><span class="ease some">browser via ESP32</span></div>
+    <p>The browser reads the ESP32 Remote ID board over Serial. A phone app can also just show drones with no hardware.</p></div>
+  <div class="pick"><div class="row"><span class="name">✈️ Planes</span><span class="ease some">Pi is easier</span></div>
+    <p>Decoding 1090 MHz in a browser is possible (WebUSB) but heavy; a Raspberry Pi running the receiver is the easy path, then it feeds the map.</p></div>
+  <div class="pick"><div class="row"><span class="name">📻 Police radio</span><span class="ease hard">not in a browser</span></div>
+    <p>P25 decoding is too heavy for a browser and needs a Pi. The easy in-browser substitute is just listening to a <b>Broadcastify</b> feed (audio, not a map dot).</p></div>
+  <div class="box warn"><b>The two real gaps, and the easy fix for each:</b><br>
+    1. <b>iPhone / Safari</b> blocks browser‑to‑hardware entirely. Easy fix: use
+    Chrome on a computer or an Android phone, or run the tiny PC bridge. A native
+    app would close this later.<br>
+    2. <b>Police radio</b> can't decode in a browser. Easy fix: run it on a $40
+    SDR + Raspberry Pi, or just link a Broadcastify feed to listen.</div>
+
+  <!-- RADAR -->
+  <h2 id="radar">📡 Radar detectors <span class="ease plug">easy</span></h2>
+  <p>Feeds the live <a class="plain" href="/radar">speed-trap layer</a>. The
+     easiest to set up are the ones with a <b>Bluetooth app</b>, because they pair
+     straight to your phone or PC through the <a class="plain" href="/radarlink">browser link</a> — no script.</p>
+  <div class="pick best">
+    <div class="lbl">Best for easy setup</div>
+    <div class="row"><span class="name">Cobra RAD 480i / 700i</span><span class="price">~$150–250</span></div>
+    <p>BLE app, so it pairs to Chrome on your phone or desktop through the browser
+       link with no software. Range and false-alert filtering aren't as good as
+       Uniden, but for a <b>fixed node</b> (a detector on your desk near the road)
+       that barely matters. This is the plug-and-play pick.</p>
+  </div>
+  <div class="pick">
+    <div class="lbl">Best detection</div>
+    <div class="row"><span class="name">Uniden R7 / R8 (or R4 to save)</span><span class="price">~$300–700</span></div>
+    <p>The best range and the fewest false alerts. If its app uses classic
+       Bluetooth rather than BLE, connect it through the small PC bridge
+       (<code>radar_bridge.py</code>) instead of the browser. Overkill for a fixed
+       desk node; worth it in a car.</p>
+  </div>
+  <div class="box warn"><b>Skip:</b> anything under ~$40, and any "24 GHz radar
+     module" (HB100/CDM324) — those detect motion, not police radar, and can't
+     hear Ka at all. Ka (33–35 GHz) is the band that matters.</div>
+
+  <!-- CAMERAS -->
+  <h2 id="camera">📷 Cameras / plate readers</h2>
+  <p>Reads government &amp; marked plates. There are three real choices; which one
+     depends on where you're mounting it.</p>
+
+  <h3>1. Dedicated LPR/ANPR IP camera <span class="ease plug">best for plates</span></h3>
+  <div class="pick best">
+    <div class="row"><span class="name">Amcrest / Dahua ANPR (LPR) camera</span><span class="price">~$200–400</span></div>
+    <p>Purpose-built to read plates, including <b>at night</b> — it has a fast
+       shutter and controlled IR so a retroreflective plate doesn't blow out.
+       PoE + RTSP, mounts outside, feeds in through
+       <a class="plain" href="/IPCamera">Add an IP camera</a>. If night plates
+       matter, this is the one.</p>
+  </div>
+  <div class="box warn"><b>A note on Hikvision:</b> excellent LPR cameras, but
+     banned for US federal use (NDAA) and a common privacy concern. Amcrest (a
+     Dahua OEM) or other brands avoid that.</div>
+
+  <h3>2. General IP camera with IR night vision <span class="ease plug">good value</span></h3>
+  <div class="pick">
+    <div class="row"><span class="name">Reolink RLC-811A / 810A</span><span class="price">~$80–110</span></div>
+    <p>4K, weatherproof, PoE, has IR. Great for <b>daytime</b> plates and seeing
+       cars at night — but plain IR can <b>bloom</b> on a plate after dark and turn
+       it into a white blob, so it's less reliable for night plate reads than a
+       true LPR camera. Excellent all-rounder if daytime is your main window.</p>
+  </div>
+
+  <h3>3. USB webcam — the desk / window pick <span class="ease plug">cheapest</span></h3>
+  <div class="pick">
+    <div class="row"><span class="name">Logitech Brio 4K (or any 1080p webcam)</span><span class="price">~$40–150</span></div>
+    <p>If your PC sits near a road-facing window (a lot of people, maybe you),
+       point a webcam out the glass and run the
+       <a class="plain" href="/guide">camera setup</a>. No PoE, no network camera
+       — just USB. Daytime plates are fine; night needs a streetlight. This is the
+       simplest possible start with hardware you may already own.</p>
+  </div>
+
+  <div class="box">
+    <b>IR vs non-IR, in one line:</b> IR = night vision, but ordinary IR cameras
+    often can't read a <i>plate</i> at night (it reflects back too bright) — for
+    night plates get a true LPR camera with a proper shutter. Non-IR is simpler
+    and fine for daytime or well-lit streets.<br>
+    <b>IP camera vs webcam:</b> an IP camera is weatherproof, mounts outside and
+    streams over the network (best for a real road node); a webcam is cheap and
+    indoor, needs a PC beside it (best for a window/desk node).
+  </div>
+
+  <!-- PLANES -->
+  <h2 id="planes">✈️ Planes / police aircraft <span class="ease plug">easy</span></h2>
+  <div class="pick best">
+    <div class="row"><span class="name">FlightAware Pro Stick Plus + 1090 MHz antenna</span><span class="price">~$85 total</span></div>
+    <p>Plug the stick into a Raspberry Pi, flash the PiAware image, connect the
+       antenna. Done — it receives aircraft on 1090 MHz, including police
+       helicopters, and flags orbits. Add the <code>adsb_feed.py</code> feeder to
+       put your coverage on the map.</p>
+  </div>
+  <div class="pick">
+    <div class="lbl">Even simpler</div>
+    <div class="row"><span class="name">Prebuilt ADS-B receiver kit</span><span class="price">~$100–170</span></div>
+    <p>A ready box with the SDR, filter and antenna bundled if you'd rather not
+       source parts. Same result.</p>
+  </div>
+
+  <!-- DRONES -->
+  <h2 id="drones">🛸 Drones (Remote ID) <span class="ease some">app is instant</span></h2>
+  <div class="pick best">
+    <div class="lbl">No hardware at all</div>
+    <div class="row"><span class="name">"Drone Scanner" / OpenDroneID phone app</span><span class="price">free</span></div>
+    <p>Install it and your phone shows drones broadcasting Remote ID nearby — and
+       often the operator's location — using the phone's own Bluetooth/Wi‑Fi.
+       Instant, no hardware. (To auto‑feed the map, you still pair the app or a
+       board to the drone feeder; on its own it just shows you.)</p>
+  </div>
+  <div class="pick">
+    <div class="lbl">Buyable board for the map</div>
+    <div class="row"><span class="name">Pre-flashed ESP32 Remote ID scanner</span><span class="price">~$20–40</span></div>
+    <p>Sold ready-flashed by hobby sellers (no flashing needed). Plug into a Pi or
+       PC over USB and run <code>drone_feed.py</code> to put drones on the map.</p>
+  </div>
+
+  <!-- RADIO -->
+  <h2 id="radio">📻 Police radio <span class="ease hard">not plug-and-play yet</span></h2>
+  <div class="box warn"><b>Honest heads-up:</b> radio is the one capability that is
+     <b>not</b> truly buy-and-go for the map. Decoding P25 needs an RTL-SDR plus
+     trunk-recorder, which takes real configuration — and many departments now
+     encrypt, so check your county first.</div>
+  <div class="pick">
+    <div class="lbl">For the map (some setup)</div>
+    <div class="row"><span class="name">RTL-SDR Blog V4 kit + a Raspberry Pi</span><span class="price">~$40 + Pi</span></div>
+    <p>Run trunk-recorder, then <code>p25_feed.py</code> posts "radio active here."
+       Worth it only if your county is unencrypted.</p>
+  </div>
+  <div class="pick">
+    <div class="lbl">Just to listen (not the map)</div>
+    <div class="row"><span class="name">Uniden SDS100/SDS200, or a Broadcastify feed</span><span class="price">$0–700</span></div>
+    <p>A digital scanner is turnkey for <i>listening</i>; a Broadcastify feed needs
+       no hardware at all. Neither feeds the map by itself yet.</p>
+  </div>
+
+  <!-- EXTRAS -->
+  <h2 id="extras">🔌 Extras for a portable / wireless node</h2>
+  <div class="pick">
+    <div class="row"><span class="name">Raspberry Pi 5 (4 GB) + case, PSU, SD</span><span class="price">~$95</span></div>
+    <p>The little computer that runs the camera, planes, or radio feeder.</p>
+  </div>
+  <div class="pick">
+    <div class="row"><span class="name">USB GPS receiver</span><span class="price">~$15</span></div>
+    <p>Lets a node know where it is — so it works anywhere with no setup.</p>
+  </div>
+  <div class="pick">
+    <div class="row"><span class="name">4G/LTE hat + 18650 battery + small solar panel</span><span class="price">~$70</span></div>
+    <p>Cuts the last cords: wireless data and no wall power. Drop it anywhere.</p>
+  </div>
+
+  <div class="box">
+    <b>Then what?</b> Every one of these is walked through step by step on
+    <a class="plain" href="/setup">the setup page</a>. Radar pairs at
+    <a class="plain" href="/radarlink">the browser link</a>; cameras go through
+    <a class="plain" href="/IPCamera">Add an IP camera</a> or
+    <a class="plain" href="/guide">the webcam setup</a>. Want to build instead of
+    buy? That's <a class="plain" href="/sensors">/sensors</a>.
+  </div>
+
+  <p class="foot">Every device here is receive-only, and only government/marked
+     vehicles are ever published — a private vehicle's plate is removed on the
+     device before anything is uploaded. Recommendations are representative, not
+     verified-live; confirm current models and prices yourself.</p>
+</main>
+</body>
+</html>
