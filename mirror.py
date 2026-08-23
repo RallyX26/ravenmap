@@ -323,6 +323,53 @@ CAMERA_MIN_PHOTO = 2 * 1024          # smaller than this is not a real JPEG
 CAMERA_MAX_PHOTO = 4 * 1024 * 1024   # a phone photo, not a video
 
 
+# Public "this OSM camera is gone / is still here" reports about a KNOWN camera
+# on the Flock/ALPR layer. Distinct from the camera_pen (a NEW camera spotted,
+# with a photo): these reference an existing osm_id, carry no photo, and only
+# ever update the layer through a review that curates cameras_removed.json - a
+# report never hides or confirms a camera by itself.
+CAMERA_STATUS_PEN = INBOX.parent / "camera_status_pen"
+
+
+def camera_status_report(report: dict) -> Optional[str]:
+    """Park ONE 'removed' / 'present' report about a known OSM ALPR camera.
+
+    One file per (osm_id, kind), so repeat reports accumulate a vote count
+    rather than piling up, and a reviewer can weigh them. Never touches the map:
+    the served layer only drops cameras a human put in cameras_removed.json.
+    """
+    oid = str(report.get("id") or "")[:32]
+    kind = str(report.get("kind") or "")[:16]
+    if not oid or kind not in ("removed", "present"):
+        return None
+    try:
+        CAMERA_STATUS_PEN.mkdir(parents=True, exist_ok=True)
+        stem = f"{oid}_{kind}"
+        f = CAMERA_STATUS_PEN / f"{stem}.json"
+        prior = {}
+        if f.exists():
+            try:
+                prior = json.loads(f.read_text(encoding="utf-8"))
+            except Exception:
+                prior = {}
+        ip_hash = hashlib.sha256(
+            str(report.get("ip") or "").encode()).hexdigest()[:12]
+        seen = set(prior.get("reporters") or [])
+        seen.add(ip_hash)
+        f.write_text(json.dumps({
+            "id": oid, "kind": kind,
+            "lat": report.get("lat"), "lon": report.get("lon"),
+            "note": str(report.get("note") or "")[:280],
+            "source": str(report.get("source") or "public")[:16],
+            "votes": len(seen), "reporters": sorted(seen),
+            "reviewed": None, "first": prior.get("first") or time.time(),
+            "last": time.time(),
+        }, indent=1), encoding="utf-8")
+        return stem
+    except Exception:
+        return None
+
+
 def camera_park(report: dict, photo: bytes) -> Optional[str]:
     """Park ONE public "surveillance camera spotted here" report for review.
 

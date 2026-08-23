@@ -74,6 +74,32 @@ def _police_stations():
         except Exception:
             _POLICE_CACHE = []
     return _POLICE_CACHE
+
+# Flock/ALPR surveillance cameras from OpenStreetMap (the DeFlock dataset),
+# fetched on the desktop and scp'd here. Each row is [osm_id, lat, lon, dir].
+# Served bounded by viewport at /api/cameras, minus the ones confirmed removed.
+_CAMERAS_CACHE = None
+def _surveillance_cameras():
+    global _CAMERAS_CACHE
+    if _CAMERAS_CACHE is None:
+        try:
+            _CAMERAS_CACHE = json.loads(
+                (DATA / "surveillance_cameras.json").read_text(encoding="utf-8"))
+        except Exception:
+            _CAMERAS_CACHE = []
+    return _CAMERAS_CACHE
+
+# osm_ids of cameras a review has confirmed REMOVED (a city took the camera
+# down), so the map stops asserting a camera that is not there any more. Curated
+# from the public /api/camera/report queue - a report never hides a camera by
+# itself. Re-read each call (it is tiny) so a new verdict shows without a
+# restart; the camera list itself is big and static, so that stays cached.
+def _cameras_removed():
+    try:
+        return set(json.loads(
+            (DATA / "cameras_removed.json").read_text(encoding="utf-8")))
+    except Exception:
+        return set()
 TILE_UPSTREAM = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
 TILE_SUBDOMAINS = "abcd"
 TILE_MAX_ZOOM = 20
@@ -461,6 +487,9 @@ RATE = {"/api/enroll": (600, 3600), "/api/sightings": (900, 3600),
         # a full JPEG and parks for review, so the ceiling is low: a flood is a
         # flood of pictures a human must wade through, not a map defacement.
         "/api/spot": (12, 3600),
+        # Reports that an OSM camera is gone / still there. Cheap (no photo, no
+        # map change without review), so a looser bucket than /spot.
+        "/api/camera/report": (60, 3600),
         # Network-wide (client_ip is 127.0.0.1 for everyone), so this is
         # a flood guard on the whole site rather than a per-person cap.
         # bugs.py enforces its own per-hour ceiling as well.
@@ -2380,6 +2409,36 @@ class Handler(BaseHTTPRequestHandler):
             if p.startswith("/api/tile/"):
                 return self._tile(p)
 
+            if p == "/api/cameras":
+                # Flock/ALPR surveillance-camera overlay (OpenStreetMap /
+                # DeFlock), bounded by viewport. The client sends its box and
+                # gets only the cameras inside it - the nationwide set is tens of
+                # thousands - and the map only asks above a zoom threshold.
+                # Cameras a review has confirmed REMOVED are dropped, so the
+                # layer shows what is still believed to be up.
+                _q = parse_qs(urlparse(self.path).query)
+                box = _q.get("box", [None])[0]
+                cams = _surveillance_cameras()
+                gone = _cameras_removed()
+                out = []
+                if box:
+                    try:
+                        s, w, n, e = (float(x) for x in box.split(","))
+                        for row in cams:
+                            # row = [osm_id, lat, lon, dir]
+                            oid, lat, lon = row[0], row[1], row[2]
+                            if oid in gone:
+                                continue
+                            if s <= lat <= n and w <= lon <= e:
+                                out.append({"id": oid, "lat": lat, "lon": lon,
+                                            "dir": row[3] if len(row) > 3 else ""})
+                                if len(out) >= 2500:
+                                    break
+                    except (ValueError, AttributeError):
+                        out = []
+                return self._json({"cameras": out, "total": len(cams),
+                                   "removed": len(gone)})
+
             if p == "/api/police":
                 # Police-station overlay (OpenStreetMap), bounded by viewport.
                 # The client sends its box and gets only the stations inside it,
@@ -3451,6 +3510,29 @@ class Handler(BaseHTTPRequestHandler):
                 db.set_sighting_desc(sid, body=b.get("body"), color=b.get("color"))
                 db.audit("edit_desc", str(sid), actor="operator",
                          ip=privacy.audit_ip(self.client_ip))
+                return self._json({"ok": True})
+
+            if p == "/api/camera/report":
+                # A public "this ALPR camera is GONE / is still HERE" report
+                # about a known OSM camera on the Flock layer. It parks for
+                # review and NEVER hides or confirms a camera by itself - the
+                # served layer only drops osm_ids a human curated into
+                # cameras_removed.json. This is how the layer stays honest as
+                # cities add and remove cameras, and where an RF-beta "still
+                # here" confirmation lands too (source=rf).
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "a lot of camera reports right now - "
+                                          "please try again shortly")
+                b = self._body()
+                stem = mirror.camera_status_report({
+                    "id": b.get("id"), "kind": b.get("kind"),
+                    "lat": b.get("lat"), "lon": b.get("lon"),
+                    "note": b.get("note"), "source": b.get("source"),
+                    "ip": privacy.audit_ip(self.client_ip),
+                })
+                if not stem:
+                    return self._err(400, "need a camera id and kind "
+                                          "'removed' or 'present'")
                 return self._json({"ok": True})
 
             if p == "/api/spot":

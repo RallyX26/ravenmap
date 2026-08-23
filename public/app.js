@@ -110,6 +110,7 @@ const state = {
   // bound on /api/nodes, which is the other half of this.
   showPubCams: false,
   showPolice: false,          // OpenStreetMap police-station overlay
+  showCameras: false,         // OpenStreetMap Flock/ALPR surveillance-camera overlay
   // 🚁 TWO AIRCRAFT SWITCHES, NOT ONE, AND THAT IS THE WHOLE POINT.
   //
   // "Government" is a registration category, and most of what falls in it is
@@ -1419,6 +1420,91 @@ map.on('moveend', () => {
   loadPolice();
 });
 
+/* 📷 FLOCK / ALPR SURVEILLANCE-CAMERA OVERLAY (OpenStreetMap / DeFlock).
+ *
+ * The other side of "watching the watchers": where the automated plate readers
+ * are. Community-mapped, so it drifts - cities add and remove them - which is
+ * why every camera carries "still here" / "removed" buttons that park a report
+ * for review, and why the served layer drops the ones a review confirmed gone.
+ * A red eye, deliberately unlike the navy police badge and the vehicle dots.
+ * Bounded to the viewport and gated on zoom (there are tens of thousands).
+ */
+const CAMERA_MIN_ZOOM = 11;
+const CAMERA_ICON = L.divIcon({
+  className: 'alprcam-wrap',
+  html: '<div style="width:16px;height:16px;border-radius:50%;background:#7a1220;'
+      + 'border:2px solid #ff4d5e;box-shadow:0 0 0 2px rgba(0,0,0,.4),0 1px 3px rgba(0,0,0,.55);'
+      + 'display:flex;align-items:center;justify-content:center">'
+      + '<span style="width:5px;height:5px;border-radius:50%;background:#ffd0d5"></span></div>',
+  iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -8],
+});
+// Report a camera's status. Exposed globally so the popup buttons can call it.
+window.smCamReport = function (id, kind, lat, lon, btn) {
+  try {
+    const wrap = btn && btn.parentNode;
+    if (wrap) wrap.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+    fetch('/api/camera/report', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id, kind: kind, lat: lat, lon: lon }),
+    }).then((r) => r.json()).then((j) => {
+      if (wrap) wrap.insertAdjacentHTML('beforeend',
+        '<div style="color:#3ddc97;font-size:12px;margin-top:6px">' +
+        (j.ok ? 'Thanks - sent for review.' : (j.error || 'Could not send.')) + '</div>');
+    }).catch(() => {});
+  } catch (e) { /* a report is never worth breaking the map for */ }
+};
+let _camBox2 = null;
+async function loadSurveillance() {
+  state.cameraLayer = state.cameraLayer || L.layerGroup().addTo(map);
+  state.cameraLayer.clearLayers();
+  if (!state.showCameras) { _camBox2 = null; return; }
+  if (map.getZoom() < CAMERA_MIN_ZOOM) return;   // too far out to be useful
+  let data;
+  try { data = await (await fetch('/api/cameras?box=' + camBoxKey())).json(); }
+  catch (err) { return; }
+  (data.cameras || []).forEach((c) => {
+    const dir = c.dir ? (' Faces about ' + esc(String(c.dir)) + '°.') : '';
+    L.marker([c.lat, c.lon], { icon: CAMERA_ICON, keyboard: false })
+      .bindPopup(
+        '<b>Flock / ALPR camera</b><br>'
+        + '<span style="color:#93a3b3">An automated licence-plate reader '
+        + '(OpenStreetMap).' + dir + '</span><br>'
+        + '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">'
+        + '<button type="button" style="flex:1;padding:7px;border:0;border-radius:7px;'
+        + 'background:#173a2a;color:#3ddc97;font-weight:700;cursor:pointer" '
+        + 'onclick="smCamReport(\'' + esc(c.id) + '\',\'present\',' + c.lat + ',' + c.lon + ',this)">'
+        + '✓ Still here</button>'
+        + '<button type="button" style="flex:1;padding:7px;border:0;border-radius:7px;'
+        + 'background:#3a1720;color:#ff8a95;font-weight:700;cursor:pointer" '
+        + 'onclick="smCamReport(\'' + esc(c.id) + '\',\'removed\',' + c.lat + ',' + c.lon + ',this)">'
+        + '✗ Removed</button></div>')
+      .addTo(state.cameraLayer);
+  });
+}
+const SHOWCAMERAS_KEY = 'sparrow.showCameras';
+try {
+  const saved = localStorage.getItem(SHOWCAMERAS_KEY);
+  if (saved !== null) state.showCameras = saved === '1';
+} catch (err) { /* default stands */ }
+const _showcameras = $('#showcameras');
+if (_showcameras) {
+  _showcameras.checked = state.showCameras;
+  _showcameras.onchange = (e) => {
+    state.showCameras = e.target.checked;
+    try { localStorage.setItem(SHOWCAMERAS_KEY, state.showCameras ? '1' : '0'); }
+    catch (err) { /* survivable */ }
+    _camBox2 = null;
+    loadSurveillance();
+  };
+}
+map.on('moveend', () => {
+  if (!state.showCameras) return;
+  const k = map.getZoom() + ':' + camBoxKey();
+  if (k === _camBox2) return;
+  _camBox2 = k;
+  loadSurveillance();
+});
+
 /* 🚁 AIRCRAFT ON THE MAP.
  *
  * The detector has existed for a while and only /planes could see it, which is
@@ -2028,6 +2114,7 @@ refresh();
 loadPending();
 loadCameras();
 loadPolice();   // draws only if the toggle was left on and we are zoomed in
+loadSurveillance();
 // Towns are independent of the watched-roads toggle: they are what the map
 // shows INSTEAD of spans when zoomed out, not a second copy of them, so they
 // load whether or not the bands are switched on.
