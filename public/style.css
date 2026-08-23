@@ -658,3 +658,21 @@ nav .addcam{color:var(--cam);font-weight:600}
   padding:9px 10px;border-radius:8px;white-space:nowrap;font-size:13px
 }
 .layerpick .layers .cams:hover{background:#1b2636}
+
+/* 📡 Radar / speed-trap blips: a fading pulse ring around a solid core, so a
+   live source reads as "active right now". Few on screen at once, so DOM/CSS
+   animation is fine here (unlike the thousands of camera dots on canvas). */
+.radar-blip{position:relative}
+.radar-blip .radar-core{
+  position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;
+  border-radius:50%;box-shadow:0 0 6px 1px rgba(0,0,0,.6)
+}
+.radar-blip .radar-ring{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  border:2px solid;border-radius:50%;opacity:.75;
+  animation:radarPulse 1.8s ease-out infinite
+}
+@keyframes radarPulse{
+  0%{transform:translate(-50%,-50%) scale(.35);opacity:.85}
+  100%{transform:translate(-50%,-50%) scale(1);opacity:0}
+}

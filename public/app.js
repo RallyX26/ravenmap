@@ -111,6 +111,7 @@ const state = {
   showPubCams: false,
   showPolice: false,          // OpenStreetMap police-station overlay
   showCameras: false,         // OpenStreetMap Flock/ALPR surveillance-camera overlay
+  showRadar: false,           // live radar / speed-trap sources from paired detectors
   // 🚁 TWO AIRCRAFT SWITCHES, NOT ONE, AND THAT IS THE WHOLE POINT.
   //
   // "Government" is a registration category, and most of what falls in it is
@@ -1563,6 +1564,79 @@ map.on('moveend', () => {
   loadSurveillance();
 });
 
+/* 📡 RADAR / SPEED-TRAP LAYER (beta).
+ *
+ * Live police-radar sources reported by PAIRED DETECTOR HARDWARE (see
+ * tools/radar_bridge.py). These are not sightings and not taps: a dot means "a
+ * radar emission of this band was detected near here in the last few minutes,"
+ * and it fades on its own. Ka band is police-only, so it reads red-hot; K/X are
+ * dimmer because a car's blind-spot radar also lives at 24 GHz. Because these
+ * are transient, the layer refreshes on a short timer while it is on. It stays
+ * empty until a detector is feeding the network - honest, like the RF layer. */
+function radarColor(band, conf) {
+  if (band === 'laser') return '#c026d3';       // laser/lidar: distinct violet
+  if (band === 'ka') return '#ef2b2b';          // police-only: red
+  if (band === 'k') return conf >= 0.5 ? '#f59e0b' : '#b8860b';  // amber, cars share it
+  return '#8a8a8a';                             // X band: mostly doors, grey
+}
+async function loadRadar() {
+  state.radarLayer = state.radarLayer || L.layerGroup().addTo(map);
+  state.radarLayer.clearLayers();
+  if (!state.showRadar) return;
+  let data;
+  try { data = await (await fetch('/api/radar?box=' + camBoxKey())).json(); }
+  catch (err) { return; }
+  (data.dots || []).forEach((d) => {
+    const col = radarColor(d.band, d.conf);
+    const r = 10 + Math.round(10 * (d.conf || 0));
+    const icon = L.divIcon({ className: 'radar-blip', iconSize: [r * 2, r * 2],
+      html: '<span class="radar-ring" style="width:' + (r * 2) + 'px;height:'
+        + (r * 2) + 'px;border-color:' + col + '"></span>'
+        + '<span class="radar-core" style="background:' + col + '"></span>' });
+    L.marker([d.lat, d.lon], { icon, keyboard: false })
+      .bindPopup('<b style="color:' + col + '">📡 ' + esc((d.band || '').toUpperCase())
+        + ' radar</b><br>' + Math.round((d.conf || 0) * 100) + '% confidence'
+        + ' · ' + d.reporters + ' report' + (d.reporters === 1 ? '' : 's')
+        + '<br><span style="color:#93a3b3">detected ' + d.age + 's ago, fades on its own.'
+        + (d.band === 'ka' ? ' Ka band is police-only.'
+          : d.band === 'laser' ? ' Laser = active lidar speed gun.'
+          : ' K/X band can also be a car’s own radar.') + '</span>')
+      .addTo(state.radarLayer);
+  });
+}
+let _radarBox = null, _radarTimer = null;
+const SHOWRADAR_KEY = 'sparrow.showRadar';
+try {
+  const saved = localStorage.getItem(SHOWRADAR_KEY);
+  if (saved !== null) state.showRadar = saved === '1';
+} catch (err) { /* default stands */ }
+function radarTimerSync() {
+  if (state.showRadar && !_radarTimer) {
+    _radarTimer = setInterval(loadRadar, 12000);   // transient, so refresh often
+  } else if (!state.showRadar && _radarTimer) {
+    clearInterval(_radarTimer); _radarTimer = null;
+  }
+}
+const _showradar = $('#showradar');
+if (_showradar) {
+  _showradar.checked = state.showRadar;
+  _showradar.onchange = (e) => {
+    state.showRadar = e.target.checked;
+    try { localStorage.setItem(SHOWRADAR_KEY, state.showRadar ? '1' : '0'); }
+    catch (err) { /* survivable */ }
+    _radarBox = null;
+    loadRadar();
+    radarTimerSync();
+  };
+}
+map.on('moveend', () => {
+  if (!state.showRadar) return;
+  const k = camBoxKey();
+  if (k === _radarBox) return;
+  _radarBox = k;
+  loadRadar();
+});
+
 /* 🚁 AIRCRAFT ON THE MAP.
  *
  * The detector has existed for a while and only /planes could see it, which is
@@ -2173,6 +2247,8 @@ loadPending();
 loadCameras();
 loadPolice();   // draws only if the toggle was left on and we are zoomed in
 loadSurveillance();
+loadRadar();    // draws only if the toggle was left on; empty until a detector feeds it
+radarTimerSync();
 // Towns are independent of the watched-roads toggle: they are what the map
 // shows INSTEAD of spans when zoomed out, not a second copy of them, so they
 // load whether or not the bands are switched on.

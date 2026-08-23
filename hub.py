@@ -123,6 +123,84 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     a = (math.sin(dp / 2) ** 2
          + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2)
     return 2 * r * math.asin(min(1.0, math.sqrt(a)))
+
+
+# ---------------------------------------------------------------------------
+# RADAR / speed-trap layer (beta). A police speed-radar emission is physical
+# evidence, unlike the tap-a-coordinate "patrol here" that was withdrawn on
+# 2026-08-15 (see /api/drive/report) - so a hit MUST come from real detector
+# hardware, authenticated with a node token, never an anonymous tap. Hits are
+# ephemeral live signals: kept in memory, decayed in minutes, clustered on read
+# into "a radar source is active near here" dots whose confidence follows the
+# BAND. Ka (33-35 GHz) is essentially police-only; K (24 GHz) now fires on cars'
+# blind-spot radar and X on automatic doors, so those need corroboration.
+_radar_hits = []                       # [{ts,lat,lon,heading,band,strength,node}]
+_radar_lock = threading.Lock()
+RADAR_TTL_S = 300.0                    # a trap the network stops seeing fades in 5 min
+RADAR_CLUSTER_M = 250.0               # hits this close, same band = one source
+# Base trust per band. A lone Ka hit is already meaningful; K/X are not, and only
+# climb when independent reporters agree.
+RADAR_BAND_BASE = {"ka": 0.70, "laser": 0.85, "k": 0.30, "x": 0.18}
+
+
+def _radar_add(lat, lon, band, heading, strength, node):
+    now = time.time()
+    with _radar_lock:
+        _radar_hits.append({"ts": now, "lat": lat, "lon": lon, "band": band,
+                            "heading": heading, "strength": strength, "node": node})
+        # Prune here so the list never grows unbounded between reads.
+        cut = now - RADAR_TTL_S
+        _radar_hits[:] = [h for h in _radar_hits if h["ts"] >= cut]
+
+
+def _radar_dots(box=None):
+    """Cluster live hits into active radar sources. Each dot is the reporter-
+    weighted centre of a cluster (more independent reporters -> the circles
+    overlap and the centre tightens onto the real emitter), with a confidence
+    from the band, the number of DISTINCT reporters, and how fresh it is."""
+    now = time.time()
+    cut = now - RADAR_TTL_S
+    with _radar_lock:
+        hits = [dict(h) for h in _radar_hits if h["ts"] >= cut]
+    if box:
+        try:
+            s, w, n, e = box
+            hits = [h for h in hits if s <= h["lat"] <= n and w <= h["lon"] <= e]
+        except (TypeError, ValueError):
+            pass
+    dots = []
+    for h in hits:
+        placed = False
+        for d in dots:
+            if (h["band"] == d["band"]
+                    and _haversine_m(h["lat"], h["lon"], d["lat"], d["lon"])
+                    <= RADAR_CLUSTER_M):
+                d["_hits"].append(h)
+                # Running reporter-weighted centroid.
+                k = len(d["_hits"])
+                d["lat"] += (h["lat"] - d["lat"]) / k
+                d["lon"] += (h["lon"] - d["lon"]) / k
+                placed = True
+                break
+        if not placed:
+            dots.append({"lat": h["lat"], "lon": h["lon"], "band": h["band"],
+                         "_hits": [h]})
+    out = []
+    for d in dots:
+        hs = d["_hits"]
+        reporters = len({h["node"] for h in hs})
+        newest = max(h["ts"] for h in hs)
+        age = int(now - newest)
+        base = RADAR_BAND_BASE.get(d["band"], 0.2)
+        conf = min(0.98, base + 0.15 * (reporters - 1))
+        conf *= max(0.25, 1.0 - age / RADAR_TTL_S)     # fades as it goes stale
+        out.append({"lat": round(d["lat"], 5), "lon": round(d["lon"], 5),
+                    "band": d["band"], "conf": round(conf, 2),
+                    "reporters": reporters, "age": age})
+    out.sort(key=lambda x: -x["conf"])
+    return out
+
+
 TILE_UPSTREAM = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
 TILE_SUBDOMAINS = "abcd"
 TILE_MAX_ZOOM = 20
@@ -513,6 +591,11 @@ RATE = {"/api/enroll": (600, 3600), "/api/sightings": (900, 3600),
         # Reports that an OSM camera is gone / still there. Cheap (no photo, no
         # map change without review), so a looser bucket than /spot.
         "/api/camera/report": (60, 3600),
+        # Radar-detector hits from paired hardware. A detector on a highway
+        # fires often, and several drivers feed at once, so the bucket is
+        # generous - but every hit is node-token authenticated, so this is a
+        # flood guard, not the anti-abuse control (the token is).
+        "/api/radar/hit": (1200, 3600),
         # Network-wide (client_ip is 127.0.0.1 for everyone), so this is
         # a flood guard on the whole site rather than a per-person cap.
         # bugs.py enforces its own per-hour ceiling as well.
@@ -1532,6 +1615,8 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/spot":             return self._file(PUBLIC / "spot.html")
             if p == "/guide":            return self._file(PUBLIC / "guide.html")
             if p == "/rfbeta":           return self._file(PUBLIC / "rfbeta.html")
+            if p == "/radar":            return self._file(PUBLIC / "radar.html")
+            if p == "/sensors":          return self._file(PUBLIC / "sensors.html")
             # The phone beta scanner, served as plain text so a tester can
             # `curl` it straight onto their phone. Read-only, single known file
             # (no path from the request), so this cannot serve anything else.
@@ -2487,6 +2572,25 @@ class Handler(BaseHTTPRequestHandler):
                     except (ValueError, AttributeError):
                         out = []
                 return self._json({"stations": out, "total": len(pts)})
+
+            if p == "/api/radar":
+                # Live radar / speed-trap sources near a viewport. Reads are
+                # public (there is nothing to leak - a dot is "a Ka source was
+                # active here two minutes ago"); only WRITES are authenticated.
+                # Clustered and decayed server-side, so the client just draws
+                # what it gets. Empty until detector hardware is feeding it,
+                # exactly like the RF-confirm layer.
+                _q = parse_qs(urlparse(self.path).query)
+                box = _q.get("box", [None])[0]
+                bb = None
+                if box:
+                    try:
+                        bb = tuple(float(x) for x in box.split(","))
+                    except ValueError:
+                        bb = None
+                dots = _radar_dots(bb)
+                return self._json({"dots": dots, "active": len(dots),
+                                   "ttl_s": int(RADAR_TTL_S)})
 
             if p == "/api/nodes":
                 # 🚨 4,800 PUBLIC CAMERAS WERE DOWNLOADED ON EVERY MAP LOAD IN
@@ -3583,6 +3687,47 @@ class Handler(BaseHTTPRequestHandler):
                 if not stem:
                     return self._err(400, "need a camera id and kind "
                                           "'removed' or 'present'")
+                return self._json({"ok": True})
+
+            if p == "/api/radar/hit":
+                # A police-radar emission detected by PAIRED HARDWARE. This is
+                # deliberately NOT the withdrawn tap-a-patrol route: that placed
+                # a marker from bare numbers anyone could type, this places one
+                # only when a real detector on a real node saw a real emission.
+                # So it carries the node's token and is refused without it -
+                # every dot is attributable and the node revocable, the same
+                # guarantee the rest of the map runs on. Band decides trust
+                # downstream (Ka is police-only; K/X need corroboration); this
+                # endpoint just authenticates, validates, and records.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "a lot of radar hits right now - "
+                                          "the detector can retry shortly")
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if not nd.get("token"):
+                    return self._err(401, "this node has no token; re-enroll it")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                band = str(b.get("band") or "").strip().lower()
+                if band not in RADAR_BAND_BASE:
+                    return self._err(400, "band must be one of ka, k, x, laser")
+                try:
+                    lat = float(b.get("lat")); lon = float(b.get("lon"))
+                except (TypeError, ValueError):
+                    return self._err(400, "a location is required")
+                if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                    return self._err(400, "location out of range")
+                try:
+                    heading = float(b.get("heading")) if b.get("heading") is not None else None
+                except (TypeError, ValueError):
+                    heading = None
+                try:
+                    strength = max(0.0, min(1.0, float(b.get("strength"))))
+                except (TypeError, ValueError):
+                    strength = None
+                _radar_add(lat, lon, band, heading, strength, nd["id"])
                 return self._json({"ok": True})
 
             if p == "/api/spot":

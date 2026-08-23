@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
-<link rel="stylesheet" href="/static/style.css?v=109">
+<link rel="stylesheet" href="/static/style.css?v=110">
 </head>
 <body>
 
@@ -50,6 +50,14 @@
     <div class="pmodal-bg" id="newsclose"></div>
     <div class="pmodal-card" role="dialog" aria-modal="true" aria-label="What's new">
       <div class="newshead">&#10024; What&#39;s new</div>
+      <a class="newsitem" href="/radar">
+        <b>Radar &amp; speed traps, live <span class="newsbeta">BETA</span></b>
+        <span>A red dot appears where a police speed-radar emission is detected and fades on its own &mdash; Ka band is police-only. Turn it on under <b>Layers &rarr; radar / speed traps</b>, or open the <b>radar screen</b> to watch it live. Fed by paired detector hardware; see the parts list on <b>/sensors</b>.</span>
+      </a>
+      <a class="newsitem" href="/sensors">
+        <b>Build or buy your own sensors <span class="newsbeta">NEW</span></b>
+        <span>Every way to feed the map from your own gear &mdash; planes, drones, police radio, radar, plate readers &mdash; with build routes and buy routes, prices, and dashcams. Plug-and-play, wireless, usable anywhere.</span>
+      </a>
       <a class="newsitem" href="/rfbeta#cameras-layer">
         <b>Flock &amp; ALPR cameras on the map <span class="newsbeta">NEW</span></b>
         <span>Turn on <b>Layers &rarr; Flock / ALPR cameras</b> to see automated plate readers near you (red cones point the way each one faces). Standing at one? Tap it to report it still there or removed.</span>
@@ -218,6 +226,11 @@
                each has still-here / removed buttons that park a report for review.
                Viewport-bounded and zoom-gated - there are ~135k nationwide. -->
           <label class="cams"><input type="checkbox" id="showcameras"> Flock / ALPR cameras</label>
+          <!-- 📡 Live radar / speed-trap sources from paired detector hardware.
+               Not a sighting and not a tap - a dot means a real Ka/K/X emission
+               was detected here in the last few minutes, and it fades on its
+               own. Empty until a detector is feeding the network. See /radar. -->
+          <label class="cams"><input type="checkbox" id="showradar"> radar / speed traps <span style="color:#6b7a8d;font-size:11px">(beta)</span></label>
           <!-- 🚁 Aircraft, and ONLY the ones that mean something. A police
                helicopter holding a circle over one place is the single most
                recognisable pattern in this whole project - people have been asking
@@ -293,7 +306,7 @@
 <script src="/static/transparency.js?v=20"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
 <script src="/static/sitenav.js?v=34"></script>
-<script src="/static/app.js?v=118"></script>
+<script src="/static/app.js?v=119"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->
 <script src="/static/updates.js?v=2"></script>
@@ -317,7 +330,7 @@ if ('serviceWorker' in navigator) {
      feature ships and the dot lights up again for everyone. -->
 <script>
 (function () {
-  var NEWS_VERSION = '2026-08-23-cameras';
+  var NEWS_VERSION = '2026-08-23-radar-sensors';
   var open = document.getElementById('newsopen');
   var modal = document.getElementById('newsmodal');
   var bg = document.getElementById('newsclose');
