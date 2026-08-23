@@ -537,7 +537,23 @@
       var nb = nav.getBoundingClientRect();
       if (nb.height > 0) navh = Math.round(nb.height);
     }
-    BR.style.bottom = "calc(" + (navh + 10) + "px + env(safe-area-inset-bottom))";
+    /* 🚨 AND CLEAR THE MAP'S FILTER ROW, NOT JUST THE NAV. Reported from a phone:
+     * the "Add to home screen" banner sat on top of the View / Layers controls.
+     * On a phone the panel is in flow right under a short map, so its `.win`
+     * filter row lands in the same band as this stack. When that row is in the
+     * lower half of the screen, lift the stack above it (capped, so it can never
+     * jump to the top of the page). */
+    var floor = navh + 10;
+    var win = document.querySelector(".win");
+    if (win) {
+      var wb = win.getBoundingClientRect();
+      if (wb.height > 0 && wb.top < window.innerHeight
+          && wb.bottom > window.innerHeight * 0.5) {
+        var above = Math.round(window.innerHeight - wb.top) + 10;
+        floor = Math.max(floor, Math.min(above, Math.round(window.innerHeight * 0.6)));
+      }
+    }
+    BR.style.bottom = "calc(" + floor + "px + env(safe-area-inset-bottom))";
     BR.style.display = BR.children.length ? "flex" : "none";
 
     /* 🚨 THE PAGE HAS TO END ABOVE THE NAV BAR.
