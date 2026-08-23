@@ -659,7 +659,13 @@ function redactPlateBand(cv, geom) {
  * ⚠️ BOUNDED HARD. A phone holding pictures indefinitely is a memory leak on
  * the device least able to afford one: at most FULL_KEEP entries, each dropped
  * after FULL_TTL_MS whether or not it was ever asked for. */
-const FULL_EDGE = 900, FULL_KEEP = 12, FULL_TTL_MS = 15 * 60 * 1000;
+// 🚨 THE HOLD HAS TO OUTLAST REVIEW. The hub asks for the good crop when it
+// PUBLISHES the vehicle (db.FULLRES_WINDOW_S = 1 hour), which is usually well
+// after the pass - a reviewer gets to it minutes or hours later. At 15 min the
+// crop was evicted before the hub ever asked, so every phone-camera police
+// sighting published at 200px (measured: 0 of 12 had a full crop). Match the
+// server window, and keep more entries so a busier road still catches its own.
+const FULL_EDGE = 900, FULL_KEEP = 48, FULL_TTL_MS = 60 * 60 * 1000;
 const heldFull = new Map();          // sighting id -> { data, at }
 
 function holdFull(id, data) {
