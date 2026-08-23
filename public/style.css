@@ -406,6 +406,21 @@ main{position:absolute; inset:52px 0 57px 0; display:flex}
      a phone both copies vanished and there was no way to reach the contributor
      page. Scoped to the header; the bottom bar keeps its links. */
   header nav a{display:none}
+  /* 🚨 CONTAIN THE WRAPPED HEADER. `.bar` has a fixed height:52px. On a phone the
+     content wraps to several rows, and those rows OVERFLOWED below the 52px
+     background - the LIVE readout and the injected controls both floated onto the
+     map (reported from an iPhone: "Live reading text overlapping"). Let the
+     header grow to hold every row so nothing spills onto the map, and --headh
+     (measured from this element) becomes correct too. */
+  .bar{height:auto; min-height:52px; align-items:flex-start;
+       padding-top:8px; padding-bottom:7px}
+  .brand{padding-top:2px}
+  /* Put the LIVE readout and the site controls (What's new / Sign in / bug) on
+     ONE row instead of two, so the controls sit as high as they can rather than a
+     row lower with a gap ("buttons can move up a lot"). Row 1 is the brand +
+     search; this is row 2. */
+  .bar nav{order:2; flex:1 1 auto; min-width:0; margin:0; align-items:center}
+  .bar .swbar{order:3; flex:0 0 auto; width:auto; margin-left:auto; padding:0}
 }
 
 /* ---------- public-tier notice ----------
