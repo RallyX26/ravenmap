@@ -437,7 +437,7 @@ the camera before it is uploaded, and there is nothing on the server to sell.</p
 <a href="/status">Status</a> &middot;
 <a href="https://github.com/SparrowMap/sparrowmap">Source</a></p>
 </div>
-<script src="/static/sitenav.js?v=34"></script>
+<script src="/static/sitenav.js?v=35"></script>
 """
 
 

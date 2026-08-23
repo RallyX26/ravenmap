@@ -139,9 +139,18 @@
       $('#locmsg').textContent='Using the fixed spot above.';
     }
   }
-  $('#locgps').onchange=function(){ if(this.checked) useGps(true); };
-  $('#locfix').onchange=function(){ if(this.checked) useGps(false); };
-  useGps(true);
+  // Remember a fixed spot (desk node) so it's set once.
+  try{
+    $('#flat').value=LS.getItem('sparrow.flat')||'';
+    $('#flon').value=LS.getItem('sparrow.flon')||'';
+  }catch(e){}
+  $('#flat').oninput=function(){ try{LS.setItem('sparrow.flat',this.value.trim())}catch(e){} };
+  $('#flon').oninput=function(){ try{LS.setItem('sparrow.flon',this.value.trim())}catch(e){} };
+  $('#locgps').onchange=function(){ if(this.checked){ useGps(true); try{LS.setItem('sparrow.locmode','gps')}catch(e){} } };
+  $('#locfix').onchange=function(){ if(this.checked){ useGps(false); try{LS.setItem('sparrow.locmode','fix')}catch(e){} } };
+  var savedMode='gps';
+  try{ savedMode=LS.getItem('sparrow.locmode')||'gps'; }catch(e){}
+  if(savedMode==='fix'){ $('#locfix').checked=true; useGps(false); } else { useGps(true); }
   function position(){
     if($('#locfix').checked){
       var a=parseFloat($('#flat').value), b=parseFloat($('#flon').value);
@@ -191,26 +200,91 @@
   }
 
   // --- Web Serial (COM port; also a BT detector paired as rfcomm/COM) ---
-  var serialPort=null, keepReading=false;
-  $('#btnSerial').onclick=async function(){
+  // Made to "just work": it auto-probes the baud rate, remembers the one that
+  // worked, and on the next visit reconnects the same detector with no clicks.
+  var serialPort=null, keepReading=false, serialReader=null;
+  function savedBaud(){ try{ return parseInt(LS.getItem('sparrow.baud'),10)||0; }catch(e){ return 0; } }
+  function bandList(){
+    var b=[9600,115200,38400,57600,19200], s=savedBaud();
+    return s ? [s].concat(b.filter(function(x){return x!==s;})) : b;
+  }
+  function looksReal(txt){
+    // A right baud yields printable, newline-delimited ASCII; a wrong one yields
+    // high-byte garbage. Good enough to pick the baud automatically.
+    if(txt.indexOf('\n')<0 && txt.indexOf('\r')<0) return false;
+    var printable=txt.replace(/[^\x20-\x7e\r\n]/g,'');
+    return printable.length >= txt.length*0.85 && printable.trim().length>0;
+  }
+  async function drainOnce(ms){
+    var dec=new TextDecoder(); var buf=''; var done=false;
+    var reader=serialPort.readable.getReader();
+    var timer=setTimeout(function(){ done=true; reader.cancel().catch(function(){}); }, ms);
     try{
-      serialPort=await navigator.serial.requestPort();
-      await serialPort.open({baudRate:115200});
-      $('#connStatus').textContent='Serial connected. Listening…';
-      $('#btnDisc').disabled=false;
-      keepReading=true;
-      var dec=new TextDecoder(); var buf='';
-      var reader=serialPort.readable.getReader();
-      while(keepReading){
+      while(!done){
         var r=await reader.read();
+        if(r.done) break;
+        buf+=dec.decode(r.value,{stream:true});
+      }
+    }catch(e){}
+    clearTimeout(timer);
+    try{ reader.releaseLock(); }catch(e){}
+    return buf;
+  }
+  async function readLoop(){
+    var dec=new TextDecoder(); var buf='';
+    serialReader=serialPort.readable.getReader();
+    try{
+      while(keepReading){
+        var r=await serialReader.read();
         if(r.done) break;
         buf+=dec.decode(r.value,{stream:true});
         var parts=buf.split(/\r?\n/); buf=parts.pop();
         parts.forEach(onLine);
       }
-      reader.releaseLock();
-    }catch(e){ $('#connStatus').textContent='Serial: '+e.message; }
+    }catch(e){}
+    try{ serialReader.releaseLock(); }catch(e){}
+  }
+  async function connectSerial(port, silent){
+    serialPort=port;
+    var bauds=bandList();
+    for(var i=0;i<bauds.length;i++){
+      try{
+        await serialPort.open({baudRate:bauds[i]});
+      }catch(e){
+        // Already open, or busy - stop probing and just listen.
+        $('#connStatus').textContent='Serial connected. Listening…';
+        $('#btnDisc').disabled=false; keepReading=true; readLoop(); return true;
+      }
+      $('#connStatus').textContent='Serial: trying '+bauds[i]+' baud…';
+      var sample=await drainOnce(bauds.length>1?2500:1500);
+      if(bauds.length===1 || looksReal(sample) || i===bauds.length-1){
+        try{ LS.setItem('sparrow.baud', String(bauds[i])); }catch(e){}
+        $('#connStatus').textContent='Serial connected at '+bauds[i]+' baud. Listening…';
+        $('#btnDisc').disabled=false; keepReading=true;
+        // Feed whatever we sampled, then keep reading.
+        sample.split(/\r?\n/).forEach(function(l){ if(l) onLine(l); });
+        readLoop(); return true;
+      }
+      try{ await serialPort.close(); }catch(e){}
+    }
+    if(!silent) $('#connStatus').textContent='Serial: connected but no readable data — check the detector is on.';
+    return false;
+  }
+  $('#btnSerial').onclick=async function(){
+    try{ var port=await navigator.serial.requestPort(); await connectSerial(port); }
+    catch(e){ $('#connStatus').textContent='Serial: '+e.message; }
   };
+  // Auto-reconnect a detector you've already granted, with no clicks.
+  async function autoReconnectSerial(){
+    if(!hasSerial || !navigator.serial.getPorts) return;
+    try{
+      var ports=await navigator.serial.getPorts();
+      if(ports && ports.length){
+        $('#connStatus').textContent='Reconnecting your detector…';
+        await connectSerial(ports[0], true);
+      }
+    }catch(e){}
+  }
 
   // --- Web Bluetooth LE (needs the detector's GATT service; advanced) ---
   var bleDev=null;
@@ -248,6 +322,7 @@
 
   $('#btnDisc').onclick=async function(){
     keepReading=false;
+    try{ if(serialReader){ await serialReader.cancel(); } }catch(e){}
     try{ if(serialPort){ await serialPort.close(); serialPort=null; } }catch(e){}
     try{ if(bleDev&&bleDev.gatt.connected){ bleDev.gatt.disconnect(); bleDev=null; } }catch(e){}
     $('#connStatus').textContent='Disconnected.';
@@ -257,6 +332,18 @@
   Array.prototype.forEach.call(document.querySelectorAll('.bands button'),function(b){
     b.onclick=function(){ postHit(b.getAttribute('data-band'), 0.6); };
   });
+
+  // Once everything is wired, try to reconnect a detector already granted on
+  // this device, so a return visit just works. Serial reconnects silently; BLE
+  // only if the device happens to be advertising.
+  autoReconnectSerial();
+  if(hasBle && navigator.bluetooth.getDevices){
+    navigator.bluetooth.getDevices().then(function(devs){
+      if(devs && devs.length){
+        $('#connStatus').textContent='Previously paired over Bluetooth — tap Connect via Bluetooth LE to resume.';
+      }
+    }).catch(function(){});
+  }
 })();
 </script>
 </body>

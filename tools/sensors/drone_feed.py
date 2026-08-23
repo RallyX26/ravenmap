@@ -79,6 +79,22 @@ def post_hit(hub, node, token, d, do_post):
         print("post failed: %s" % e)
 
 
+def autodetect_serial():
+    """First available serial/USB port, so --serial can be omitted."""
+    try:
+        from serial.tools import list_ports
+    except Exception:
+        return None
+    ports = list(list_ports.comports())
+    if not ports:
+        return None
+    for p in ports:
+        d = (p.description or "").lower()
+        if any(w in d for w in ("usb", "uart", "serial", "cp210", "ch340", "esp")):
+            return p.device
+    return ports[0].device
+
+
 def lines(a):
     if a.simulate:
         import math
@@ -90,6 +106,11 @@ def lines(a):
                               "lon": -84.55 + 0.002 * math.cos(dt / 4),
                               "op_lat": 42.729})
             time.sleep(1.0)
+    if not a.serial:
+        found = autodetect_serial()
+        if found:
+            a.serial = found
+            print("auto-detected board on %s" % found)
     if a.serial:
         try:
             import serial  # type: ignore

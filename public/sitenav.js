@@ -484,6 +484,15 @@
      * Sign in is the way back to a camera a volunteer thinks they have lost;
      * refresh is what you reach for only once something already looks wrong. */
     var site = bar || TR;
+    /* 🚨 "What's new" JOINS THE STACK instead of floating alone. Reported from an
+     * iPhone: on a phone the map header wraps and the header's own "What's new"
+     * button landed on a second row by itself (top-left), while Sign in and the
+     * bug button sat lower-right - three controls at three heights, visibly
+     * unaligned. It is exactly the kind of thing this stack exists to absorb: one
+     * owner, one right-aligned group. Adopted FIRST so it reads left-to-right as
+     * What's new · Sign in · bug. Only index.html has it; adopt() no-ops on null
+     * elsewhere. The button node is unchanged, so its modal handler still binds. */
+    adopt(site, document.getElementById("newsopen"));
     adopt(site, col);
 
     /* Leaflet's own controls join the same column rather than being dodged.

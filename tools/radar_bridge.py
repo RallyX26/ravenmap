@@ -123,6 +123,23 @@ def post_hit(hub, node, token, lat, lon, band, strength, heading, post=True):
         return False
 
 
+def autodetect_serial():
+    """Return the first available serial/USB port, so --serial can be omitted."""
+    try:
+        from serial.tools import list_ports
+    except Exception:
+        return None
+    ports = list(list_ports.comports())
+    if not ports:
+        return None
+    # Prefer something that looks like a USB / Bluetooth serial adapter.
+    for p in ports:
+        d = (p.description or "").lower()
+        if any(w in d for w in ("usb", "bluetooth", "uart", "serial", "cp210", "ch340")):
+            return p.device
+    return ports[0].device
+
+
 def source_lines(args):
     """Yield raw alert lines from the chosen source."""
     if args.simulate:
@@ -133,6 +150,12 @@ def source_lines(args):
                 time.sleep(0.8)
             time.sleep(3.0)
             yield ""   # clear
+    if not args.serial:
+        # No port given: try to find one, so the common case is zero-config.
+        found = autodetect_serial()
+        if found:
+            args.serial = found
+            print("auto-detected detector on %s" % found)
     if args.serial:
         try:
             import serial  # type: ignore
