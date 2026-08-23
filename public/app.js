@@ -1888,6 +1888,14 @@ map.on('moveend', () => {
   const open = (on) => {
     menu.hidden = !on;
     btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+    // Only one dropdown open at a time. Each button stopPropagation()s its own
+    // click, which blocks the OTHER menu's outside-click close handler, so
+    // opening one has to close the other explicitly.
+    if (on) {
+      const lp = $('#layers'), lb = $('#layerbtn');
+      if (lp) lp.setAttribute('hidden', '');
+      if (lb) lb.setAttribute('aria-expanded', 'false');
+    }
   };
   btn.addEventListener('click', (e) => { e.stopPropagation(); open(menu.hidden); });
   menu.addEventListener('click', (e) => {
@@ -1953,6 +1961,13 @@ _showcams.onchange = (e) => {
     const open = panel.hasAttribute('hidden');
     panel.toggleAttribute('hidden', !open);
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    // Close the View menu when opening this one (see the note in the View
+    // handler): stopPropagation blocks the other's outside-click close.
+    if (open) {
+      const fm = $('#filters'), vb = $('#viewbtn');
+      if (fm) fm.setAttribute('hidden', '');
+      if (vb) vb.setAttribute('aria-expanded', 'false');
+    }
   };
   // Tapping the map closes it, the same as the View menu - a panel that can
   // only be dismissed by the button that opened it traps a phone user.
