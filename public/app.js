@@ -1370,7 +1370,7 @@ if (_showpubcams) {
  * at country zoom is both a huge draw and useless. The hub serves only the ones
  * in the current box (/api/police?box=), so a phone gets the few dozen on screen.
  */
-const POLICE_MIN_ZOOM = 6;       // show as dots this far out (was 10)
+const POLICE_MIN_ZOOM = 0;       // always show (dots when far out), like cameras
 const POLICE_DETAIL_ZOOM = 12;   // navy PD badges at street level
 const POLICE_ICON = L.divIcon({
   className: 'polstn-wrap',
@@ -1441,7 +1441,7 @@ map.on('moveend', () => {
  * A red eye, deliberately unlike the navy police badge and the vehicle dots.
  * Bounded to the viewport and gated on zoom (there are tens of thousands).
  */
-const CAMERA_MIN_ZOOM = 8;      // show as dots this far out (was 12)
+const CAMERA_MIN_ZOOM = 0;      // always show (dots when far out); he wants them visible zoomed all the way out
 const CAMERA_DETAIL_ZOOM = 14;  // full cones + report buttons at street level
 // A red camera VIEW CONE that points the way the camera faces (its OSM
 // `direction` bearing). The camera sits at the apex; the wedge fans out toward

@@ -2591,17 +2591,22 @@ class Handler(BaseHTTPRequestHandler):
                 if box:
                     try:
                         s, w, n, e = (float(x) for x in box.split(","))
-                        for row in cams:
-                            # row = [osm_id, lat, lon, dir]
-                            oid, lat, lon = row[0], row[1], row[2]
-                            if oid in gone:
-                                continue
-                            if s <= lat <= n and w <= lon <= e:
-                                out.append({"id": oid, "lat": lat, "lon": lon,
-                                            "dir": row[3] if len(row) > 3 else "",
-                                            "confirmed": oid in ok_rf})
-                                if len(out) >= 1500:
-                                    break
+                        # Collect every camera in the viewport, THEN sample evenly
+                        # if there are more than the cap. Taking the first 1500 in
+                        # list order clumped them wherever the data happened to
+                        # start - so zoomed all the way out you saw a blob in one
+                        # region, or nothing where you were looking. An even
+                        # stride spreads the sample across the whole view.
+                        hits = [row for row in cams
+                                if row[0] not in gone
+                                and s <= row[1] <= n and w <= row[2] <= e]
+                        cap = 1500
+                        if len(hits) > cap:
+                            step = len(hits) / float(cap)
+                            hits = [hits[int(i * step)] for i in range(cap)]
+                        out = [{"id": row[0], "lat": row[1], "lon": row[2],
+                                "dir": row[3] if len(row) > 3 else "",
+                                "confirmed": row[0] in ok_rf} for row in hits]
                     except (ValueError, AttributeError):
                         out = []
                 return self._json({"cameras": out, "total": len(cams),
@@ -2620,13 +2625,17 @@ class Handler(BaseHTTPRequestHandler):
                 if box:
                     try:
                         s, w, n, e = (float(x) for x in box.split(","))
-                        for row in pts:
-                            lat, lon = row[0], row[1]
-                            if s <= lat <= n and w <= lon <= e:
-                                out.append({"lat": lat, "lon": lon,
-                                            "name": row[2] if len(row) > 2 else ""})
-                                if len(out) >= 1500:
-                                    break
+                        # Even sample when the viewport holds more than the cap,
+                        # same reason as /api/cameras: a first-N slice clumps.
+                        hits = [row for row in pts
+                                if s <= row[0] <= n and w <= row[1] <= e]
+                        cap = 1500
+                        if len(hits) > cap:
+                            step = len(hits) / float(cap)
+                            hits = [hits[int(i * step)] for i in range(cap)]
+                        out = [{"lat": row[0], "lon": row[1],
+                                "name": row[2] if len(row) > 2 else ""}
+                               for row in hits]
                     except (ValueError, AttributeError):
                         out = []
                 return self._json({"stations": out, "total": len(pts)})
