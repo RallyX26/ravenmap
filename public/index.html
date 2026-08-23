@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
-<link rel="stylesheet" href="/static/style.css?v=112">
+<link rel="stylesheet" href="/static/style.css?v=113">
 </head>
 <body>
 
@@ -115,7 +115,7 @@
 
   <nav>
     <a href="/app" class="addcam">Add a camera</a>
-    <span class="live" id="live"><i></i>connecting</span>
+    <span class="live" id="live"><i></i><span id="livemsg">connecting</span><span id="livecount" class="livecount"></span></span>
   </nav>
 </header>
 
@@ -314,7 +314,7 @@
 <script src="/static/transparency.js?v=20"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
 <script src="/static/sitenav.js?v=35"></script>
-<script src="/static/app.js?v=121"></script>
+<script src="/static/app.js?v=122"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->
 <script src="/static/updates.js?v=2"></script>

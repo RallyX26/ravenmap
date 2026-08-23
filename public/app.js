@@ -406,9 +406,18 @@ const movingNow = () => state.traffic.size;
 function paintLive() {
   const dot = $('#live');
   if (!dot || state.online === null) return;   // still saying "connecting"
-  if (!state.online) { dot.lastChild.textContent = 'reconnecting'; return; }
+  // The passing count lives in its own #livecount span so the phone header can
+  // hide it (it is already shown in the traffic bar) and let LIVE share a row
+  // with the What's-new / Sign in / bug controls instead of pushing them down.
+  const msg = $('#livemsg'), cnt = $('#livecount');
+  if (!state.online) {
+    if (msg) msg.textContent = 'reconnecting';
+    if (cnt) cnt.textContent = '';
+    return;
+  }
+  if (msg) msg.textContent = 'live';
   const n = movingNow();
-  dot.lastChild.textContent = n ? `live · ${n} passing` : 'live';
+  if (cnt) cnt.textContent = n ? ` · ${n} passing` : '';
 }
 
 /* One timer fades and reaps every traffic dot. Per-dot timers would mean
