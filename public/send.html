@@ -13,7 +13,7 @@
 <style>
   :root{
     --ink:#eaf1fa; --muted:#93a3b3; --accent:#3ee08a; --accent2:#38bdf8;
-    --glass:rgba(18,24,36,0.55); --glass2:rgba(28,36,52,0.62);
+    --glass:rgba(16,22,33,0.92); --glass2:rgba(22,30,44,0.96);
     --line:rgba(255,255,255,0.09); --line2:rgba(255,255,255,0.14);
     --me:linear-gradient(180deg,#1f6f4a,#17583b); --them:rgba(40,52,72,0.75);
   }
@@ -26,11 +26,6 @@
       radial-gradient(1200px 700px at 15% -10%,#123a2e 0%,transparent 55%),
       radial-gradient(1000px 800px at 110% 20%,#12314d 0%,transparent 55%),
       radial-gradient(900px 900px at 50% 120%,#1a1330 0%,transparent 55%),#070a10}
-  .bg::after{content:"";position:absolute;inset:-30%;background:
-      radial-gradient(420px 420px at 30% 40%,rgba(62,224,138,.12),transparent 60%),
-      radial-gradient(420px 420px at 70% 60%,rgba(56,189,248,.12),transparent 60%);
-      animation:drift 22s ease-in-out infinite alternate;filter:blur(20px)}
-  @keyframes drift{from{transform:translate(-4%,-3%) scale(1)}to{transform:translate(5%,4%) scale(1.12)}}
 
   /* the floating window */
   .app{position:fixed;z-index:1;inset:0;display:flex;align-items:center;justify-content:center;padding:22px}
