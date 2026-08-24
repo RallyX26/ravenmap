@@ -2,7 +2,7 @@
  * so it never touches the map, which has its own /sw.js. It makes the page
  * installable and gives it a small offline shell; message traffic (/api/send/*)
  * is always network, never cached. */
-var CACHE = "sparrowsend-v1";
+var CACHE = "sparrowsend-v2";
 var SHELL = ["/send", "/static/sparrowsend-ratchet.js", "/static/send.webmanifest",
              "/static/icon-192.png", "/static/icon-512.png", "/vendor/jsqr.min.js"];
 
@@ -22,6 +22,20 @@ self.addEventListener("fetch", function (e) {
   var url = new URL(e.request.url);
   if (e.request.method !== "GET") return;             // never cache posts
   if (url.pathname.indexOf("/api/") === 0) return;    // messages are live
+  // 🚨 The PAGE itself is NETWORK-FIRST so a new deploy shows immediately and a
+  // cached page can never pin an old UI (that stranded the old icon). The cache
+  // is only the OFFLINE fallback. Static assets stay cache-first below.
+  var isDoc = e.request.mode === "navigate" || url.pathname === "/send";
+  if (isDoc) {
+    e.respondWith(fetch(e.request).then(function (res) {
+      if (res && res.ok) {
+        var copy = res.clone();
+        caches.open(CACHE).then(function (c) { c.put("/send", copy); });
+      }
+      return res;
+    }).catch(function () { return caches.match("/send"); }));
+    return;
+  }
   e.respondWith(
     caches.match(e.request).then(function (hit) {
       return hit || fetch(e.request).then(function (res) {
