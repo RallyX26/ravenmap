@@ -155,6 +155,16 @@
        simplest possible start with hardware you may already own.</p>
   </div>
 
+  <div class="box warn">
+    <b>⚠️ The battery / LTE camera trap.</b> Battery or 4G cameras (Reolink Go,
+    Argus, <b>TrackMix LTE</b>, most "solar cams") almost always <b>drop RTSP and
+    ONVIF</b> to save power and are app/cloud‑only — so there's no way to feed
+    their video to SparrowMap. Even wired‑LTE models lose RTSP over the cellular
+    link. Their telephoto zoom and go‑anywhere power are exactly what a good node
+    wants, but the locked stream makes them unusable here. For a wireless spot,
+    use a <b>wired/PoE or Wi‑Fi camera that supports RTSP</b> + a small LTE travel
+    router, or the <a class="plain" href="/sensors#extras">Pi node</a>.
+  </div>
   <div class="box">
     <b>IR vs non-IR, in one line:</b> IR = night vision, but ordinary IR cameras
     often can't read a <i>plate</i> at night (it reflects back too bright) — for
