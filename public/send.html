@@ -159,6 +159,30 @@
         <button class="btn ghost" id="copyBtn" style="margin-top:0">Copy</button>
         <button class="btn ghost" id="resetIdBtn" style="margin-top:0">Reset ID</button>
       </div>
+
+      <h4 style="margin-top:16px">Move to another device</h4>
+      <div class="sub">Carry your identity (and contacts) to a new phone or laptop. The key is like a seed phrase — anyone with it AND its password becomes you. One device at a time.</div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn ghost" id="exportBtn" style="margin-top:0">Export login key</button>
+        <button class="btn ghost" id="importBtn" style="margin-top:0">Use a login key</button>
+      </div>
+      <div id="exportBox" hidden style="margin-top:10px">
+        <label>Set a password for the key</label>
+        <input id="exPass" type="password" placeholder="a strong password" autocomplete="new-password">
+        <button class="btn" id="exGo">Generate login key</button>
+        <textarea id="exOut" readonly rows="4" hidden style="margin-top:8px;font-family:ui-monospace,monospace;font-size:11px"></textarea>
+        <button class="btn ghost" id="exCopy" hidden>Copy login key</button>
+        <div class="status" id="exStatus"></div>
+      </div>
+      <div id="importBox" hidden style="margin-top:10px">
+        <label>Paste your login key</label>
+        <textarea id="imKey" rows="3" placeholder="login key" style="font-family:ui-monospace,monospace;font-size:11px"></textarea>
+        <label>Password</label>
+        <input id="imPass" type="password" placeholder="the key's password" autocomplete="off">
+        <button class="btn" id="imGo">Sign in on this device</button>
+        <div class="status" id="imStatus"></div>
+      </div>
+
       <h4 style="margin-top:16px">Add someone</h4>
       <input id="peerAddr" placeholder="paste their address" autocomplete="off" spellcheck="false">
       <input id="peerName" placeholder="Contact name" autocomplete="off" style="margin-top:7px">
@@ -257,6 +281,38 @@
   }
   function decodeAddress(a){var j=JSON.parse(dec.decode(ub64u(a.trim())));return {sRaw:ub64u(j.s),eRaw:ub64u(j.e)};}
   async function mailboxOf(sRaw){return hex(await subtle.digest('SHA-256',sRaw)).slice(0,32);}
+
+  /* ---------- portable login key: your identity, encrypted with a password ----
+   * The key is your PRIVATE keys (plus your contact list), sealed with a
+   * password via PBKDF2 + AES-GCM. It carries WHO you are to a new device - not
+   * your message history, which stays on the device it was on. One device at a
+   * time by design. Anyone holding the key AND the password becomes you. */
+  var KDF_ITERS=250000;
+  async function deriveKek(pass, salt, iters){
+    var base=await subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']);
+    return subtle.deriveKey({name:'PBKDF2', salt:salt, iterations:iters, hash:'SHA-256'},
+      base, {name:'AES-GCM',length:256}, false, ['encrypt','decrypt']);
+  }
+  async function exportLoginKey(pass){
+    var payload=JSON.stringify({id:LS.getItem(ID_KEY), contacts:(LS.getItem('sparrow.send.contacts')||'[]')});
+    var salt=crypto.getRandomValues(new Uint8Array(16)), iv=crypto.getRandomValues(new Uint8Array(12));
+    var kek=await deriveKek(pass, salt, KDF_ITERS);
+    var ct=await subtle.encrypt({name:'AES-GCM',iv:iv}, kek, enc.encode(payload));
+    var blob={v:1,it:KDF_ITERS,s:b64u(salt),i:b64u(iv),c:b64u(ct)};
+    return 'SS1.'+b64u(enc.encode(JSON.stringify(blob)));
+  }
+  async function importLoginKey(keyStr, pass){
+    var s=(keyStr||'').trim(); if(s.indexOf('SS1.')===0) s=s.slice(4);
+    var blob=JSON.parse(dec.decode(ub64u(s)));
+    var kek=await deriveKek(pass, ub64u(blob.s), blob.it||KDF_ITERS);
+    var pt=await subtle.decrypt({name:'AES-GCM',iv:ub64u(blob.i)}, kek, ub64u(blob.c));  // throws on wrong password
+    var payload=JSON.parse(dec.decode(pt));
+    JSON.parse(payload.id);   // validate it's a real identity bundle
+    // Fresh secure sessions on the new device (the old ratchet state doesn't move).
+    try{ Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.rat.')===0||k.indexOf('sparrow.send.seen.')===0||k.indexOf('sparrow.send.hist.')===0;}).forEach(function(k){LS.removeItem(k);}); }catch(e){}
+    LS.setItem(ID_KEY, payload.id);
+    if(payload.contacts) LS.setItem('sparrow.send.contacts', payload.contacts);
+  }
 
   /* ---------- contacts + history + ratchet state (all local) ---------- */
   function getContacts(){try{return JSON.parse(LS.getItem('sparrow.send.contacts')||'[]');}catch(e){return[]}}
@@ -475,6 +531,25 @@
   };
   $('#copyBtn').onclick=function(){ if(navigator.clipboard) navigator.clipboard.writeText(ID.address); };
   $('#resetIdBtn').onclick=function(){ if(!confirm('Delete this identity and all messages? People will need your new address.')) return; try{Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);});}catch(e){} location.reload(); };
+  // portable login key
+  $('#exportBtn').onclick=function(){ var b=$('#exportBox'); b.hidden=!b.hidden; $('#importBox').hidden=true; };
+  $('#importBtn').onclick=function(){ var b=$('#importBox'); b.hidden=!b.hidden; $('#exportBox').hidden=true; };
+  $('#exGo').onclick=async function(){
+    var p=$('#exPass').value; if(p.length<8){ $('#exStatus').textContent='Use at least 8 characters — longer is much stronger.'; return; }
+    $('#exStatus').textContent='Generating…';
+    try{ var key=await exportLoginKey(p); var out=$('#exOut'); out.value=key; out.hidden=false; $('#exCopy').hidden=false;
+      $('#exStatus').textContent='⚠️ Save this somewhere safe. With the password, it IS your account.'; }
+    catch(e){ $('#exStatus').textContent='Could not generate: '+e.message; }
+  };
+  $('#exCopy').onclick=function(){ if(navigator.clipboard) navigator.clipboard.writeText($('#exOut').value); $('#exStatus').textContent='Copied.'; };
+  $('#imGo').onclick=async function(){
+    var k=$('#imKey').value, p=$('#imPass').value;
+    if(!k||!p){ $('#imStatus').textContent='Paste your key and its password.'; return; }
+    if(!confirm('Sign in as the account in this key on THIS device? It replaces the current identity here. Existing chats may need “Reset secure session”.')) return;
+    $('#imStatus').textContent='Signing in…';
+    try{ await importLoginKey(k,p); $('#imStatus').textContent='Success — reloading…'; setTimeout(function(){ location.reload(); },600); }
+    catch(e){ $('#imStatus').textContent='Wrong password or invalid key.'; }
+  };
 
   // QR scan (jsqr + camera)
   var scanStream=null, jsqrP=null;
