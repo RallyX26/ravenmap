@@ -75,6 +75,9 @@
      "eyJzIjoi..." for everyone, so this is the part that visibly changes on reset */
   .myfp{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:19px;font-weight:800;
     letter-spacing:2px;text-align:center;color:var(--accent);margin:4px 0;user-select:all}
+  .myhandle{font-weight:750;color:var(--accent);background:rgba(62,224,138,.1);
+    border:1px solid rgba(62,224,138,.35);border-radius:10px;padding:7px 10px;margin-top:8px;
+    text-align:center;user-select:all}
   .qr{display:block;margin:10px auto 4px;width:232px;height:232px;border-radius:12px;background:#fff;padding:8px}
   .row{display:flex;gap:8px} .row .btn{margin-top:0}
   .status{font-size:12px;color:var(--muted);min-height:15px;margin-top:6px}
@@ -169,6 +172,15 @@
         <button class="btn ghost" id="resetIdBtn" style="margin-top:0">Reset ID</button>
       </div>
 
+      <h4 style="margin-top:16px">Your handle (optional)</h4>
+      <div class="sub">Claim a short name so people can add you as <b>@name</b> instead of the long address. First-come — a handle doesn't prove who you are, the fingerprint does.</div>
+      <div class="myhandle" id="myhandle" style="display:none"></div>
+      <div class="row" style="margin-top:8px">
+        <input id="handleIn" placeholder="yourname" maxlength="20" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+        <button class="btn ghost" id="claimBtn" style="margin-top:0;flex:none;width:auto;white-space:nowrap">Claim</button>
+      </div>
+      <div class="status" id="handleStatus"></div>
+
       <h4 style="margin-top:16px">Move to another device</h4>
       <div class="sub">Carry your identity (and contacts) to a new phone or laptop. The key is like a seed phrase — anyone with it AND its password becomes you. One device at a time.</div>
       <div class="row" style="margin-top:8px">
@@ -195,7 +207,7 @@
       </div>
 
       <h4 style="margin-top:16px">Add someone</h4>
-      <input id="peerAddr" placeholder="paste their address" autocomplete="off" spellcheck="false">
+      <input id="peerAddr" placeholder="their @handle or full address" autocomplete="off" autocapitalize="none" spellcheck="false">
       <input id="peerName" placeholder="Contact name" autocomplete="off" style="margin-top:7px">
       <div class="row" style="margin-top:8px">
         <button class="btn" id="addBtn" style="margin-top:0">Add</button>
@@ -297,6 +309,44 @@
   }
   function decodeAddress(a){var j=JSON.parse(dec.decode(ub64u(a.trim())));return {sRaw:ub64u(j.s),eRaw:ub64u(j.e)};}
   async function mailboxOf(sRaw){return hex(await subtle.digest('SHA-256',sRaw)).slice(0,32);}
+
+  /* ---------- short handles (optional directory: @name -> address) ---------- */
+  var HANDLE_CLAIM_BITS=20;   // must match send_relay.HANDLE_CLAIM_BITS
+  function normHandle(h){ return (h||'').trim().toLowerCase().replace(/^@/,''); }
+  async function claimHandle(handle){
+    var h=normHandle(handle);
+    if(!/^[a-z0-9_]{3,20}$/.test(h)) throw new Error('3–20 characters: a–z, 0–9, _');
+    // Sign the claim (proves we own this identity) and stamp a PoW (anti-squat).
+    var sig=await subtle.sign({name:'ECDSA',hash:'SHA-256'}, ID.sign.privateKey, enc.encode('SPH1|'+h+'|'+ID.address));
+    var pow=await SparrowPow.stamp(ID.mailbox, 'CLAIM|'+h+'|'+ID.address, HANDLE_CLAIM_BITS);
+    var res=await fetch('/api/send/claim',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({handle:h, address:ID.address, sig:b64u(sig), pt:pow.ts, pn:pow.nonce})});
+    var j=await res.json().catch(function(){return{}});
+    if(!res.ok||!j.ok) throw new Error(j.error||('http '+res.status));
+    try{ LS.setItem('sparrow.send.handle', j.handle); }catch(e){}
+    return j.handle;
+  }
+  async function resolveHandle(h){
+    var res=await fetch('/api/send/handle?h='+encodeURIComponent(normHandle(h)));
+    if(!res.ok) return null;
+    var j=await res.json().catch(function(){return{}});
+    return j.address||null;
+  }
+  function showMyHandle(){
+    var el=$('#myhandle'), h=null; try{ h=LS.getItem('sparrow.send.handle'); }catch(e){}
+    if(h){ el.textContent='You are @'+h; el.style.display='block'; } else { el.style.display='none'; }
+  }
+  // Give up our handle (best-effort) so the name is free again - e.g. right
+  // before a Reset ID, while we still hold the key to sign the release.
+  async function releaseHandle(){
+    var h=null; try{ h=LS.getItem('sparrow.send.handle'); }catch(e){}
+    if(!h||!ID) return;
+    try{
+      var sig=await subtle.sign({name:'ECDSA',hash:'SHA-256'}, ID.sign.privateKey, enc.encode('SPHREL1|'+h+'|'+ID.address));
+      await fetch('/api/send/release',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({handle:h, address:ID.address, sig:b64u(sig)})});
+    }catch(e){}
+  }
 
   /* ---------- portable login key: your identity, encrypted with a password ----
    * The key is your PRIVATE keys (plus your contact list), sealed with a
@@ -571,16 +621,31 @@
   /* ---------- add contact + QR ---------- */
   $('#addBtn').onclick=async function(){
     var a=$('#peerAddr').value.trim(), name=$('#peerName').value.trim();
-    if(!a){ $('#addstatus').textContent='Paste an address, or Scan.'; return; }
-    try{ var d=decodeAddress(a), mb=await mailboxOf(d.sRaw);
+    if(!a){ $('#addstatus').textContent='Enter their @handle or full address, or Scan.'; return; }
+    $('#addstatus').textContent='Adding…';
+    try{
+      // Full address? use it. Otherwise resolve it as a handle.
+      var addr=a, looksAddr=true; try{ decodeAddress(a); }catch(e){ looksAddr=false; }
+      if(!looksAddr){
+        var r=await resolveHandle(a);
+        if(!r){ $('#addstatus').textContent='No @handle by that name (and not an address).'; return; }
+        addr=r;
+      }
+      var d=decodeAddress(addr), mb=await mailboxOf(d.sRaw);
       if(mb===ID.mailbox){ $('#addstatus').textContent='That is your own address.'; return; }
       var c=getContacts().filter(function(x){return x.mb!==mb;});
       c.push({name:name,mb:mb,sRaw:b64u(d.sRaw),eRaw:b64u(d.eRaw),verified:false});
       setContacts(c); $('#peerAddr').value=''; $('#peerName').value=''; $('#addstatus').textContent='Added.'; renderContacts();
-    }catch(e){ $('#addstatus').textContent='That is not a Sparrow address.'; }
+    }catch(e){ $('#addstatus').textContent='That is not a Sparrow address or @handle.'; }
+  };
+  $('#claimBtn').onclick=async function(){
+    var v=$('#handleIn').value; if(!v.trim()){ $('#handleStatus').textContent='Pick a short name.'; return; }
+    $('#handleStatus').textContent='Claiming… (a few seconds of proof-of-work)';
+    try{ var h=await claimHandle(v); $('#handleIn').value=''; $('#handleStatus').textContent='✓ Claimed. People can add you as @'+h+'.'; showMyHandle(); }
+    catch(e){ $('#handleStatus').textContent=e.message||'Could not claim that handle.'; }
   };
   $('#copyBtn').onclick=function(){ if(navigator.clipboard) navigator.clipboard.writeText(ID.address); };
-  $('#resetIdBtn').onclick=function(){ if(!confirm('Delete this identity and all messages? People will need your new address.')) return; try{Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);});}catch(e){} location.reload(); };
+  $('#resetIdBtn').onclick=async function(){ if(!confirm('Delete this identity and all messages? People will need your new address, and your @handle (if any) is released.')) return; await releaseHandle(); try{Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);});}catch(e){} location.reload(); };
   $('#logoutBtn').onclick=function(){
     if(!confirm('Log out of Sparrow Send on THIS device? Make sure you exported your login key first — this removes your identity from this device so it stops receiving your messages.')) return;
     try{ Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);}); }catch(e){}
@@ -687,6 +752,7 @@
     await loadID();
     $('#myaddr').textContent=ID.address;
     $('#myfp').textContent=fp(ID.mailbox);
+    showMyHandle();
     $('#myqr').src='/api/send/qr?d='+encodeURIComponent(ID.address);
     try{ $('#vol').value=LS.getItem('sparrow.send.vol')||'60'; }catch(e){}
     renderContacts();

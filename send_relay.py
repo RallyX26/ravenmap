@@ -25,6 +25,7 @@ from __future__ import annotations
 import base64
 import glob
 import hmac
+import json
 import os
 import re
 import secrets
@@ -171,6 +172,133 @@ def _verify_sig(signing_pub_raw: bytes, message: bytes, sig_raw: bytes) -> bool:
         return True
     except Exception:
         return False
+
+
+# ---- short handles: an OPT-IN directory of handle -> address ---------------
+# A convenience so people can share "@matt" instead of the long address. The
+# address is a public key meant to be shared, so a directory is not a secret
+# leak - it only lists identities that chose to claim a handle. A handle does
+# NOT prove who someone is (first-come); the fingerprint is still the check.
+# A claim must be SIGNED by the identity's key (proves ownership) and carry a
+# PoW stamp (deters mass squatting); each identity holds at most one handle.
+HANDLES = core.DATA / "send_handles"
+_HANDLE = re.compile(r"^[a-z0-9_]{3,20}\Z")
+HANDLE_CLAIM_BITS = 20
+_RESERVED = {
+    "admin", "administrator", "root", "sparrow", "sparrowmap", "sparrowsend",
+    "send", "sends", "support", "help", "helpdesk", "system", "sys", "abuse",
+    "security", "official", "staff", "team", "mod", "moderator", "police",
+    "gov", "government", "null", "undefined", "none", "me", "you", "everyone",
+    "all", "anon", "anonymous",
+}
+
+
+def _valid_handle(h) -> bool:
+    return bool(h and isinstance(h, str) and _HANDLE.match(h))
+
+
+def _norm_handle(h) -> str:
+    return (h or "").strip().lower().lstrip("@")
+
+
+def _address_signing_pub(address: str):
+    """The raw ECDSA signing public key embedded in an address, or None."""
+    try:
+        j = json.loads(_b64u_dec(address).decode("utf-8"))
+        return _b64u_dec(j["s"])
+    except Exception:
+        return None
+
+
+def resolve_handle(handle: str) -> str:
+    """handle -> address, or '' if unclaimed/invalid. Public, read-only."""
+    h = _norm_handle(handle)
+    if not _valid_handle(h):
+        return ""
+    try:
+        d = json.loads((HANDLES / (h + ".json")).read_text("utf-8"))
+        return d.get("address", "") or ""
+    except (OSError, ValueError):
+        return ""
+
+
+def claim_handle(handle, address, sig_b64u, pow_ts, pow_nonce):
+    """Bind a handle to an address. Returns (ok, error_or_handle).
+
+    Requires: a well-formed, non-reserved handle; a PoW stamp over the claim;
+    and an ECDSA signature over 'SPH1|handle|address' by the signing key inside
+    the address (proves the claimer owns that identity). A handle already held
+    by a DIFFERENT identity is refused. Each identity keeps at most one handle -
+    a new claim releases the old."""
+    h = _norm_handle(handle)
+    if not _valid_handle(h):
+        return (False, "handle must be 3-20 characters: a-z, 0-9, _")
+    if h in _RESERVED:
+        return (False, "that handle is reserved")
+    spub = _address_signing_pub(address or "")
+    if not spub:
+        return (False, "bad address")
+    mb = mailbox_for(spub)
+    if not pow_ok(mb, "CLAIM|" + h + "|" + (address or ""),
+                  pow_ts, pow_nonce, bits=HANDLE_CLAIM_BITS):
+        return (False, "proof-of-work missing or invalid")
+    try:
+        sig = _b64u_dec(sig_b64u)
+    except Exception:
+        return (False, "bad signature")
+    if not _verify_sig(spub, ("SPH1|" + h + "|" + (address or "")).encode("utf-8"), sig):
+        return (False, "signature does not match the address")
+    try:
+        HANDLES.mkdir(parents=True, exist_ok=True)
+        f = HANDLES / (h + ".json")
+        if f.exists():
+            try:
+                cur = json.loads(f.read_text("utf-8"))
+            except ValueError:
+                cur = {}
+            if cur.get("mb") and cur.get("mb") != mb:
+                return (False, "that handle is taken")
+        # One handle per identity: release any OTHER handle this mailbox holds.
+        for other in HANDLES.glob("*.json"):
+            if other.name == (h + ".json"):
+                continue
+            try:
+                if json.loads(other.read_text("utf-8")).get("mb") == mb:
+                    other.unlink()
+            except (OSError, ValueError):
+                pass
+        f.write_text(json.dumps(
+            {"handle": h, "address": address, "mb": mb, "ts": int(time.time())}),
+            encoding="utf-8")
+        return (True, h)
+    except OSError:
+        return (False, "could not save")
+
+
+def release_handle(handle, address, sig_b64u):
+    """Give up a handle you own (e.g. before resetting your identity, so the name
+    is free again). Signed by the identity's key so only the owner can release."""
+    h = _norm_handle(handle)
+    if not _valid_handle(h):
+        return (False, "bad handle")
+    spub = _address_signing_pub(address or "")
+    if not spub:
+        return (False, "bad address")
+    mb = mailbox_for(spub)
+    try:
+        sig = _b64u_dec(sig_b64u)
+    except Exception:
+        return (False, "bad signature")
+    if not _verify_sig(spub, ("SPHREL1|" + h + "|" + (address or "")).encode("utf-8"), sig):
+        return (False, "signature does not match the address")
+    f = HANDLES / (h + ".json")
+    try:
+        if f.exists() and json.loads(f.read_text("utf-8")).get("mb") == mb:
+            f.unlink()
+            return (True, h)
+        return (False, "not your handle")
+    except (OSError, ValueError):
+        return (False, "could not release")
 
 
 def _count_global() -> int:

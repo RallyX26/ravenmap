@@ -656,6 +656,9 @@ RATE = {"/api/enroll": (600, 3600), "/api/sightings": (900, 3600),
         "/api/send/put": (3000, 3600),
         "/api/send/get": (3000, 3600),
         "/api/send/challenge": (3000, 3600),
+        "/api/send/claim": (120, 3600),
+        "/api/send/release": (120, 3600),
+        "/api/send/handle": (3000, 3600),
         # Local ADS-B receivers pushing aircraft they see. A busy sky is a lot of
         # aircraft per push but one push every few seconds, so this is roomy.
         "/api/aircraft/ingest": (1800, 3600),
@@ -1697,6 +1700,16 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, qr.png(d, scale=8), "image/png")
                 except Exception:
                     return self._err(400, "could not render")
+            if p == "/api/send/handle":
+                # Resolve a short handle -> address (an opt-in directory). The
+                # address is a public key, so this leaks nothing a shared address
+                # would not; only claimed handles resolve. No enumeration route.
+                _q = parse_qs(urlparse(self.path).query)
+                h = (_q.get("h", [""])[0] or "")[:32]
+                addr = send_relay.resolve_handle(h)
+                if not addr:
+                    return self._err(404, "no such handle")
+                return self._json({"handle": send_relay._norm_handle(h), "address": addr})
             if p == "/sensors":          return self._file(PUBLIC / "sensors.html")
             if p == "/setup":            return self._file(PUBLIC / "setup.html")
             if p == "/buy":              return self._file(PUBLIC / "buy.html")
@@ -3913,6 +3926,32 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(400, "could not accept that message "
                                           "(bad mailbox, too large, or relay full)")
                 return self._json({"ok": True})
+
+            if p == "/api/send/claim":
+                # Claim a short handle for an address. Signed by the identity's
+                # key + PoW (see send_relay.claim_handle). Anti-squat: rate-
+                # limited, one handle per identity, reserved names blocked.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "slow down")
+                b = self._body()
+                ok, res = send_relay.claim_handle(
+                    str(b.get("handle") or ""), str(b.get("address") or ""),
+                    str(b.get("sig") or ""), b.get("pt"), b.get("pn"))
+                if not ok:
+                    return self._json({"error": res}, 400)
+                return self._json({"ok": True, "handle": res})
+
+            if p == "/api/send/release":
+                # Give up a handle you own (signed; no PoW - only the owner can).
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "slow down")
+                b = self._body()
+                ok, res = send_relay.release_handle(
+                    str(b.get("handle") or ""), str(b.get("address") or ""),
+                    str(b.get("sig") or ""))
+                if not ok:
+                    return self._json({"error": res}, 400)
+                return self._json({"ok": True, "handle": res})
 
             if p == "/api/send/get":
                 # Prove ownership, then hand back and DELETE this mailbox's
