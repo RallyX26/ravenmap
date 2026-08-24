@@ -3897,7 +3897,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not rate_ok(p, self.client_ip):
                     return self._err(429, "a lot of messages right now - retry shortly")
                 b = self._body()
-                ok = send_relay.put(str(b.get("to") or ""), str(b.get("env") or ""))
+                ok = send_relay.put(str(b.get("to") or ""), str(b.get("env") or ""),
+                                    str(b.get("mid") or ""))
                 if not ok:
                     return self._err(400, "could not accept that message "
                                           "(bad mailbox, too large, or relay full)")

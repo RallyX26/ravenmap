@@ -115,19 +115,31 @@ def _count_global() -> int:
         return 0
 
 
-def put(mb: str, env: str) -> bool:
+_MID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def put(mb: str, env: str, mid: str = "") -> bool:
     """Store one opaque ciphertext envelope in a mailbox. Returns False if the
-    mailbox id is malformed, the envelope is too big, or the relay is full."""
+    mailbox id is malformed, the envelope is too big, or the relay is full.
+
+    🚨 IDEMPOTENT. A client whose send SUCCEEDED but whose response was lost will
+    retry with the SAME `mid`, and a duplicate would show up as the same message
+    three times (reported). The filename carries the mid, so a repeat is stored
+    once. The timestamp prefix keeps delivery in send order."""
     if not _valid_mb(mb):
         return False
     raw = (env or "").encode("utf-8")
     if not raw or len(raw) > MSG_MAX_BYTES:
         return False
-    if _count_global() >= GLOBAL_MAX:
-        return False
     box = _box(mb)
     try:
         box.mkdir(parents=True, exist_ok=True)
+        safe_mid = mid if (mid and _MID.match(mid)) else ""
+        if safe_mid:
+            for _dup in box.glob("*_" + safe_mid + ".env"):
+                return True                      # already stored this exact message
+        if _count_global() >= GLOBAL_MAX:
+            return False
         existing = sorted(box.glob("*.env"))
         # Bounded queue: drop the oldest rather than let one mailbox grow forever.
         for old in existing[:max(0, len(existing) + 1 - MAILBOX_MAX)]:
@@ -135,7 +147,8 @@ def put(mb: str, env: str) -> bool:
                 old.unlink()
             except OSError:
                 pass
-        name = "%d_%s.env" % (int(time.time() * 1000), secrets.token_hex(6))
+        tag = safe_mid or secrets.token_hex(6)
+        name = "%d_%s.env" % (int(time.time() * 1000), tag)
         (box / name).write_bytes(raw)
         return True
     except OSError:
