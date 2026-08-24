@@ -38,7 +38,7 @@ SEND = core.DATA / "send"
 # outstanding challenges, which is harmless - the client just asks for another.
 _SECRET = secrets.token_bytes(32)
 
-MSG_MAX_BYTES = 800 * 1024       # one envelope; text is tiny, this allows a
+MSG_MAX_BYTES = 1024 * 1024       # one envelope; text is tiny, this allows a
                                  # downscaled image attachment (encrypted) too
 MAILBOX_MAX = 300                # queued messages per mailbox before oldest drop
 GLOBAL_MAX = 60000               # total queued envelopes across all mailboxes

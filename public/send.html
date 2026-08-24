@@ -88,12 +88,30 @@
   .chathead{display:none;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
   .chathead .who{font-weight:700}
   .msgs{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:7px}
-  .msg{max-width:80%;padding:8px 12px;border-radius:16px;font-size:14.5px;word-wrap:break-word;white-space:pre-wrap;line-height:1.35}
+  .msg{max-width:80%;padding:8px 12px;border-radius:16px;font-size:14.5px;word-wrap:break-word;white-space:pre-wrap;line-height:1.35;position:relative}
   .msg.out{align-self:flex-end;background:var(--me);color:#dbffef;border-bottom-right-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.25)}
   .msg.in{align-self:flex-start;background:var(--them);border-bottom-left-radius:6px}
   .msg.sys{align-self:center;background:rgba(245,158,11,.14);color:#f6c96b;font-size:12px;border-radius:20px;padding:5px 12px}
   .msg img{max-width:100%;border-radius:11px;display:block;margin:2px 0}
   .msg .t{display:block;font-size:10px;color:rgba(255,255,255,.5);margin-top:3px}
+  /* quoted (replied-to) snippet above a message */
+  .msg .quote{border-left:3px solid rgba(62,224,138,.7);padding:3px 8px;margin:0 0 5px;
+    background:rgba(0,0,0,.22);border-radius:6px;font-size:12.5px;color:var(--muted);
+    max-height:52px;overflow:hidden}
+  .msg .quote b{color:var(--accent);display:block;font-size:10.5px;font-weight:700}
+  /* per-bubble reply button (hover on desktop, long-press on touch) */
+  .msg .rbtn{position:absolute;top:50%;margin-top:-13px;opacity:0;transition:opacity .12s;cursor:pointer;
+    width:26px;height:26px;border-radius:50%;border:1px solid var(--line2);background:rgba(20,26,38,.92);
+    color:var(--muted);font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center}
+  .msg.out .rbtn{left:-34px} .msg.in .rbtn{right:-34px}
+  .msg:hover .rbtn{opacity:.9}
+  .replybar{display:none;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--line);
+    background:rgba(0,0,0,.22);font-size:12.5px;color:var(--muted)}
+  .replybar .rq{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    border-left:3px solid var(--accent);padding-left:8px}
+  .replybar .rq b{color:var(--accent)}
+  .replybar .x{cursor:pointer;padding:2px 9px;border-radius:8px}
+  .replybar .x:hover{background:rgba(255,255,255,.08)}
   .compose{display:none;gap:8px;padding:10px;border-top:1px solid var(--line);align-items:flex-end}
   .compose textarea{flex:1;max-height:120px;min-height:42px}
   .send{width:44px;height:44px;flex:none;border-radius:50%;border:0;background:linear-gradient(180deg,var(--accent),#1f9e63);
@@ -143,7 +161,7 @@
       </div>
       <h4 style="margin-top:16px">Add someone</h4>
       <input id="peerAddr" placeholder="paste their address" autocomplete="off" spellcheck="false">
-      <input id="peerName" placeholder="name (for you)" autocomplete="off" style="margin-top:7px">
+      <input id="peerName" placeholder="Contact name" autocomplete="off" style="margin-top:7px">
       <div class="row" style="margin-top:8px">
         <button class="btn" id="addBtn" style="margin-top:0">Add</button>
         <button class="btn ghost" id="scanBtn" style="margin-top:0;flex:none;width:auto">📷 Scan</button>
@@ -166,6 +184,7 @@
         <div>Pick a contact, or add someone with <b>☰</b>.<br>Everything you send is end‑to‑end encrypted.</div>
       </div>
       <div class="msgs" id="msgs" style="display:none"></div>
+      <div class="replybar" id="replybar"><div class="rq" id="replyq"></div><span class="x" id="replyx">✕</span></div>
       <div class="compose" id="compose">
         <button class="attach" id="attachBtn" title="Send a photo">📎</button>
         <input type="file" id="fileIn" accept="image/*" hidden>
@@ -256,14 +275,30 @@
     if(!st){ st=await R.initSender(ID.dhIdentity, R.b64(ub64u(ct.eRaw))); setRat(ct.mb,st); }
     return st;
   }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
+  // POST an already-sealed envelope, auto-retrying the transient failures (rate
+  // limit, network, 5xx). A 4xx that isn't 429 is permanent (bad/too-big) - don't
+  // retry it. 🚨 The envelope is encrypted ONCE by the caller and reused across
+  // retries: re-encrypting would burn a new ratchet key each try and desync.
+  async function postEnv(mb, envStr){
+    var body=JSON.stringify({to:mb, env:envStr}), last='could not reach the relay';
+    var delays=[0,700,1800,3500];
+    for(var i=0;i<delays.length;i++){
+      if(delays[i]) await sleep(delays[i]);
+      try{
+        var res=await fetch('/api/send/put',{method:'POST',headers:{'Content-Type':'application/json'},body:body});
+        if(res.ok) return;
+        var j=await res.json().catch(function(){return{}}); last=j.error||('http '+res.status);
+        if(res.status!==429 && res.status<500) throw new Error(last);   // permanent
+      }catch(e){ last=e.message||String(e); if(/too large|bad mailbox/i.test(last)) throw new Error(last); }
+    }
+    throw new Error(last);
+  }
   async function sendTo(ct, obj){
     var st=await ratForSend(ct);
     var msg=await R.encrypt(st, enc.encode(JSON.stringify(obj)));
-    setRat(ct.mb, st);
-    var env={from:ID.address, r:msg};
-    var res=await fetch('/api/send/put',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({to:ct.mb, env:JSON.stringify(env)})});
-    if(!res.ok){var j=await res.json().catch(function(){return{}});throw new Error(j.error||('http '+res.status));}
+    setRat(ct.mb, st);   // ratchet advanced ONCE; postEnv reuses this exact envelope
+    await postEnv(ct.mb, JSON.stringify({from:ID.address, r:msg}));
   }
   async function poll(){
     if(!ID) return;
@@ -319,46 +354,86 @@
   }
   var cur=null;
   function openChat(ct){
-    cur=ct; closePanels();
+    cur=ct; closePanels(); clearReply();
     $('#empty').style.display='none'; $('#msgs').style.display='flex';
     $('#compose').style.display='flex'; $('#chathead').style.display='flex';
     $('#chatwho').textContent=ct.name||('Unknown ('+ct.mb.slice(0,8)+'…)');
     $('#chatsub').textContent=ct.verified?'verified':(ct.unknown?'unverified':'');
     drawMsgs(); renderContacts(); $('#msgIn').focus();
   }
-  function closeChat(){ cur=null; $('#msgs').style.display='none'; $('#compose').style.display='none'; $('#chathead').style.display='none'; $('#empty').style.display='flex'; }
+  function closeChat(){ cur=null; clearReply(); $('#msgs').style.display='none'; $('#compose').style.display='none'; $('#chathead').style.display='none'; $('#empty').style.display='flex'; }
   function bubbleContent(el,o){
     if(o&&o.t==='img'&&o.d){ var im=document.createElement('img'); im.src=o.d; el.appendChild(im); }
     else { el.appendChild(document.createTextNode((o&&o.x)||'')); }
+  }
+  // Long-press = reply, on touch devices (desktop uses the hover ↩ button).
+  function addLongPress(el, cb){
+    var t=null;
+    el.addEventListener('touchstart',function(){ t=setTimeout(function(){ if(navigator.vibrate)navigator.vibrate(12); cb(); },480); },{passive:true});
+    ['touchend','touchmove','touchcancel'].forEach(function(ev){ el.addEventListener(ev,function(){ if(t){clearTimeout(t);t=null;} },{passive:true}); });
   }
   function drawMsgs(){
     if(!cur) return; var box=$('#msgs'), h=getHist(cur.mb); box.innerHTML='';
     h.forEach(function(m){
       var el=document.createElement('div'); el.className='msg '+(m.dir==='out'?'out':m.dir==='sys'?'sys':'in');
+      // a quoted (replied-to) snippet, if this message is a reply
+      if(m.dir!=='sys' && m.o && m.o.re){
+        var q=document.createElement('div'); q.className='quote';
+        var who=(m.dir==='out')?(m.o.re.m?'You':(cur.name||'Them')):(m.o.re.m?(cur.name||'Them'):'You');
+        var b=document.createElement('b'); b.textContent='↩ '+who; q.appendChild(b);
+        q.appendChild(document.createTextNode(m.o.re.t||''));
+        el.appendChild(q);
+      }
       bubbleContent(el,m.o);
-      if(m.dir!=='sys'){var t=document.createElement('span');t.className='t';t.textContent=new Date(m.ts).toLocaleString([], {hour:'2-digit',minute:'2-digit'});el.appendChild(t);}
+      if(m.dir!=='sys'){
+        var t=document.createElement('span');t.className='t';t.textContent=new Date(m.ts).toLocaleString([], {hour:'2-digit',minute:'2-digit'});el.appendChild(t);
+        var rb=document.createElement('div'); rb.className='rbtn'; rb.textContent='↩'; rb.title='Reply';
+        rb.onclick=function(e){ e.stopPropagation(); setReply(m); };
+        el.appendChild(rb);
+        addLongPress(el, function(){ setReply(m); });
+      }
       box.appendChild(el);
     });
     box.scrollTop=box.scrollHeight;
   }
+  /* ---------- reply-to-a-message ---------- */
+  var replyTo=null;
+  function setReply(m){
+    replyTo={ m:(m.dir==='out'), t:(m.o&&m.o.t==='img'?'📷 photo':((m.o&&m.o.x)||'').slice(0,90)) };
+    var who = replyTo.m ? 'You' : (cur&&cur.name||'Them');
+    var bar=$('#replybar'); $('#replyq').innerHTML='<b>↩ '+esc(who)+'</b> '+esc(replyTo.t);
+    bar.style.display='flex'; $('#msgIn').focus();
+  }
+  function clearReply(){ replyTo=null; var b=$('#replybar'); if(b) b.style.display='none'; }
+  function esc(s){ return (s||'').replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
   async function doSend(){
     if(!cur) return; var inp=$('#msgIn'), t=inp.value.trim(); if(!t) return;
     inp.value=''; inp.style.height='auto';
-    var obj={t:'text',x:t}; pushHist(cur.mb,{dir:'out',o:obj,ts:Date.now()}); drawMsgs(); chirp(true);
+    var obj={t:'text',x:t}; if(replyTo) obj.re=replyTo; clearReply();
+    pushHist(cur.mb,{dir:'out',o:obj,ts:Date.now()}); drawMsgs(); chirp(true);
     try{ await sendTo(cur,obj); }catch(e){ pushHist(cur.mb,{dir:'sys',o:{t:'text',x:'Not delivered: '+e.message},ts:Date.now()}); drawMsgs(); }
   }
   async function sendImage(file){
     if(!cur||!file) return;
     var d=await downscale(file); if(!d){ return; }
-    var obj={t:'img',d:d}; pushHist(cur.mb,{dir:'out',o:obj,ts:Date.now()}); drawMsgs(); chirp(true);
+    var obj={t:'img',d:d}; if(replyTo) obj.re=replyTo; clearReply();
+    pushHist(cur.mb,{dir:'out',o:obj,ts:Date.now()}); drawMsgs(); chirp(true);
     try{ await sendTo(cur,obj); }catch(e){ pushHist(cur.mb,{dir:'sys',o:{t:'text',x:'Photo not delivered: '+e.message},ts:Date.now()}); drawMsgs(); }
   }
+  // Shrink a photo until the data URL fits comfortably in one envelope. Starts
+  // large and only steps down if needed, so it never fails with a "too large"
+  // relay error the way a fixed size sometimes did.
+  var IMG_FIT=520000;   // data-URL chars; leaves room under the 1MB relay cap
   function downscale(file){ return new Promise(function(res){
     var fr=new FileReader(); fr.onload=function(){ var im=new Image(); im.onload=function(){
-      var sc=Math.min(1,1280/Math.max(im.width,im.height));
-      var cv=document.createElement('canvas'); cv.width=Math.max(1,Math.round(im.width*sc)); cv.height=Math.max(1,Math.round(im.height*sc));
-      cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);
-      res(cv.toDataURL('image/jpeg',0.72));
+      var steps=[[1600,0.82],[1280,0.72],[1024,0.62],[820,0.55],[640,0.45],[480,0.4]];
+      for(var i=0;i<steps.length;i++){
+        var sc=Math.min(1,steps[i][0]/Math.max(im.width,im.height));
+        var cv=document.createElement('canvas'); cv.width=Math.max(1,Math.round(im.width*sc)); cv.height=Math.max(1,Math.round(im.height*sc));
+        cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);
+        var d=cv.toDataURL('image/jpeg',steps[i][1]);
+        if(d.length<IMG_FIT || i===steps.length-1){ res(d); return; }
+      }
     }; im.onerror=function(){res(null)}; im.src=fr.result; }; fr.readAsDataURL(file); }); }
 
   /* ---------- contact ⋯ menu: rename / verify / reset ---------- */
@@ -459,6 +534,7 @@
   $('#chatmenu').onclick=function(e){ e.stopPropagation(); if(cur) openCmenu(cur, e.target); };
   document.addEventListener('click',function(e){ if(!e.target.closest('.panel')&&!e.target.closest('.iconbtn')&&!e.target.closest('.cmenu')&&!e.target.closest('#chatmenu')) closePanels(); });
   $('#backBtn').onclick=closeChat;
+  $('#replyx').onclick=clearReply;
   $('#sendBtn').onclick=doSend;
   $('#attachBtn').onclick=function(){ $('#fileIn').click(); };
   $('#fileIn').onchange=function(){ if(this.files&&this.files[0]) sendImage(this.files[0]); this.value=''; };
