@@ -1694,7 +1694,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not d:
                     return self._err(400, "no data")
                 try:
-                    return self._send(200, qr.png(d, scale=6), "image/png")
+                    return self._send(200, qr.png(d, scale=8), "image/png")
                 except Exception:
                     return self._err(400, "could not render")
             if p == "/sensors":          return self._file(PUBLIC / "sensors.html")
