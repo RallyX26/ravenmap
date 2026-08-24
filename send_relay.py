@@ -92,6 +92,47 @@ def mailbox_for(signing_pub_raw: bytes) -> str:
     return sha256(signing_pub_raw).hexdigest()[:32]
 
 
+# ---- proof-of-work on SEND (hashcash) --------------------------------------
+# Sending is unauthenticated by design (anyone with your address can write to
+# you). That left three cheap floods open: evicting a victim's queued mail,
+# filling GLOBAL_MAX to refuse mail network-wide, and monopolising the shared
+# rate bucket. A small per-message cost closes all three without adding
+# accounts. The sender finds a nonce so SHA-256 of the stamp has POW_BITS
+# leading zero bits; we verify with ONE hash here. `ts` bounds precomputation
+# and replay; the envelope hash binds the stamp to THIS message.
+# 🚨 POW_BITS MUST equal POW_BITS in public/sparrowsend-pow.js.
+POW_VERSION = "SP1"
+POW_BITS = 17
+POW_SKEW_S = 300.0          # accept a stamp within 5 min of now (also clock skew)
+
+
+def _leading_zero_bits(digest: bytes) -> int:
+    bits = 0
+    for byte in digest:
+        if byte == 0:
+            bits += 8
+            continue
+        b, c = byte, 0
+        while b < 128:
+            c += 1
+            b <<= 1
+        return bits + c
+    return bits
+
+
+def pow_ok(mb: str, env: str, ts, nonce, bits: int = POW_BITS) -> bool:
+    """True if (ts, nonce) is a valid proof-of-work stamp for this envelope."""
+    try:
+        ts_i = int(ts)
+    except (ValueError, TypeError):
+        return False
+    if abs(time.time() - ts_i) > POW_SKEW_S:
+        return False
+    ch = sha256((env or "").encode("utf-8")).hexdigest()
+    pre = "%s|%s|%d|%s|%s" % (POW_VERSION, mb, ts_i, ch, str(nonce))
+    return _leading_zero_bits(sha256(pre.encode("utf-8")).digest()) >= bits
+
+
 def _verify_sig(signing_pub_raw: bytes, message: bytes, sig_raw: bytes) -> bool:
     """Verify a WebCrypto ECDSA P-256 signature (raw r||s) over `message`."""
     try:

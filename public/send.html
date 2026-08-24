@@ -245,13 +245,14 @@
 </div>
 
 <script src="/static/sparrowsend-ratchet.js?v=1"></script>
+<script src="/static/sparrowsend-pow.js?v=1"></script>
 <script>
 (function(){
   "use strict";
   var $=function(s){return document.querySelector(s)};
   var LS=window.localStorage, R=window.SparrowRatchet;
   var subtle=(window.crypto&&window.crypto.subtle);
-  if(!subtle||!R){ document.body.innerHTML='<div style="color:#eaf1fa;font:16px system-ui;padding:40px">This browser can’t run Sparrow Send (needs Web Crypto over https). Try current Chrome, Safari, Firefox or Edge.</div>'; return; }
+  if(!subtle||!R||!window.SparrowPow){ document.body.innerHTML='<div style="color:#eaf1fa;font:16px system-ui;padding:40px">This browser can’t run Sparrow Send (needs Web Crypto over https). Try current Chrome, Safari, Firefox or Edge.</div>'; return; }
   var enc=new TextEncoder(), dec=new TextDecoder();
   function b64u(b){var a=new Uint8Array(b),s='';for(var i=0;i<a.length;i++)s+=String.fromCharCode(a[i]);return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
   function ub64u(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';var x=atob(s),b=new Uint8Array(x.length);for(var i=0;i<x.length;i++)b[i]=x.charCodeAt(i);return b}
@@ -350,8 +351,8 @@
   // limit, network, 5xx). A 4xx that isn't 429 is permanent (bad/too-big) - don't
   // retry it. 🚨 The envelope is encrypted ONCE by the caller and reused across
   // retries: re-encrypting would burn a new ratchet key each try and desync.
-  async function postEnv(mb, envStr, mid){
-    var body=JSON.stringify({to:mb, env:envStr, mid:mid||''}), last='could not reach the relay';
+  async function postEnv(mb, envStr, mid, pow){
+    var body=JSON.stringify({to:mb, env:envStr, mid:mid||'', pt:pow&&pow.ts, pn:pow&&pow.nonce}), last='could not reach the relay';
     var delays=[0,700,1800,3500];
     for(var i=0;i<delays.length;i++){
       if(delays[i]) await sleep(delays[i]);
@@ -371,7 +372,11 @@
     // A stable message id so a lost-response retry never duplicates (relay dedups
     // by it, and the receiver ignores a mid it has already processed).
     var mid=b64u(crypto.getRandomValues(new Uint8Array(12)));
-    await postEnv(ct.mb, JSON.stringify({from:ID.address, mid:mid, r:msg}), mid);
+    var envStr=JSON.stringify({from:ID.address, mid:mid, r:msg});
+    // Stamp a proof-of-work over this exact envelope (a few hundred ms). Reused
+    // across postEnv retries - the ts window is minutes, retries are seconds.
+    var pow=await SparrowPow.stamp(ct.mb, envStr, SparrowPow.POW_BITS);
+    await postEnv(ct.mb, envStr, mid, pow);
   }
   // Duplicate guard on the receiving side: never process the same mid twice
   // (would double-display AND desync the ratchet). Bounded per contact.

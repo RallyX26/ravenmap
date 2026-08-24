@@ -3897,8 +3897,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not rate_ok(p, self.client_ip):
                     return self._err(429, "a lot of messages right now - retry shortly")
                 b = self._body()
-                ok = send_relay.put(str(b.get("to") or ""), str(b.get("env") or ""),
-                                    str(b.get("mid") or ""))
+                to, env = str(b.get("to") or ""), str(b.get("env") or "")
+                # Proof-of-work gate. Anyone may send (no account), but each send
+                # must carry a small hashcash stamp so flooding a mailbox / the
+                # global cap / the rate bucket costs real CPU. Verified in ONE hash.
+                if not send_relay.pow_ok(to, env, b.get("pt"), b.get("pn")):
+                    return self._err(400, "proof-of-work missing or invalid - "
+                                          "update the page and resend")
+                ok = send_relay.put(to, env, str(b.get("mid") or ""))
                 if not ok:
                     return self._err(400, "could not accept that message "
                                           "(bad mailbox, too large, or relay full)")

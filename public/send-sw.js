@@ -2,9 +2,10 @@
  * so it never touches the map, which has its own /sw.js. It makes the page
  * installable and gives it a small offline shell; message traffic (/api/send/*)
  * is always network, never cached. */
-var CACHE = "sparrowsend-v2";
-var SHELL = ["/send", "/static/sparrowsend-ratchet.js", "/static/send.webmanifest",
-             "/static/icon-192.png", "/static/icon-512.png", "/vendor/jsqr.min.js"];
+var CACHE = "sparrowsend-v3";
+var SHELL = ["/send", "/static/sparrowsend-ratchet.js?v=1", "/static/sparrowsend-pow.js?v=1",
+             "/static/send.webmanifest", "/static/icon-192.png", "/static/icon-512.png",
+             "/vendor/jsqr.min.js"];
 
 self.addEventListener("install", function (e) {
   e.waitUntil(caches.open(CACHE)
