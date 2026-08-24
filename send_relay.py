@@ -44,7 +44,9 @@ MAILBOX_MAX = 300                # queued messages per mailbox before oldest dro
 GLOBAL_MAX = 60000               # total queued envelopes across all mailboxes
 TTL_S = 14 * 86400               # undelivered mail is dropped after two weeks
 CHALLENGE_TTL_S = 90.0
-_HEX = re.compile(r"^[0-9a-f]{16,64}$")
+# \Z not $ - in Python $ also matches just before a trailing newline, which would
+# let "aaaa...\n" pass and create a second on-disk variant of a mailbox.
+_HEX = re.compile(r"^[0-9a-f]{16,64}\Z")
 
 
 def _b64u_dec(s: str) -> bytes:
@@ -115,7 +117,7 @@ def _count_global() -> int:
         return 0
 
 
-_MID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_MID = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")   # \Z: reject a trailing newline
 
 
 def put(mb: str, env: str, mid: str = "") -> bool:
@@ -187,7 +189,9 @@ def fetch_and_clear(mb: str, signing_pub_b64u: str, challenge: str,
 
 
 def prune() -> int:
-    """Drop envelopes past the TTL. Cheap; safe to call on a timer."""
+    """Drop envelopes past the TTL, then reclaim emptied mailbox dirs. Cheap;
+    safe to call on a timer. Without the rmdir sweep, every mailbox ever written
+    left a directory behind forever, inflating the per-put os.walk cost."""
     cut = time.time() - TTL_S
     n = 0
     for f in glob.glob(str(SEND / "*" / "*.env")):
@@ -197,4 +201,13 @@ def prune() -> int:
                 n += 1
         except OSError:
             pass
+    try:
+        for d in SEND.glob("*"):
+            if d.is_dir():
+                try:
+                    d.rmdir()          # only succeeds if now empty
+                except OSError:
+                    pass
+    except OSError:
+        pass
     return n

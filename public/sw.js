@@ -74,8 +74,12 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
+      // Never delete Sparrow Send's caches (sparrowsend-*): CacheStorage is
+      // shared per-origin, and wiping its shell on every map update made the two
+      // service workers thrash each other's caches. Only drop OUR own old ones.
       .then((ks) => Promise.all(ks
-        .filter((k) => k !== CACHE && k !== VENDOR_CACHE && k !== TILE_CACHE)
+        .filter((k) => k !== CACHE && k !== VENDOR_CACHE && k !== TILE_CACHE
+                       && k.indexOf('sparrowsend-') !== 0)
         .map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );

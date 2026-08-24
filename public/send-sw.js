@@ -13,8 +13,13 @@ self.addEventListener("install", function (e) {
     .then(function () { return self.skipWaiting(); }));
 });
 self.addEventListener("activate", function (e) {
+  // 🚨 CacheStorage is per-ORIGIN, not per-scope. The map PWA lives on this same
+  // origin, so deleting "every cache that isn't mine" wiped the map's ~38 MB
+  // detector-model cache (sparrow-v6) the moment a camera volunteer opened
+  // Sparrow Send - forcing a full re-download before their camera could detect.
+  // Only ever delete OUR OWN old versions (the "sparrowsend-" prefix).
   e.waitUntil(caches.keys().then(function (ks) {
-    return Promise.all(ks.filter(function (k) { return k !== CACHE; })
+    return Promise.all(ks.filter(function (k) { return k.indexOf("sparrowsend-") === 0 && k !== CACHE; })
       .map(function (k) { return caches.delete(k); }));
   }).then(function () { return self.clients.claim(); }));
 });
