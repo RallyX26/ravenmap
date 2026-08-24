@@ -166,6 +166,8 @@
         <button class="btn ghost" id="exportBtn" style="margin-top:0">Export login key</button>
         <button class="btn ghost" id="importBtn" style="margin-top:0">Use a login key</button>
       </div>
+      <button class="btn ghost" id="logoutBtn" style="margin-top:8px">Log out this device</button>
+      <div class="sub" style="margin-top:4px">⚠️ Use ONE device at a time. If two are open, messages land on whichever grabs them first. Log the other one out.</div>
       <div id="exportBox" hidden style="margin-top:10px">
         <label>Set a password for the key</label>
         <input id="exPass" type="password" placeholder="a strong password" autocomplete="new-password">
@@ -294,7 +296,12 @@
       base, {name:'AES-GCM',length:256}, false, ['encrypt','decrypt']);
   }
   async function exportLoginKey(pass){
-    var payload=JSON.stringify({id:LS.getItem(ID_KEY), contacts:(LS.getItem('sparrow.send.contacts')||'[]')});
+    // Carry the ratchet + seen ids too, so conversations CONTINUE on the new
+    // device (moving identity alone broke ongoing chats). History is left out to
+    // keep the key paste-able.
+    var rat={}, seen={};
+    try{ Object.keys(LS).forEach(function(k){ if(k.indexOf('sparrow.send.rat.')===0) rat[k]=LS.getItem(k); else if(k.indexOf('sparrow.send.seen.')===0) seen[k]=LS.getItem(k); }); }catch(e){}
+    var payload=JSON.stringify({id:LS.getItem(ID_KEY), contacts:(LS.getItem('sparrow.send.contacts')||'[]'), rat:rat, seen:seen});
     var salt=crypto.getRandomValues(new Uint8Array(16)), iv=crypto.getRandomValues(new Uint8Array(12));
     var kek=await deriveKek(pass, salt, KDF_ITERS);
     var ct=await subtle.encrypt({name:'AES-GCM',iv:iv}, kek, enc.encode(payload));
@@ -308,10 +315,13 @@
     var pt=await subtle.decrypt({name:'AES-GCM',iv:ub64u(blob.i)}, kek, ub64u(blob.c));  // throws on wrong password
     var payload=JSON.parse(dec.decode(pt));
     JSON.parse(payload.id);   // validate it's a real identity bundle
-    // Fresh secure sessions on the new device (the old ratchet state doesn't move).
-    try{ Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.rat.')===0||k.indexOf('sparrow.send.seen.')===0||k.indexOf('sparrow.send.hist.')===0;}).forEach(function(k){LS.removeItem(k);}); }catch(e){}
+    // Replace everything local with what's in the key. History isn't carried, so
+    // clear it; ratchet + seen ARE carried so chats continue where they left off.
+    try{ Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);}); }catch(e){}
     LS.setItem(ID_KEY, payload.id);
     if(payload.contacts) LS.setItem('sparrow.send.contacts', payload.contacts);
+    if(payload.rat) Object.keys(payload.rat).forEach(function(k){ LS.setItem(k, payload.rat[k]); });
+    if(payload.seen) Object.keys(payload.seen).forEach(function(k){ LS.setItem(k, payload.seen[k]); });
   }
 
   /* ---------- contacts + history + ratchet state (all local) ---------- */
@@ -531,6 +541,11 @@
   };
   $('#copyBtn').onclick=function(){ if(navigator.clipboard) navigator.clipboard.writeText(ID.address); };
   $('#resetIdBtn').onclick=function(){ if(!confirm('Delete this identity and all messages? People will need your new address.')) return; try{Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);});}catch(e){} location.reload(); };
+  $('#logoutBtn').onclick=function(){
+    if(!confirm('Log out of Sparrow Send on THIS device? Make sure you exported your login key first — this removes your identity from this device so it stops receiving your messages.')) return;
+    try{ Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);}); }catch(e){}
+    location.reload();
+  };
   // portable login key
   $('#exportBtn').onclick=function(){ var b=$('#exportBox'); b.hidden=!b.hidden; $('#importBox').hidden=true; };
   $('#importBtn').onclick=function(){ var b=$('#importBox'); b.hidden=!b.hidden; $('#exportBox').hidden=true; };
