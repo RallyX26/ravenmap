@@ -60,7 +60,11 @@
   .panel .sub{color:var(--muted);font-size:12px;margin:2px}
   label{display:block;font-size:12px;color:var(--muted);margin:9px 2px 4px}
   input,textarea{width:100%;background:rgba(0,0,0,.28);border:1px solid var(--line);border-radius:10px;
-    color:var(--ink);padding:10px 11px;font:inherit}
+    color:var(--ink);padding:10px 11px;font:inherit;
+    /* 🚨 16px MINIMUM: iOS Safari force-zooms the page when you focus an input
+       smaller than 16px, which left the composer half off-screen. Fixing it at
+       the control (not maximum-scale=1) keeps pinch-zoom for accessibility. */
+    font-size:16px}
   textarea{resize:none}
   .btn{width:100%;border:1px solid var(--line2);background:rgba(62,224,138,.12);color:var(--accent);
     border-radius:11px;padding:10px;font:700 14px system-ui;cursor:pointer;margin-top:9px}
@@ -396,7 +400,19 @@
     var mb=await mailboxOf(from.sRaw);
     if(env.mid){ if(seenMid(mb,env.mid)) return null; markMid(mb,env.mid); }   // drop a duplicate before it touches the ratchet
     var contacts=getContacts(), ct=contacts.filter(function(x){return x.mb===mb;})[0];
-    if(!ct){ ct={name:'',mb:mb,sRaw:b64u(from.sRaw),eRaw:b64u(from.eRaw),verified:false,unknown:true};
+    if(!ct){
+      // Bound auto-added strangers. Anyone who has your address can drop mail
+      // from throwaway identities; without a cap that grows the contact list
+      // (and localStorage) without limit. Evict the oldest UNKNOWN, un-named,
+      // history-less contacts to make room - named/known ones are never touched.
+      var UNKNOWN_CAP=40;
+      var unknowns=contacts.filter(function(x){return x.unknown && !x.name && getHist(x.mb).length===0;});
+      while(unknowns.length>=UNKNOWN_CAP){
+        var victim=unknowns.shift();
+        contacts=contacts.filter(function(x){return x.mb!==victim.mb;});
+        try{ LS.removeItem(hKey(victim.mb)); delRat(victim.mb); LS.removeItem('sparrow.send.seen.'+victim.mb); }catch(e){}
+      }
+      ct={name:'',mb:mb,sRaw:b64u(from.sRaw),eRaw:b64u(from.eRaw),verified:false,unknown:true};
       contacts.push(ct); setContacts(contacts); }
     var st=getRat(mb);
     if(!st){ st=await R.initReceiver(ID.dhIdentity, R.b64(from.eRaw)); }
@@ -440,7 +456,12 @@
   }
   function closeChat(){ cur=null; clearReply(); $('#msgs').style.display='none'; $('#compose').style.display='none'; $('#chathead').style.display='none'; $('#empty').style.display='flex'; }
   function bubbleContent(el,o){
-    if(o&&o.t==='img'&&o.d){ var im=document.createElement('img'); im.src=o.d; el.appendChild(im); }
+    // Only render a self-contained data:image. A peer must never be able to make
+    // your browser fetch a REMOTE url (that would leak your IP + read-receipt to
+    // them, out of band from the relay). CSP already blocks it on the live site;
+    // this refuses it even on a mirror without that header.
+    if(o&&o.t==='img'&&typeof o.d==='string'&&/^data:image\//.test(o.d)){ var im=document.createElement('img'); im.src=o.d; el.appendChild(im); }
+    else if(o&&o.t==='img'){ el.appendChild(document.createTextNode('📷 photo (blocked: not an inline image)')); }
     else { el.appendChild(document.createTextNode((o&&o.x)||'')); }
   }
   // Long-press = reply, on touch devices (desktop uses the hover ↩ button).
