@@ -129,7 +129,7 @@
       var d = sha256(ascii(prefix + nonce));
       if (leadingZeroBits(d) >= bits) return { ts: now, nonce: nonce };
       nonce++;
-      if ((++batch & 8191) === 0) await sleep(0);   // breathe every 8192 tries
+      if ((++batch & 4095) === 0) await sleep(0);   // breathe every 4096 tries (keeps UI responsive)
     }
   }
 

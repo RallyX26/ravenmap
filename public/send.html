@@ -311,7 +311,7 @@
   async function mailboxOf(sRaw){return hex(await subtle.digest('SHA-256',sRaw)).slice(0,32);}
 
   /* ---------- short handles (optional directory: @name -> address) ---------- */
-  var HANDLE_CLAIM_BITS=20;   // must match send_relay.HANDLE_CLAIM_BITS
+  var HANDLE_CLAIM_BITS=18;   // must match send_relay.HANDLE_CLAIM_BITS
   function normHandle(h){ return (h||'').trim().toLowerCase().replace(/^@/,''); }
   async function claimHandle(handle){
     var h=normHandle(handle);

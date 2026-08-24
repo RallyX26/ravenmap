@@ -183,7 +183,7 @@ def _verify_sig(signing_pub_raw: bytes, message: bytes, sig_raw: bytes) -> bool:
 # PoW stamp (deters mass squatting); each identity holds at most one handle.
 HANDLES = core.DATA / "send_handles"
 _HANDLE = re.compile(r"^[a-z0-9_]{3,20}\Z")
-HANDLE_CLAIM_BITS = 20
+HANDLE_CLAIM_BITS = 18   # one-time; rate limit (120/hr) is the real anti-squat
 _RESERVED = {
     "admin", "administrator", "root", "sparrow", "sparrowmap", "sparrowsend",
     "send", "sends", "support", "help", "helpdesk", "system", "sys", "abuse",
