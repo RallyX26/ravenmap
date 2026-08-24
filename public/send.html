@@ -352,14 +352,19 @@
   // retry it. 🚨 The envelope is encrypted ONCE by the caller and reused across
   // retries: re-encrypting would burn a new ratchet key each try and desync.
   async function postEnv(mb, envStr, mid, pow){
-    var body=JSON.stringify({to:mb, env:envStr, mid:mid||'', pt:pow&&pow.ts, pn:pow&&pow.nonce}), last='could not reach the relay';
-    var delays=[0,700,1800,3500];
+    var last='could not reach the relay', delays=[0,700,1800,3500], escalations=0;
+    function body(){ return JSON.stringify({to:mb, env:envStr, mid:mid||'', pt:pow&&pow.ts, pn:pow&&pow.nonce}); }
     for(var i=0;i<delays.length;i++){
       if(delays[i]) await sleep(delays[i]);
       try{
-        var res=await fetch('/api/send/put',{method:'POST',headers:{'Content-Type':'application/json'},body:body});
+        var res=await fetch('/api/send/put',{method:'POST',headers:{'Content-Type':'application/json'},body:body()});
         if(res.ok) return;
         var j=await res.json().catch(function(){return{}}); last=j.error||('http '+res.status);
+        // Progressive PoW: the target mailbox is backed up and wants more work.
+        // Re-stamp harder and retry WITHOUT spending the transient-retry budget.
+        if(res.status===400 && j.need_bits && escalations<5){
+          escalations++; pow=await SparrowPow.stamp(mb, envStr, j.need_bits); i--; continue;
+        }
         if(res.status!==429 && res.status<500) throw new Error(last);   // permanent
       }catch(e){ last=e.message||String(e); if(/too large|bad mailbox/i.test(last)) throw new Error(last); }
     }

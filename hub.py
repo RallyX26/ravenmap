@@ -3899,11 +3899,15 @@ class Handler(BaseHTTPRequestHandler):
                 b = self._body()
                 to, env = str(b.get("to") or ""), str(b.get("env") or "")
                 # Proof-of-work gate. Anyone may send (no account), but each send
-                # must carry a small hashcash stamp so flooding a mailbox / the
-                # global cap / the rate bucket costs real CPU. Verified in ONE hash.
-                if not send_relay.pow_ok(to, env, b.get("pt"), b.get("pn")):
-                    return self._err(400, "proof-of-work missing or invalid - "
-                                          "update the page and resend")
+                # carries a small hashcash stamp so flooding costs real CPU. The
+                # required difficulty RISES with how full the target mailbox
+                # already is (progressive), so packing a mailbox to eviction is
+                # expensive even natively. The client sends at the base and
+                # re-stamps when we answer with need_bits. Verified in ONE hash.
+                need = send_relay.required_bits(send_relay.queue_depth(to))
+                if not send_relay.pow_ok(to, env, b.get("pt"), b.get("pn"), bits=need):
+                    return self._json({"error": "proof-of-work too low - resend",
+                                       "need_bits": need}, 400)
                 ok = send_relay.put(to, env, str(b.get("mid") or ""))
                 if not ok:
                     return self._err(400, "could not accept that message "

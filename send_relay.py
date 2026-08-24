@@ -102,8 +102,30 @@ def mailbox_for(signing_pub_raw: bytes) -> str:
 # and replay; the envelope hash binds the stamp to THIS message.
 # 🚨 POW_BITS MUST equal POW_BITS in public/sparrowsend-pow.js.
 POW_VERSION = "SP1"
-POW_BITS = 17
+POW_BITS = 17               # base difficulty for a near-empty mailbox
+POW_STEP = 14               # +1 required bit per this many already-queued msgs
 POW_SKEW_S = 300.0          # accept a stamp within 5 min of now (also clock skew)
+
+
+def queue_depth(mb: str) -> int:
+    if not _valid_mb(mb):
+        return 0
+    box = _box(mb)
+    if not box.is_dir():
+        return 0
+    try:
+        return sum(1 for _ in box.glob("*.env"))
+    except OSError:
+        return 0
+
+
+def required_bits(depth: int) -> int:
+    """Progressive PoW: the fuller a mailbox already is, the more work each new
+    message costs. Packing a mailbox toward eviction then grows super-linearly
+    and is expensive even for a native hasher, while a normal (near-empty)
+    mailbox stays cheap at the base difficulty. The client sends at the base,
+    and the hub replies with `need_bits` when more is required."""
+    return POW_BITS + max(0, depth) // POW_STEP
 
 
 def _leading_zero_bits(digest: bytes) -> int:
@@ -158,6 +180,33 @@ def _count_global() -> int:
         return 0
 
 
+def _evict_global(batch: int = 128) -> bool:
+    """When the relay is at GLOBAL_MAX, drop the oldest envelopes across ALL
+    mailboxes to make room, rather than refusing every new message network-wide
+    (which turned a full relay into a multi-day outage - the worst failure mode).
+    Oldest-first by the millisecond timestamp in the filename. A batch is dropped
+    at once so the next puts have headroom and don't each re-scan."""
+    files = glob.glob(str(SEND / "*" / "*.env"))
+    if not files:
+        return False
+
+    def _age(f):
+        try:
+            return int(os.path.basename(f).split("_", 1)[0])
+        except (ValueError, IndexError):
+            return 0
+
+    files.sort(key=_age)
+    n = 0
+    for f in files[:max(1, batch)]:
+        try:
+            os.unlink(f)
+            n += 1
+        except OSError:
+            pass
+    return n > 0
+
+
 _MID = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")   # \Z: reject a trailing newline
 
 
@@ -182,7 +231,11 @@ def put(mb: str, env: str, mid: str = "") -> bool:
             for _dup in box.glob("*_" + safe_mid + ".env"):
                 return True                      # already stored this exact message
         if _count_global() >= GLOBAL_MAX:
-            return False
+            # Degrade gracefully: make room by dropping the globally-oldest mail
+            # instead of refusing everyone. Only refuse if even that freed nothing.
+            _evict_global()
+            if _count_global() >= GLOBAL_MAX:
+                return False
         existing = sorted(box.glob("*.env"))
         # Bounded queue: drop the oldest rather than let one mailbox grow forever.
         for old in existing[:max(0, len(existing) + 1 - MAILBOX_MAX)]:
