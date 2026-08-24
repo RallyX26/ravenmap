@@ -36,6 +36,7 @@ import nodes as node_mod
 import privacy
 import review_api
 import review_auth
+import send_relay
 import snapshot
 from core import CONFIG, DATA, PUBLIC, SNAPS, is_operator_addr, now
 
@@ -648,6 +649,13 @@ RATE = {"/api/enroll": (600, 3600), "/api/sightings": (900, 3600),
         # Drone / police-radio events from paired hardware. Also node-token
         # authenticated; generous bucket, same reasoning as radar.
         "/api/sensor/hit": (1200, 3600),
+        # Sparrow Send (E2EE messages). All network-wide (Caddy strips IPs), so
+        # these are flood guards, not per-user caps. Sending is generous (a chat
+        # is bursty); fetching and challenges cheaper. The relay's own per-mailbox
+        # and global queue caps are the real backstop.
+        "/api/send/put": (3000, 3600),
+        "/api/send/get": (3000, 3600),
+        "/api/send/challenge": (3000, 3600),
         # Local ADS-B receivers pushing aircraft they see. A busy sky is a lot of
         # aircraft per push but one push every few seconds, so this is roomy.
         "/api/aircraft/ingest": (1800, 3600),
@@ -1671,6 +1679,7 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/guide":            return self._file(PUBLIC / "guide.html")
             if p == "/rfbeta":           return self._file(PUBLIC / "rfbeta.html")
             if p == "/radar":            return self._file(PUBLIC / "radar.html")
+            if p == "/send":             return self._file(PUBLIC / "send.html")
             if p == "/sensors":          return self._file(PUBLIC / "sensors.html")
             if p == "/setup":            return self._file(PUBLIC / "setup.html")
             if p == "/buy":              return self._file(PUBLIC / "buy.html")
@@ -3852,6 +3861,41 @@ class Handler(BaseHTTPRequestHandler):
                     key = nd["id"]
                 _live_add(kind, lat, lon, label, key, nd["id"])
                 return self._json({"ok": True})
+
+            if p == "/api/send/challenge":
+                # A short-lived challenge the client signs to prove it owns a
+                # mailbox before fetching. Stateless; no message content involved.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "slow down")
+                b = self._body()
+                ch = send_relay.issue_challenge(str(b.get("mb") or ""))
+                if not ch:
+                    return self._err(400, "bad mailbox")
+                return self._json({"challenge": ch})
+
+            if p == "/api/send/put":
+                # Drop one sealed ciphertext envelope into a recipient's mailbox.
+                # No auth to SEND (anyone with your address can write to you, the
+                # same as email), but the envelope is opaque and hard-capped.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "a lot of messages right now - retry shortly")
+                b = self._body()
+                ok = send_relay.put(str(b.get("to") or ""), str(b.get("env") or ""))
+                if not ok:
+                    return self._err(400, "could not accept that message "
+                                          "(bad mailbox, too large, or relay full)")
+                return self._json({"ok": True})
+
+            if p == "/api/send/get":
+                # Prove ownership, then hand back and DELETE this mailbox's
+                # envelopes. The hub cannot read any of them - they are ciphertext.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "slow down")
+                b = self._body()
+                msgs = send_relay.fetch_and_clear(
+                    str(b.get("mb") or ""), str(b.get("pk") or ""),
+                    str(b.get("ch") or ""), str(b.get("sig") or ""))
+                return self._json({"msgs": msgs})
 
             if p == "/api/aircraft/ingest":
                 # A LOCAL ADS-B receiver (dump1090 on a Pi) pushing the aircraft it

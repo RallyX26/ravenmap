@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sparrow Send</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<meta name="theme-color" content="#0B0E13">
+<style>
+  :root{ --bg:#0B0E13; --panel:#121722; --panel2:#0f1420; --ink:#e7edf5;
+         --muted:#93a3b3; --line:#22303f; --accent:#2ee08a; --me:#173a2a;
+         --them:#1b2636; --warn:#f59e0b; }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);display:flex;
+       flex-direction:column;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:10px;padding:11px 14px;
+         border-bottom:1px solid var(--line);flex:none}
+  header a.back{color:var(--accent);text-decoration:none;font-weight:600}
+  header b{letter-spacing:.5px}
+  .tag{color:var(--muted);font-size:12px}
+  main{flex:1;overflow:auto;-webkit-overflow-scrolling:touch}
+  .wrap{max-width:640px;margin:0 auto;padding:14px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:20px 0 8px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:13px 15px;margin:10px 0}
+  .muted{color:var(--muted);font-size:13px}
+  label{display:block;font-size:12.5px;color:var(--muted);margin:8px 0 3px}
+  input,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);
+       border-radius:9px;color:var(--ink);padding:10px 11px;font:inherit}
+  textarea{resize:vertical}
+  button{background:var(--panel);color:var(--ink);border:1px solid var(--line);
+       border-radius:10px;padding:10px 14px;font:inherit;cursor:pointer}
+  button.go{border-color:var(--accent);color:var(--accent);font-weight:600}
+  button:disabled{opacity:.5;cursor:default}
+  .addr{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;
+        word-break:break-all;background:var(--panel2);border:1px solid var(--line);
+        border-radius:9px;padding:10px;color:#9fd6bf}
+  .contact{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:10px;
+        cursor:pointer;border:1px solid transparent}
+  .contact:hover{background:var(--panel2)}
+  .contact .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);flex:none}
+  .contact .n{font-weight:600}
+  .contact .a{font-size:11px;color:var(--muted);font-family:ui-monospace,monospace}
+  .box{background:var(--panel2);border:1px solid var(--line);border-radius:12px;
+       padding:12px 14px;margin:12px 0;color:var(--muted);font-size:12.5px}
+  .box.warn{border-color:#5e4a1c} .box b{color:var(--ink)}
+  a.plain{color:var(--accent)}
+  /* chat */
+  #chat{display:none;flex-direction:column;height:100%}
+  #chathead{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);flex:none}
+  #chathead .who{font-weight:700}
+  #msgs{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:8px}
+  .msg{max-width:78%;padding:8px 12px;border-radius:14px;font-size:14.5px;word-wrap:break-word;white-space:pre-wrap}
+  .msg.out{align-self:flex-end;background:var(--me);color:#c7f6df;border-bottom-right-radius:5px}
+  .msg.in{align-self:flex-start;background:var(--them);border-bottom-left-radius:5px}
+  .msg .t{display:block;font-size:10px;color:var(--muted);margin-top:3px}
+  #compose{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line);flex:none}
+  #compose textarea{flex:1;max-height:120px}
+  .row{display:flex;gap:8px}
+  .row button{flex:none}
+  .status{color:var(--muted);font-size:12px;min-height:16px;margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/" id="homeLink">&larr; Map</a>
+  <b>✉️ SPARROW SEND</b>
+  <span class="tag">end-to-end encrypted · beta</span>
+</header>
+
+<main id="home">
+  <div class="wrap">
+    <div class="box warn" id="unsupported" hidden></div>
+
+    <h2>Your Sparrow address</h2>
+    <div class="card">
+      <p class="muted">Share this with someone so they can message you. It is a
+        public key, not a secret — but it is the only way anyone reaches you here,
+        and there is no phone number or email involved.</p>
+      <div class="addr" id="myaddr">generating…</div>
+      <div class="row" style="margin-top:10px">
+        <button id="copyBtn">Copy address</button>
+        <button id="resetBtn" title="Delete this identity and make a new one">Reset identity</button>
+      </div>
+      <div class="status" id="idstatus"></div>
+    </div>
+
+    <h2>Add someone</h2>
+    <div class="card">
+      <label>Their Sparrow address</label>
+      <input id="peerAddr" placeholder="paste their address" autocomplete="off" spellcheck="false">
+      <label>Name (just for you)</label>
+      <input id="peerName" placeholder="e.g. Sam" autocomplete="off">
+      <div class="row" style="margin-top:10px"><button class="go" id="addBtn">Add contact</button></div>
+      <div class="status" id="addstatus"></div>
+    </div>
+
+    <h2>Contacts</h2>
+    <div class="card" id="contacts"><p class="muted">No one yet. Add someone above.</p></div>
+
+    <div class="box">
+      <b>What this is.</b> Messages are sealed on your device to the other
+      person's key and the server only relays ciphertext it cannot read — nothing
+      to subpoena or leak. <b>Honest limits:</b> the relay still sees that a
+      mailbox got a message and when (metadata), and this beta does not yet have
+      forward secrecy (that's next). Your keys live only in this browser — clear
+      your site data or Reset and they're gone. Not a Signal replacement yet;
+      treat it as beta.
+    </div>
+  </div>
+</main>
+
+<div id="chat">
+  <div id="chathead">
+    <button id="backChat">&larr;</button>
+    <span class="who" id="chatwho"></span>
+    <span class="tag" id="chatverify"></span>
+  </div>
+  <div id="msgs"></div>
+  <div id="compose">
+    <textarea id="msgInput" rows="1" placeholder="Message… (encrypted)"></textarea>
+    <button class="go" id="sendBtn">Send</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var $=function(s){return document.querySelector(s)};
+  var LS=window.localStorage;
+  var subtle = (window.crypto && window.crypto.subtle) || null;
+  if(!subtle){
+    var u=$('#unsupported'); u.hidden=false;
+    u.innerHTML='<b>This browser can’t do the encryption.</b> Sparrow Send needs '
+      +'the Web Crypto API — use a current Chrome, Safari, Firefox or Edge, over https.';
+    return;
+  }
+
+  // ---- encoding helpers ----
+  function b64u(buf){ var b=new Uint8Array(buf),s='';
+    for(var i=0;i<b.length;i++) s+=String.fromCharCode(b[i]);
+    return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+  function ub64(str){ str=str.replace(/-/g,'+').replace(/_/g,'/');
+    while(str.length%4) str+='='; var s=atob(str),b=new Uint8Array(s.length);
+    for(var i=0;i<s.length;i++) b[i]=s.charCodeAt(i); return b; }
+  function hex(buf){ var b=new Uint8Array(buf),o=''; for(var i=0;i<b.length;i++)
+    o+=('0'+b[i].toString(16)).slice(-2); return o; }
+  var enc=new TextEncoder(), dec=new TextDecoder();
+
+  // ---- identity: an ECDSA signing key (owns the mailbox) + an ECDH key (seals
+  //      messages). Stored as JWK in localStorage; private keys never leave. ----
+  var ID=null;   // {sign:{pub,priv}, dh:{pub,priv}, sPubRaw, ePubRaw, mailbox, address}
+  var ID_KEY='sparrow.send.id';
+
+  async function mkKeys(){
+    var sign=await subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+    var dh=await subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
+    return {sign:sign, dh:dh};
+  }
+  async function exportID(k){
+    return JSON.stringify({
+      sPriv:await subtle.exportKey('jwk',k.sign.privateKey),
+      sPub:await subtle.exportKey('jwk',k.sign.publicKey),
+      ePriv:await subtle.exportKey('jwk',k.dh.privateKey),
+      ePub:await subtle.exportKey('jwk',k.dh.publicKey)});
+  }
+  async function importID(js){
+    var j=JSON.parse(js);
+    var sign={
+      privateKey:await subtle.importKey('jwk',j.sPriv,{name:'ECDSA',namedCurve:'P-256'},true,['sign']),
+      publicKey:await subtle.importKey('jwk',j.sPub,{name:'ECDSA',namedCurve:'P-256'},true,['verify'])};
+    var dh={
+      privateKey:await subtle.importKey('jwk',j.ePriv,{name:'ECDH',namedCurve:'P-256'},true,['deriveBits']),
+      publicKey:await subtle.importKey('jwk',j.ePub,{name:'ECDH',namedCurve:'P-256'},true,[])};
+    return {sign:sign, dh:dh};
+  }
+  async function finishID(keys){
+    var sRaw=new Uint8Array(await subtle.exportKey('raw',keys.sign.publicKey));
+    var eRaw=new Uint8Array(await subtle.exportKey('raw',keys.dh.publicKey));
+    var mb=hex(await subtle.digest('SHA-256',sRaw)).slice(0,32);
+    var address=b64u(enc.encode(JSON.stringify({s:b64u(sRaw),e:b64u(eRaw)})));
+    ID={sign:keys.sign, dh:keys.dh, sPubRaw:sRaw, ePubRaw:eRaw, mailbox:mb, address:address};
+  }
+  async function loadOrCreateID(){
+    var saved=null; try{ saved=LS.getItem(ID_KEY); }catch(e){}
+    if(saved){ try{ await finishID(await importID(saved)); return; }catch(e){} }
+    var keys=await mkKeys();
+    try{ LS.setItem(ID_KEY, await exportID(keys)); }catch(e){}
+    await finishID(keys);
+  }
+
+  // Decode a contact's address to its two raw public keys.
+  function decodeAddress(addr){
+    var j=JSON.parse(dec.decode(ub64(addr.trim())));
+    return {sRaw:ub64(j.s), eRaw:ub64(j.e)};
+  }
+  async function mailboxOf(sRaw){ return hex(await subtle.digest('SHA-256',sRaw)).slice(0,32); }
+
+  // ---- the shared AES-GCM key with a peer: ECDH -> HKDF-SHA256 ----
+  async function sharedKey(peerERaw){
+    var peer=await subtle.importKey('raw',peerERaw,{name:'ECDH',namedCurve:'P-256'},false,[]);
+    var bits=await subtle.deriveBits({name:'ECDH',public:peer},ID.dh.privateKey,256);
+    var hk=await subtle.importKey('raw',bits,'HKDF',false,['deriveKey']);
+    return subtle.deriveKey(
+      {name:'HKDF',hash:'SHA-256',salt:enc.encode('sparrow-send'),info:enc.encode('v1')},
+      hk,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+  }
+  async function seal(peerERaw, text){
+    var key=await sharedKey(peerERaw);
+    var iv=crypto.getRandomValues(new Uint8Array(12));
+    var ct=await subtle.encrypt({name:'AES-GCM',iv:iv},key,enc.encode(text));
+    return {iv:b64u(iv), ct:b64u(ct)};
+  }
+  async function open(peerERaw, ivB64, ctB64){
+    var key=await sharedKey(peerERaw);
+    var pt=await subtle.decrypt({name:'AES-GCM',iv:ub64(ivB64)},key,ub64(ctB64));
+    return dec.decode(pt);
+  }
+
+  // ---- contacts + local history (server deletes on delivery, so we keep it) ----
+  function getContacts(){ try{ return JSON.parse(LS.getItem('sparrow.send.contacts')||'[]'); }catch(e){ return []; } }
+  function setContacts(c){ try{ LS.setItem('sparrow.send.contacts', JSON.stringify(c)); }catch(e){} }
+  function histKey(mb){ return 'sparrow.send.hist.'+mb; }
+  function getHist(mb){ try{ return JSON.parse(LS.getItem(histKey(mb))||'[]'); }catch(e){ return []; } }
+  function pushHist(mb,m){ var h=getHist(mb); h.push(m); if(h.length>500) h=h.slice(-500);
+    try{ LS.setItem(histKey(mb), JSON.stringify(h)); }catch(e){} }
+
+  function renderContacts(){
+    var box=$('#contacts'), c=getContacts();
+    if(!c.length){ box.innerHTML='<p class="muted">No one yet. Add someone above.</p>'; return; }
+    box.innerHTML='';
+    c.forEach(function(ct){
+      var el=document.createElement('div'); el.className='contact';
+      el.innerHTML='<span class="dot"></span><div><div class="n"></div>'
+        +'<div class="a">'+ct.mb.slice(0,12)+'…</div></div>';
+      el.querySelector('.n').textContent=ct.name||'(unnamed)';
+      el.onclick=function(){ openChat(ct); };
+      box.appendChild(el);
+    });
+  }
+
+  // ---- sending / receiving ----
+  async function sendTo(ct, text){
+    var env=await seal(ub64(ct.eRaw), text);
+    var payload={from:ID.address, iv:env.iv, ct:env.ct, ts:Date.now()};
+    var r=await fetch('/api/send/put',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({to:ct.mb, env:JSON.stringify(payload)})});
+    if(!r.ok){ var j=await r.json().catch(function(){return{};}); throw new Error(j.error||('http '+r.status)); }
+  }
+  async function poll(){
+    if(!ID) return;
+    try{
+      var c=await (await fetch('/api/send/challenge',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({mb:ID.mailbox})})).json();
+      if(!c.challenge) return;
+      var sig=await subtle.sign({name:'ECDSA',hash:'SHA-256'},ID.sign.privateKey,enc.encode(c.challenge));
+      var res=await (await fetch('/api/send/get',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({mb:ID.mailbox, pk:b64u(ID.sPubRaw), ch:c.challenge, sig:b64u(sig)})})).json();
+      var got=res.msgs||[];
+      for(var i=0;i<got.length;i++){ await ingest(got[i]); }
+      if(got.length){ renderContacts(); if(curChat) drawMsgs(); }
+    }catch(e){ /* offline; try again next tick */ }
+  }
+  var seenContacts={};
+  async function ingest(envStr){
+    var env; try{ env=JSON.parse(envStr); }catch(e){ return; }
+    var from; try{ from=decodeAddress(env.from); }catch(e){ return; }
+    var mb=await mailboxOf(from.sRaw);
+    // Auto-add an unknown sender so their first message isn't lost.
+    var contacts=getContacts();
+    var ct=contacts.filter(function(x){return x.mb===mb;})[0];
+    if(!ct){ ct={name:'', mb:mb, sRaw:b64u(from.sRaw), eRaw:b64u(from.eRaw), unknown:true};
+      contacts.push(ct); setContacts(contacts); }
+    var text;
+    try{ text=await open(from.eRaw, env.iv, env.ct); }
+    catch(e){ text='[could not decrypt a message]'; }
+    pushHist(mb, {dir:'in', text:text, ts:env.ts||Date.now()});
+  }
+
+  // ---- chat view ----
+  var curChat=null;
+  function openChat(ct){
+    curChat=ct;
+    $('#home').style.display='none';
+    $('#chat').style.display='flex';
+    $('#chatwho').textContent=ct.name||('Unknown ('+ct.mb.slice(0,8)+'…)');
+    $('#chatverify').textContent=ct.unknown?'unverified sender':'';
+    drawMsgs();
+    $('#msgInput').focus();
+  }
+  function closeChat(){ curChat=null; $('#chat').style.display='none'; $('#home').style.display=''; renderContacts(); }
+  function drawMsgs(){
+    if(!curChat) return;
+    var box=$('#msgs'), h=getHist(curChat.mb); box.innerHTML='';
+    h.forEach(function(m){
+      var el=document.createElement('div'); el.className='msg '+(m.dir==='out'?'out':'in');
+      el.textContent=m.text;
+      var t=document.createElement('span'); t.className='t';
+      t.textContent=new Date(m.ts).toLocaleString(); el.appendChild(t);
+      box.appendChild(el);
+    });
+    box.scrollTop=box.scrollHeight;
+  }
+  async function doSend(){
+    if(!curChat) return;
+    var inp=$('#msgInput'), text=inp.value.trim(); if(!text) return;
+    inp.value=''; inp.style.height='auto';
+    pushHist(curChat.mb, {dir:'out', text:text, ts:Date.now()}); drawMsgs();
+    try{ await sendTo(curChat, text); }
+    catch(e){ pushHist(curChat.mb, {dir:'in', text:'[not delivered: '+e.message+']', ts:Date.now()}); drawMsgs(); }
+  }
+
+  // ---- wire up ----
+  $('#copyBtn').onclick=function(){ if(!ID) return;
+    navigator.clipboard && navigator.clipboard.writeText(ID.address);
+    $('#idstatus').textContent='Address copied.'; };
+  $('#resetBtn').onclick=async function(){
+    if(!confirm('Delete this identity and all local messages? People will need your new address.')) return;
+    try{ Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);}); }catch(e){}
+    location.reload();
+  };
+  $('#addBtn').onclick=async function(){
+    var addr=$('#peerAddr').value.trim(), name=$('#peerName').value.trim();
+    if(!addr){ $('#addstatus').textContent='Paste their address first.'; return; }
+    try{
+      var d=decodeAddress(addr); var mb=await mailboxOf(d.sRaw);
+      if(mb===ID.mailbox){ $('#addstatus').textContent='That is your own address.'; return; }
+      var contacts=getContacts().filter(function(x){return x.mb!==mb;});
+      contacts.push({name:name, mb:mb, sRaw:b64u(d.sRaw), eRaw:b64u(d.eRaw)});
+      setContacts(contacts);
+      $('#peerAddr').value=''; $('#peerName').value='';
+      $('#addstatus').textContent='Added.'; renderContacts();
+    }catch(e){ $('#addstatus').textContent='That does not look like a Sparrow address.'; }
+  };
+  $('#backChat').onclick=closeChat;
+  $('#sendBtn').onclick=doSend;
+  var mi=$('#msgInput');
+  mi.addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); doSend(); } });
+  mi.addEventListener('input',function(){ this.style.height='auto'; this.style.height=Math.min(120,this.scrollHeight)+'px'; });
+
+  (async function init(){
+    await loadOrCreateID();
+    $('#myaddr').textContent=ID.address;
+    renderContacts();
+    await poll();
+    setInterval(poll, 4000);
+  })();
+})();
+</script>
+</body>
+</html>
