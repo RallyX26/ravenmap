@@ -1680,6 +1680,23 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/rfbeta":           return self._file(PUBLIC / "rfbeta.html")
             if p == "/radar":            return self._file(PUBLIC / "radar.html")
             if p == "/send":             return self._file(PUBLIC / "send.html")
+            if p == "/send-sw.js":
+                # Sparrow Send's service worker. Served from the ROOT path so it
+                # can scope itself to /send (a script at /send-sw.js may control
+                # any scope under /). Coexists with the map's own /sw.js - the
+                # narrower /send scope wins for the messenger page.
+                return self._file(PUBLIC / "send-sw.js")
+            if p == "/api/send/qr":
+                # A QR PNG of a Sparrow address (a public key - nothing secret),
+                # so a contact can be added by scanning instead of pasting.
+                _q = parse_qs(urlparse(self.path).query)
+                d = (_q.get("d", [""])[0] or "")[:4096]
+                if not d:
+                    return self._err(400, "no data")
+                try:
+                    return self._send(200, qr.png(d, scale=6), "image/png")
+                except Exception:
+                    return self._err(400, "could not render")
             if p == "/sensors":          return self._file(PUBLIC / "sensors.html")
             if p == "/setup":            return self._file(PUBLIC / "setup.html")
             if p == "/buy":              return self._file(PUBLIC / "buy.html")

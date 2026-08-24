@@ -5,348 +5,480 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Sparrow Send</title>
 <link rel="icon" href="/static/favicon.ico" sizes="any">
-<meta name="theme-color" content="#0B0E13">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<link rel="manifest" href="/static/send.webmanifest">
+<meta name="theme-color" content="#0b0e13">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Sparrow Send">
 <style>
-  :root{ --bg:#0B0E13; --panel:#121722; --panel2:#0f1420; --ink:#e7edf5;
-         --muted:#93a3b3; --line:#22303f; --accent:#2ee08a; --me:#173a2a;
-         --them:#1b2636; --warn:#f59e0b; }
+  :root{
+    --ink:#eaf1fa; --muted:#93a3b3; --accent:#3ee08a; --accent2:#38bdf8;
+    --glass:rgba(18,24,36,0.55); --glass2:rgba(28,36,52,0.62);
+    --line:rgba(255,255,255,0.09); --line2:rgba(255,255,255,0.14);
+    --me:linear-gradient(180deg,#1f6f4a,#17583b); --them:rgba(40,52,72,0.75);
+  }
   *{box-sizing:border-box}
-  html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--ink);display:flex;
-       flex-direction:column;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-  header{display:flex;align-items:center;gap:10px;padding:11px 14px;
-         border-bottom:1px solid var(--line);flex:none}
-  header a.back{color:var(--accent);text-decoration:none;font-weight:600}
-  header b{letter-spacing:.5px}
-  .tag{color:var(--muted);font-size:12px}
-  main{flex:1;overflow:auto;-webkit-overflow-scrolling:touch}
-  .wrap{max-width:640px;margin:0 auto;padding:14px}
-  h2{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:20px 0 8px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:13px 15px;margin:10px 0}
-  .muted{color:var(--muted);font-size:13px}
-  label{display:block;font-size:12.5px;color:var(--muted);margin:8px 0 3px}
-  input,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);
-       border-radius:9px;color:var(--ink);padding:10px 11px;font:inherit}
-  textarea{resize:vertical}
-  button{background:var(--panel);color:var(--ink);border:1px solid var(--line);
-       border-radius:10px;padding:10px 14px;font:inherit;cursor:pointer}
-  button.go{border-color:var(--accent);color:var(--accent);font-weight:600}
-  button:disabled{opacity:.5;cursor:default}
-  .addr{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;
-        word-break:break-all;background:var(--panel2);border:1px solid var(--line);
-        border-radius:9px;padding:10px;color:#9fd6bf}
-  .contact{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:10px;
-        cursor:pointer;border:1px solid transparent}
-  .contact:hover{background:var(--panel2)}
-  .contact .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);flex:none}
-  .contact .n{font-weight:600}
+  html,body{height:100%;margin:0}
+  body{font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--ink);
+    background:#070a10;overflow:hidden}
+  /* living gradient behind the glass */
+  .bg{position:fixed;inset:0;z-index:0;overflow:hidden;background:
+      radial-gradient(1200px 700px at 15% -10%,#123a2e 0%,transparent 55%),
+      radial-gradient(1000px 800px at 110% 20%,#12314d 0%,transparent 55%),
+      radial-gradient(900px 900px at 50% 120%,#1a1330 0%,transparent 55%),#070a10}
+  .bg::after{content:"";position:absolute;inset:-30%;background:
+      radial-gradient(420px 420px at 30% 40%,rgba(62,224,138,.12),transparent 60%),
+      radial-gradient(420px 420px at 70% 60%,rgba(56,189,248,.12),transparent 60%);
+      animation:drift 22s ease-in-out infinite alternate;filter:blur(20px)}
+  @keyframes drift{from{transform:translate(-4%,-3%) scale(1)}to{transform:translate(5%,4%) scale(1.12)}}
+
+  /* the floating window */
+  .app{position:fixed;z-index:1;inset:0;display:flex;align-items:center;justify-content:center;padding:22px}
+  .win{width:100%;max-width:440px;height:min(760px,92vh);display:flex;flex-direction:column;
+    background:var(--glass);backdrop-filter:blur(26px) saturate(1.5);-webkit-backdrop-filter:blur(26px) saturate(1.5);
+    border:1px solid var(--line2);border-radius:22px;overflow:hidden;
+    box-shadow:0 30px 80px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08)}
+  @media(max-width:520px){ .app{padding:0} .win{max-width:none;height:100%;border-radius:0;border:0} }
+
+  .top{display:flex;align-items:center;gap:10px;padding:13px 14px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(255,255,255,.05),transparent)}
+  .top .brand{font-weight:750;letter-spacing:.3px;display:flex;align-items:center;gap:8px}
+  .top .brand .logo{width:20px;height:20px;border-radius:6px;background:conic-gradient(from 210deg,var(--accent),var(--accent2),var(--accent));box-shadow:0 0 12px rgba(62,224,138,.5)}
+  .grow{flex:1}
+  .iconbtn{width:38px;height:38px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.04);
+    color:var(--ink);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;-webkit-tap-highlight-color:transparent}
+  .iconbtn:hover{border-color:var(--line2);background:rgba(255,255,255,.08)}
+  .iconbtn.badge{position:relative}
+  .iconbtn .dot{position:absolute;top:-2px;right:-2px;width:9px;height:9px;border-radius:50%;background:var(--accent);display:none}
+  .pill{border:1px solid var(--line);background:rgba(255,255,255,.05);color:var(--ink);border-radius:11px;
+    padding:9px 12px;cursor:pointer;font:600 13px system-ui;display:flex;align-items:center;gap:7px}
+  .pill:hover{border-color:var(--line2)}
+
+  /* dropdown / popover panels */
+  .panel{position:absolute;top:56px;right:12px;z-index:20;width:300px;max-width:calc(100vw - 24px);
+    background:var(--glass2);backdrop-filter:blur(26px) saturate(1.5);-webkit-backdrop-filter:blur(26px) saturate(1.5);
+    border:1px solid var(--line2);border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,.55);
+    padding:12px;display:none;max-height:min(70vh,560px);overflow:auto}
+  .panel.open{display:block;animation:pop .14s ease}
+  @keyframes pop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+  .panel h4{margin:4px 2px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+  .panel .sub{color:var(--muted);font-size:12px;margin:2px}
+  label{display:block;font-size:12px;color:var(--muted);margin:9px 2px 4px}
+  input,textarea{width:100%;background:rgba(0,0,0,.28);border:1px solid var(--line);border-radius:10px;
+    color:var(--ink);padding:10px 11px;font:inherit}
+  textarea{resize:none}
+  .btn{width:100%;border:1px solid var(--line2);background:rgba(62,224,138,.12);color:var(--accent);
+    border-radius:11px;padding:10px;font:700 14px system-ui;cursor:pointer;margin-top:9px}
+  .btn.ghost{background:rgba(255,255,255,.04);color:var(--ink);font-weight:600}
+  .addr{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;word-break:break-all;
+    background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:10px;padding:9px;color:#9fe6c4}
+  .qr{display:block;margin:10px auto 4px;width:170px;height:170px;border-radius:12px;background:#fff;padding:8px}
+  .row{display:flex;gap:8px} .row .btn{margin-top:0}
+  .status{font-size:12px;color:var(--muted);min-height:15px;margin-top:6px}
+
+  .contact{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:11px;cursor:pointer;border:1px solid transparent}
+  .contact:hover{background:rgba(255,255,255,.05)}
+  .contact .av{width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+    font-weight:700;background:linear-gradient(180deg,#284a6a,#1a2c44);color:#cfe3f5}
+  .contact .n{font-weight:650;display:flex;align-items:center;gap:6px}
   .contact .a{font-size:11px;color:var(--muted);font-family:ui-monospace,monospace}
-  .box{background:var(--panel2);border:1px solid var(--line);border-radius:12px;
-       padding:12px 14px;margin:12px 0;color:var(--muted);font-size:12.5px}
-  .box.warn{border-color:#5e4a1c} .box b{color:var(--ink)}
-  a.plain{color:var(--accent)}
+  .vbadge{font-size:10px;color:var(--accent);border:1px solid rgba(62,224,138,.4);border-radius:20px;padding:0 6px}
+  .cmenu{margin-left:auto;color:var(--muted);padding:4px 6px;border-radius:8px}
+  .cmenu:hover{background:rgba(255,255,255,.08)}
+
   /* chat */
-  #chat{display:none;flex-direction:column;height:100%}
-  #chathead{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);flex:none}
-  #chathead .who{font-weight:700}
-  #msgs{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:8px}
-  .msg{max-width:78%;padding:8px 12px;border-radius:14px;font-size:14.5px;word-wrap:break-word;white-space:pre-wrap}
-  .msg.out{align-self:flex-end;background:var(--me);color:#c7f6df;border-bottom-right-radius:5px}
-  .msg.in{align-self:flex-start;background:var(--them);border-bottom-left-radius:5px}
-  .msg .t{display:block;font-size:10px;color:var(--muted);margin-top:3px}
-  #compose{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line);flex:none}
-  #compose textarea{flex:1;max-height:120px}
-  .row{display:flex;gap:8px}
-  .row button{flex:none}
-  .status{color:var(--muted);font-size:12px;min-height:16px;margin-top:6px}
+  .chat{flex:1;display:flex;flex-direction:column;min-height:0}
+  .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted);text-align:center;padding:30px}
+  .empty .big{font-size:40px;opacity:.6}
+  .chathead{display:none;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .chathead .who{font-weight:700}
+  .msgs{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:7px}
+  .msg{max-width:80%;padding:8px 12px;border-radius:16px;font-size:14.5px;word-wrap:break-word;white-space:pre-wrap;line-height:1.35}
+  .msg.out{align-self:flex-end;background:var(--me);color:#dbffef;border-bottom-right-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+  .msg.in{align-self:flex-start;background:var(--them);border-bottom-left-radius:6px}
+  .msg.sys{align-self:center;background:rgba(245,158,11,.14);color:#f6c96b;font-size:12px;border-radius:20px;padding:5px 12px}
+  .msg img{max-width:100%;border-radius:11px;display:block;margin:2px 0}
+  .msg .t{display:block;font-size:10px;color:rgba(255,255,255,.5);margin-top:3px}
+  .compose{display:none;gap:8px;padding:10px;border-top:1px solid var(--line);align-items:flex-end}
+  .compose textarea{flex:1;max-height:120px;min-height:42px}
+  .send{width:44px;height:44px;flex:none;border-radius:50%;border:0;background:linear-gradient(180deg,var(--accent),#1f9e63);
+    color:#052012;font-size:18px;cursor:pointer;font-weight:900}
+  .attach{width:42px;height:42px;flex:none;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted);cursor:pointer;font-size:18px}
+  .scanwrap{position:fixed;inset:0;z-index:60;background:rgba(4,7,12,.94);display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px}
+  .scanwrap video{width:min(360px,86vw);border-radius:16px;border:1px solid var(--line2)}
+  .slider{width:100%}
+  a.plain{color:var(--accent);text-decoration:none}
+  .foot{color:var(--muted);font-size:11px;text-align:center;padding:8px}
 </style>
 </head>
 <body>
-<header>
-  <a class="back" href="/" id="homeLink">&larr; Map</a>
-  <b>✉️ SPARROW SEND</b>
-  <span class="tag">end-to-end encrypted · beta</span>
-</header>
+<div class="bg"></div>
+<div class="app">
+  <div class="win">
+    <div class="top">
+      <div class="brand"><span class="logo"></span>Sparrow Send</div>
+      <div class="grow"></div>
+      <button class="iconbtn" id="soundBtn" title="Sound &amp; app">🔔</button>
+      <button class="iconbtn badge" id="contactsBtn" title="Contacts">☰<span class="dot" id="cdot"></span></button>
+    </div>
 
-<main id="home">
-  <div class="wrap">
-    <div class="box warn" id="unsupported" hidden></div>
+    <!-- sound / settings popover -->
+    <div class="panel" id="soundPanel">
+      <h4>Sound</h4>
+      <label>Chirp volume</label>
+      <input type="range" min="0" max="100" value="60" class="slider" id="vol">
+      <label style="display:flex;align-items:center;gap:8px;margin-top:10px"><input type="checkbox" id="mute" style="width:auto"> Mute</label>
+      <div class="row" style="margin-top:8px"><button class="btn ghost" id="testChirp">Test chirp</button></div>
+      <h4 style="margin-top:14px">Notifications</h4>
+      <button class="btn ghost" id="notifBtn">Enable notifications</button>
+      <h4 style="margin-top:14px">App</h4>
+      <button class="btn ghost" id="installBtn" style="display:none">Install Sparrow Send</button>
+      <div class="sub" id="installNote">Add to your home screen from the browser menu to install.</div>
+    </div>
 
-    <h2>Your Sparrow address</h2>
-    <div class="card">
-      <p class="muted">Share this with someone so they can message you. It is a
-        public key, not a secret — but it is the only way anyone reaches you here,
-        and there is no phone number or email involved.</p>
+    <!-- contacts dropdown -->
+    <div class="panel" id="contactsPanel">
+      <h4>Your address</h4>
+      <div class="sub">Share this so people can message you. It's a public key — no phone number.</div>
+      <img class="qr" id="myqr" alt="your address QR">
       <div class="addr" id="myaddr">generating…</div>
-      <div class="row" style="margin-top:10px">
-        <button id="copyBtn">Copy address</button>
-        <button id="resetBtn" title="Delete this identity and make a new one">Reset identity</button>
+      <div class="row" style="margin-top:9px">
+        <button class="btn ghost" id="copyBtn" style="margin-top:0">Copy</button>
+        <button class="btn ghost" id="resetIdBtn" style="margin-top:0">Reset ID</button>
       </div>
-      <div class="status" id="idstatus"></div>
-    </div>
-
-    <h2>Add someone</h2>
-    <div class="card">
-      <label>Their Sparrow address</label>
+      <h4 style="margin-top:16px">Add someone</h4>
       <input id="peerAddr" placeholder="paste their address" autocomplete="off" spellcheck="false">
-      <label>Name (just for you)</label>
-      <input id="peerName" placeholder="e.g. Sam" autocomplete="off">
-      <div class="row" style="margin-top:10px"><button class="go" id="addBtn">Add contact</button></div>
+      <input id="peerName" placeholder="name (for you)" autocomplete="off" style="margin-top:7px">
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="addBtn" style="margin-top:0">Add</button>
+        <button class="btn ghost" id="scanBtn" style="margin-top:0;flex:none;width:auto">📷 Scan</button>
+      </div>
       <div class="status" id="addstatus"></div>
+      <h4 style="margin-top:16px">Contacts</h4>
+      <div id="contacts"><div class="sub">No one yet.</div></div>
     </div>
 
-    <h2>Contacts</h2>
-    <div class="card" id="contacts"><p class="muted">No one yet. Add someone above.</p></div>
-
-    <div class="box">
-      <b>What this is.</b> Messages are sealed on your device to the other
-      person's key and the server only relays ciphertext it cannot read — nothing
-      to subpoena or leak. <b>Honest limits:</b> the relay still sees that a
-      mailbox got a message and when (metadata), and this beta does not yet have
-      forward secrecy (that's next). Your keys live only in this browser — clear
-      your site data or Reset and they're gone. Not a Signal replacement yet;
-      treat it as beta.
+    <!-- main area: empty state OR chat -->
+    <div class="chat">
+      <div class="chathead" id="chathead">
+        <button class="iconbtn" id="backBtn" title="Back">‹</button>
+        <div><div class="who" id="chatwho"></div><div class="a" id="chatsub" style="font-size:11px;color:var(--muted)"></div></div>
+        <div class="grow"></div>
+        <button class="cmenu" id="chatmenu" title="Contact options">⋯</button>
+      </div>
+      <div class="empty" id="empty">
+        <div class="big">✦</div>
+        <div>Pick a contact, or add someone with <b>☰</b>.<br>Everything you send is end‑to‑end encrypted.</div>
+      </div>
+      <div class="msgs" id="msgs" style="display:none"></div>
+      <div class="compose" id="compose">
+        <button class="attach" id="attachBtn" title="Send a photo">📎</button>
+        <input type="file" id="fileIn" accept="image/*" hidden>
+        <textarea id="msgIn" rows="1" placeholder="Message…"></textarea>
+        <button class="send" id="sendBtn">➤</button>
+      </div>
     </div>
-  </div>
-</main>
-
-<div id="chat">
-  <div id="chathead">
-    <button id="backChat">&larr;</button>
-    <span class="who" id="chatwho"></span>
-    <span class="tag" id="chatverify"></span>
-  </div>
-  <div id="msgs"></div>
-  <div id="compose">
-    <textarea id="msgInput" rows="1" placeholder="Message… (encrypted)"></textarea>
-    <button class="go" id="sendBtn">Send</button>
+    <div class="foot">Beta · forward‑secret (Double Ratchet) · <a class="plain" href="/">SparrowMap</a></div>
   </div>
 </div>
 
+<!-- contact ⋯ menu -->
+<div class="panel" id="cmenuPanel" style="top:auto">
+  <h4>Contact</h4>
+  <label>Rename</label>
+  <input id="renameIn" placeholder="name">
+  <button class="btn ghost" id="renameBtn">Save name</button>
+  <button class="btn ghost" id="verifyBtn" style="margin-top:8px">Mark verified</button>
+  <button class="btn ghost" id="resetSessBtn" style="margin-top:8px">Reset secure session</button>
+  <div class="sub" style="margin-top:8px">Verify by comparing addresses in person or over another channel.</div>
+</div>
+
+<!-- QR scanner -->
+<div class="scanwrap" id="scanwrap">
+  <div style="color:var(--muted)">Point at their address QR</div>
+  <video id="scanvid" playsinline></video>
+  <button class="pill" id="scanClose">Cancel</button>
+</div>
+
+<script src="/static/sparrowsend-ratchet.js?v=1"></script>
 <script>
 (function(){
   "use strict";
   var $=function(s){return document.querySelector(s)};
-  var LS=window.localStorage;
-  var subtle = (window.crypto && window.crypto.subtle) || null;
-  if(!subtle){
-    var u=$('#unsupported'); u.hidden=false;
-    u.innerHTML='<b>This browser can’t do the encryption.</b> Sparrow Send needs '
-      +'the Web Crypto API — use a current Chrome, Safari, Firefox or Edge, over https.';
-    return;
-  }
-
-  // ---- encoding helpers ----
-  function b64u(buf){ var b=new Uint8Array(buf),s='';
-    for(var i=0;i<b.length;i++) s+=String.fromCharCode(b[i]);
-    return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
-  function ub64(str){ str=str.replace(/-/g,'+').replace(/_/g,'/');
-    while(str.length%4) str+='='; var s=atob(str),b=new Uint8Array(s.length);
-    for(var i=0;i<s.length;i++) b[i]=s.charCodeAt(i); return b; }
-  function hex(buf){ var b=new Uint8Array(buf),o=''; for(var i=0;i<b.length;i++)
-    o+=('0'+b[i].toString(16)).slice(-2); return o; }
+  var LS=window.localStorage, R=window.SparrowRatchet;
+  var subtle=(window.crypto&&window.crypto.subtle);
+  if(!subtle||!R){ document.body.innerHTML='<div style="color:#eaf1fa;font:16px system-ui;padding:40px">This browser can’t run Sparrow Send (needs Web Crypto over https). Try current Chrome, Safari, Firefox or Edge.</div>'; return; }
   var enc=new TextEncoder(), dec=new TextDecoder();
+  function b64u(b){var a=new Uint8Array(b),s='';for(var i=0;i<a.length;i++)s+=String.fromCharCode(a[i]);return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+  function ub64u(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';var x=atob(s),b=new Uint8Array(x.length);for(var i=0;i<x.length;i++)b[i]=x.charCodeAt(i);return b}
+  function hex(b){var a=new Uint8Array(b),o='';for(var i=0;i<a.length;i++)o+=('0'+a[i].toString(16)).slice(-2);return o}
 
-  // ---- identity: an ECDSA signing key (owns the mailbox) + an ECDH key (seals
-  //      messages). Stored as JWK in localStorage; private keys never leave. ----
-  var ID=null;   // {sign:{pub,priv}, dh:{pub,priv}, sPubRaw, ePubRaw, mailbox, address}
-  var ID_KEY='sparrow.send.id';
-
+  /* ---------- identity: ECDSA (owns mailbox) + ECDH (encryption) ---------- */
+  var ID=null, ID_KEY='sparrow.send.id';
   async function mkKeys(){
-    var sign=await subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
-    var dh=await subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
-    return {sign:sign, dh:dh};
+    return {sign:await subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']),
+            dh:await subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits'])};
   }
-  async function exportID(k){
-    return JSON.stringify({
-      sPriv:await subtle.exportKey('jwk',k.sign.privateKey),
-      sPub:await subtle.exportKey('jwk',k.sign.publicKey),
-      ePriv:await subtle.exportKey('jwk',k.dh.privateKey),
-      ePub:await subtle.exportKey('jwk',k.dh.publicKey)});
-  }
-  async function importID(js){
-    var j=JSON.parse(js);
-    var sign={
-      privateKey:await subtle.importKey('jwk',j.sPriv,{name:'ECDSA',namedCurve:'P-256'},true,['sign']),
-      publicKey:await subtle.importKey('jwk',j.sPub,{name:'ECDSA',namedCurve:'P-256'},true,['verify'])};
-    var dh={
-      privateKey:await subtle.importKey('jwk',j.ePriv,{name:'ECDH',namedCurve:'P-256'},true,['deriveBits']),
-      publicKey:await subtle.importKey('jwk',j.ePub,{name:'ECDH',namedCurve:'P-256'},true,[])};
-    return {sign:sign, dh:dh};
-  }
+  async function exportID(k){return JSON.stringify({
+    sPriv:await subtle.exportKey('jwk',k.sign.privateKey),sPub:await subtle.exportKey('jwk',k.sign.publicKey),
+    ePriv:await subtle.exportKey('jwk',k.dh.privateKey),ePub:await subtle.exportKey('jwk',k.dh.publicKey)});}
+  async function importID(js){var j=JSON.parse(js);return {
+    sign:{privateKey:await subtle.importKey('jwk',j.sPriv,{name:'ECDSA',namedCurve:'P-256'},true,['sign']),
+          publicKey:await subtle.importKey('jwk',j.sPub,{name:'ECDSA',namedCurve:'P-256'},true,['verify'])},
+    dh:{privateKey:await subtle.importKey('jwk',j.ePriv,{name:'ECDH',namedCurve:'P-256'},true,['deriveBits']),
+        publicKey:await subtle.importKey('jwk',j.ePub,{name:'ECDH',namedCurve:'P-256'},true,[])}};}
   async function finishID(keys){
     var sRaw=new Uint8Array(await subtle.exportKey('raw',keys.sign.publicKey));
     var eRaw=new Uint8Array(await subtle.exportKey('raw',keys.dh.publicKey));
     var mb=hex(await subtle.digest('SHA-256',sRaw)).slice(0,32);
     var address=b64u(enc.encode(JSON.stringify({s:b64u(sRaw),e:b64u(eRaw)})));
-    ID={sign:keys.sign, dh:keys.dh, sPubRaw:sRaw, ePubRaw:eRaw, mailbox:mb, address:address};
+    // identity in the ratchet's own base64 form for initSender/initReceiver
+    var dhIdentity={priv:await subtle.exportKey('jwk',keys.dh.privateKey), pub:R.b64(eRaw)};
+    ID={sign:keys.sign, dh:keys.dh, sPubRaw:sRaw, ePubRaw:eRaw, mailbox:mb, address:address, dhIdentity:dhIdentity};
   }
-  async function loadOrCreateID(){
-    var saved=null; try{ saved=LS.getItem(ID_KEY); }catch(e){}
-    if(saved){ try{ await finishID(await importID(saved)); return; }catch(e){} }
-    var keys=await mkKeys();
-    try{ LS.setItem(ID_KEY, await exportID(keys)); }catch(e){}
-    await finishID(keys);
+  async function loadID(){
+    var s=null; try{s=LS.getItem(ID_KEY);}catch(e){}
+    if(s){ try{ await finishID(await importID(s)); return; }catch(e){} }
+    var k=await mkKeys(); try{ LS.setItem(ID_KEY,await exportID(k)); }catch(e){} await finishID(k);
   }
+  function decodeAddress(a){var j=JSON.parse(dec.decode(ub64u(a.trim())));return {sRaw:ub64u(j.s),eRaw:ub64u(j.e)};}
+  async function mailboxOf(sRaw){return hex(await subtle.digest('SHA-256',sRaw)).slice(0,32);}
 
-  // Decode a contact's address to its two raw public keys.
-  function decodeAddress(addr){
-    var j=JSON.parse(dec.decode(ub64(addr.trim())));
-    return {sRaw:ub64(j.s), eRaw:ub64(j.e)};
-  }
-  async function mailboxOf(sRaw){ return hex(await subtle.digest('SHA-256',sRaw)).slice(0,32); }
+  /* ---------- contacts + history + ratchet state (all local) ---------- */
+  function getContacts(){try{return JSON.parse(LS.getItem('sparrow.send.contacts')||'[]');}catch(e){return[]}}
+  function setContacts(c){try{LS.setItem('sparrow.send.contacts',JSON.stringify(c));}catch(e){}}
+  function contactByMb(mb){return getContacts().filter(function(c){return c.mb===mb;})[0];}
+  function hKey(mb){return 'sparrow.send.hist.'+mb} function rKey(mb){return 'sparrow.send.rat.'+mb}
+  function getHist(mb){try{return JSON.parse(LS.getItem(hKey(mb))||'[]');}catch(e){return[]}}
+  function pushHist(mb,m){var h=getHist(mb);h.push(m);if(h.length>800)h=h.slice(-800);try{LS.setItem(hKey(mb),JSON.stringify(h));}catch(e){}}
+  function getRat(mb){try{var s=LS.getItem(rKey(mb));return s?JSON.parse(s):null;}catch(e){return null}}
+  function setRat(mb,st){try{LS.setItem(rKey(mb),JSON.stringify(st));}catch(e){}}
+  function delRat(mb){try{LS.removeItem(rKey(mb));}catch(e){}}
 
-  // ---- the shared AES-GCM key with a peer: ECDH -> HKDF-SHA256 ----
-  async function sharedKey(peerERaw){
-    var peer=await subtle.importKey('raw',peerERaw,{name:'ECDH',namedCurve:'P-256'},false,[]);
-    var bits=await subtle.deriveBits({name:'ECDH',public:peer},ID.dh.privateKey,256);
-    var hk=await subtle.importKey('raw',bits,'HKDF',false,['deriveKey']);
-    return subtle.deriveKey(
-      {name:'HKDF',hash:'SHA-256',salt:enc.encode('sparrow-send'),info:enc.encode('v1')},
-      hk,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+  /* ---------- ratchet-backed send / receive ---------- */
+  async function ratForSend(ct){
+    var st=getRat(ct.mb);
+    if(!st){ st=await R.initSender(ID.dhIdentity, R.b64(ub64u(ct.eRaw))); setRat(ct.mb,st); }
+    return st;
   }
-  async function seal(peerERaw, text){
-    var key=await sharedKey(peerERaw);
-    var iv=crypto.getRandomValues(new Uint8Array(12));
-    var ct=await subtle.encrypt({name:'AES-GCM',iv:iv},key,enc.encode(text));
-    return {iv:b64u(iv), ct:b64u(ct)};
-  }
-  async function open(peerERaw, ivB64, ctB64){
-    var key=await sharedKey(peerERaw);
-    var pt=await subtle.decrypt({name:'AES-GCM',iv:ub64(ivB64)},key,ub64(ctB64));
-    return dec.decode(pt);
-  }
-
-  // ---- contacts + local history (server deletes on delivery, so we keep it) ----
-  function getContacts(){ try{ return JSON.parse(LS.getItem('sparrow.send.contacts')||'[]'); }catch(e){ return []; } }
-  function setContacts(c){ try{ LS.setItem('sparrow.send.contacts', JSON.stringify(c)); }catch(e){} }
-  function histKey(mb){ return 'sparrow.send.hist.'+mb; }
-  function getHist(mb){ try{ return JSON.parse(LS.getItem(histKey(mb))||'[]'); }catch(e){ return []; } }
-  function pushHist(mb,m){ var h=getHist(mb); h.push(m); if(h.length>500) h=h.slice(-500);
-    try{ LS.setItem(histKey(mb), JSON.stringify(h)); }catch(e){} }
-
-  function renderContacts(){
-    var box=$('#contacts'), c=getContacts();
-    if(!c.length){ box.innerHTML='<p class="muted">No one yet. Add someone above.</p>'; return; }
-    box.innerHTML='';
-    c.forEach(function(ct){
-      var el=document.createElement('div'); el.className='contact';
-      el.innerHTML='<span class="dot"></span><div><div class="n"></div>'
-        +'<div class="a">'+ct.mb.slice(0,12)+'…</div></div>';
-      el.querySelector('.n').textContent=ct.name||'(unnamed)';
-      el.onclick=function(){ openChat(ct); };
-      box.appendChild(el);
-    });
-  }
-
-  // ---- sending / receiving ----
-  async function sendTo(ct, text){
-    var env=await seal(ub64(ct.eRaw), text);
-    var payload={from:ID.address, iv:env.iv, ct:env.ct, ts:Date.now()};
-    var r=await fetch('/api/send/put',{method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({to:ct.mb, env:JSON.stringify(payload)})});
-    if(!r.ok){ var j=await r.json().catch(function(){return{};}); throw new Error(j.error||('http '+r.status)); }
+  async function sendTo(ct, obj){
+    var st=await ratForSend(ct);
+    var msg=await R.encrypt(st, enc.encode(JSON.stringify(obj)));
+    setRat(ct.mb, st);
+    var env={from:ID.address, r:msg};
+    var res=await fetch('/api/send/put',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({to:ct.mb, env:JSON.stringify(env)})});
+    if(!res.ok){var j=await res.json().catch(function(){return{}});throw new Error(j.error||('http '+res.status));}
   }
   async function poll(){
     if(!ID) return;
     try{
-      var c=await (await fetch('/api/send/challenge',{method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({mb:ID.mailbox})})).json();
+      var c=await (await fetch('/api/send/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mb:ID.mailbox})})).json();
       if(!c.challenge) return;
       var sig=await subtle.sign({name:'ECDSA',hash:'SHA-256'},ID.sign.privateKey,enc.encode(c.challenge));
-      var res=await (await fetch('/api/send/get',{method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({mb:ID.mailbox, pk:b64u(ID.sPubRaw), ch:c.challenge, sig:b64u(sig)})})).json();
-      var got=res.msgs||[];
-      for(var i=0;i<got.length;i++){ await ingest(got[i]); }
-      if(got.length){ renderContacts(); if(curChat) drawMsgs(); }
-    }catch(e){ /* offline; try again next tick */ }
+      var res=await (await fetch('/api/send/get',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({mb:ID.mailbox,pk:b64u(ID.sPubRaw),ch:c.challenge,sig:b64u(sig)})})).json();
+      var got=res.msgs||[], any=false, incoming=null;
+      for(var i=0;i<got.length;i++){ var r=await ingest(got[i]); if(r){ any=true; incoming=r; } }
+      if(any){ renderContacts(); if(cur) drawMsgs(); notifyIncoming(incoming); }
+    }catch(e){ /* offline; retry next tick */ }
   }
-  var seenContacts={};
   async function ingest(envStr){
-    var env; try{ env=JSON.parse(envStr); }catch(e){ return; }
-    var from; try{ from=decodeAddress(env.from); }catch(e){ return; }
+    var env; try{env=JSON.parse(envStr);}catch(e){return null}
+    if(!env.from||!env.r) return null;
+    var from; try{from=decodeAddress(env.from);}catch(e){return null}
     var mb=await mailboxOf(from.sRaw);
-    // Auto-add an unknown sender so their first message isn't lost.
-    var contacts=getContacts();
-    var ct=contacts.filter(function(x){return x.mb===mb;})[0];
-    if(!ct){ ct={name:'', mb:mb, sRaw:b64u(from.sRaw), eRaw:b64u(from.eRaw), unknown:true};
+    var contacts=getContacts(), ct=contacts.filter(function(x){return x.mb===mb;})[0];
+    if(!ct){ ct={name:'',mb:mb,sRaw:b64u(from.sRaw),eRaw:b64u(from.eRaw),verified:false,unknown:true};
       contacts.push(ct); setContacts(contacts); }
-    var text;
-    try{ text=await open(from.eRaw, env.iv, env.ct); }
-    catch(e){ text='[could not decrypt a message]'; }
-    pushHist(mb, {dir:'in', text:text, ts:env.ts||Date.now()});
+    var st=getRat(mb);
+    if(!st){ st=await R.initReceiver(ID.dhIdentity, R.b64(from.eRaw)); }
+    var text=null;
+    try{ var pt=await R.decrypt(st, env.r); setRat(mb, st);
+      var obj=JSON.parse(dec.decode(pt));
+      pushHist(mb,{dir:'in',o:obj,ts:Date.now()});
+      text=obj.t==='img'?'📷 photo':(obj.x||'');
+    }catch(e){
+      // Undecryptable (rare: simultaneous first-contact, or a reset on their side).
+      pushHist(mb,{dir:'sys',o:{t:'text',x:'A message could not be decrypted. If this keeps happening, both of you tap “Reset secure session”.'},ts:Date.now()});
+    }
+    return {mb:mb, name:(ct.name||('Someone ('+mb.slice(0,6)+'…)')), text:text};
   }
 
-  // ---- chat view ----
-  var curChat=null;
-  function openChat(ct){
-    curChat=ct;
-    $('#home').style.display='none';
-    $('#chat').style.display='flex';
-    $('#chatwho').textContent=ct.name||('Unknown ('+ct.mb.slice(0,8)+'…)');
-    $('#chatverify').textContent=ct.unknown?'unverified sender':'';
-    drawMsgs();
-    $('#msgInput').focus();
+  /* ---------- UI: contacts + chat ---------- */
+  function initials(n){n=(n||'').trim();return n?n.slice(0,2).toUpperCase():'✦';}
+  function renderContacts(){
+    var box=$('#contacts'), c=getContacts();
+    $('#cdot').style.display = c.some(function(x){return (getHist(x.mb).slice(-1)[0]||{}).dir==='in' && x.mb!==(cur&&cur.mb);}) ? 'block':'none';
+    if(!c.length){ box.innerHTML='<div class="sub">No one yet.</div>'; return; }
+    box.innerHTML='';
+    c.forEach(function(ct){
+      var el=document.createElement('div'); el.className='contact';
+      el.innerHTML='<div class="av"></div><div style="min-width:0"><div class="n"></div><div class="a">'+ct.mb.slice(0,10)+'…</div></div><div class="cmenu" title="options">⋯</div>';
+      el.querySelector('.av').textContent=initials(ct.name);
+      var nm=el.querySelector('.n'); nm.textContent=ct.name||'(unnamed)';
+      if(ct.verified){var b=document.createElement('span');b.className='vbadge';b.textContent='✓ verified';nm.appendChild(b);}
+      el.onclick=function(ev){ if(ev.target.classList.contains('cmenu')){ openCmenu(ct, ev.target); return; } openChat(ct); };
+      box.appendChild(el);
+    });
   }
-  function closeChat(){ curChat=null; $('#chat').style.display='none'; $('#home').style.display=''; renderContacts(); }
+  var cur=null;
+  function openChat(ct){
+    cur=ct; closePanels();
+    $('#empty').style.display='none'; $('#msgs').style.display='flex';
+    $('#compose').style.display='flex'; $('#chathead').style.display='flex';
+    $('#chatwho').textContent=ct.name||('Unknown ('+ct.mb.slice(0,8)+'…)');
+    $('#chatsub').textContent=ct.verified?'verified':(ct.unknown?'unverified':'');
+    drawMsgs(); renderContacts(); $('#msgIn').focus();
+  }
+  function closeChat(){ cur=null; $('#msgs').style.display='none'; $('#compose').style.display='none'; $('#chathead').style.display='none'; $('#empty').style.display='flex'; }
+  function bubbleContent(el,o){
+    if(o&&o.t==='img'&&o.d){ var im=document.createElement('img'); im.src=o.d; el.appendChild(im); }
+    else { el.appendChild(document.createTextNode((o&&o.x)||'')); }
+  }
   function drawMsgs(){
-    if(!curChat) return;
-    var box=$('#msgs'), h=getHist(curChat.mb); box.innerHTML='';
+    if(!cur) return; var box=$('#msgs'), h=getHist(cur.mb); box.innerHTML='';
     h.forEach(function(m){
-      var el=document.createElement('div'); el.className='msg '+(m.dir==='out'?'out':'in');
-      el.textContent=m.text;
-      var t=document.createElement('span'); t.className='t';
-      t.textContent=new Date(m.ts).toLocaleString(); el.appendChild(t);
+      var el=document.createElement('div'); el.className='msg '+(m.dir==='out'?'out':m.dir==='sys'?'sys':'in');
+      bubbleContent(el,m.o);
+      if(m.dir!=='sys'){var t=document.createElement('span');t.className='t';t.textContent=new Date(m.ts).toLocaleString([], {hour:'2-digit',minute:'2-digit'});el.appendChild(t);}
       box.appendChild(el);
     });
     box.scrollTop=box.scrollHeight;
   }
   async function doSend(){
-    if(!curChat) return;
-    var inp=$('#msgInput'), text=inp.value.trim(); if(!text) return;
+    if(!cur) return; var inp=$('#msgIn'), t=inp.value.trim(); if(!t) return;
     inp.value=''; inp.style.height='auto';
-    pushHist(curChat.mb, {dir:'out', text:text, ts:Date.now()}); drawMsgs();
-    try{ await sendTo(curChat, text); }
-    catch(e){ pushHist(curChat.mb, {dir:'in', text:'[not delivered: '+e.message+']', ts:Date.now()}); drawMsgs(); }
+    var obj={t:'text',x:t}; pushHist(cur.mb,{dir:'out',o:obj,ts:Date.now()}); drawMsgs(); chirp(true);
+    try{ await sendTo(cur,obj); }catch(e){ pushHist(cur.mb,{dir:'sys',o:{t:'text',x:'Not delivered: '+e.message},ts:Date.now()}); drawMsgs(); }
+  }
+  async function sendImage(file){
+    if(!cur||!file) return;
+    var d=await downscale(file); if(!d){ return; }
+    var obj={t:'img',d:d}; pushHist(cur.mb,{dir:'out',o:obj,ts:Date.now()}); drawMsgs(); chirp(true);
+    try{ await sendTo(cur,obj); }catch(e){ pushHist(cur.mb,{dir:'sys',o:{t:'text',x:'Photo not delivered: '+e.message},ts:Date.now()}); drawMsgs(); }
+  }
+  function downscale(file){ return new Promise(function(res){
+    var fr=new FileReader(); fr.onload=function(){ var im=new Image(); im.onload=function(){
+      var sc=Math.min(1,1280/Math.max(im.width,im.height));
+      var cv=document.createElement('canvas'); cv.width=Math.max(1,Math.round(im.width*sc)); cv.height=Math.max(1,Math.round(im.height*sc));
+      cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);
+      res(cv.toDataURL('image/jpeg',0.72));
+    }; im.onerror=function(){res(null)}; im.src=fr.result; }; fr.readAsDataURL(file); }); }
+
+  /* ---------- contact ⋯ menu: rename / verify / reset ---------- */
+  var menuCt=null;
+  function openCmenu(ct, anchor){
+    menuCt=ct; closePanels(); var p=$('#cmenuPanel');
+    $('#renameIn').value=ct.name||'';
+    $('#verifyBtn').textContent=ct.verified?'Unverify':'Mark verified';
+    var r=anchor.getBoundingClientRect();
+    p.style.top=Math.min(window.innerHeight-330, r.bottom+6)+'px';
+    p.style.right=Math.max(12, window.innerWidth-r.right)+'px'; p.style.left='auto';
+    p.classList.add('open');
+  }
+  $('#renameBtn').onclick=function(){ if(!menuCt) return; var c=getContacts(); c.forEach(function(x){if(x.mb===menuCt.mb){x.name=$('#renameIn').value.trim();x.unknown=false;}}); setContacts(c); if(cur&&cur.mb===menuCt.mb){cur.name=$('#renameIn').value.trim();$('#chatwho').textContent=cur.name;} renderContacts(); closePanels(); };
+  $('#verifyBtn').onclick=function(){ if(!menuCt) return; var c=getContacts(); c.forEach(function(x){if(x.mb===menuCt.mb){x.verified=!x.verified;}}); setContacts(c); renderContacts(); if(cur&&cur.mb===menuCt.mb)$('#chatsub').textContent=(contactByMb(cur.mb).verified?'verified':'unverified'); closePanels(); };
+  $('#resetSessBtn').onclick=function(){ if(!menuCt) return; if(!confirm('Reset the secure session with this contact? Your next message re-establishes encryption. Old messages stay.')) return; delRat(menuCt.mb); pushHist(menuCt.mb,{dir:'sys',o:{t:'text',x:'Secure session reset. The next message re-establishes end-to-end encryption.'},ts:Date.now()}); if(cur&&cur.mb===menuCt.mb)drawMsgs(); closePanels(); };
+
+  /* ---------- add contact + QR ---------- */
+  $('#addBtn').onclick=async function(){
+    var a=$('#peerAddr').value.trim(), name=$('#peerName').value.trim();
+    if(!a){ $('#addstatus').textContent='Paste an address, or Scan.'; return; }
+    try{ var d=decodeAddress(a), mb=await mailboxOf(d.sRaw);
+      if(mb===ID.mailbox){ $('#addstatus').textContent='That is your own address.'; return; }
+      var c=getContacts().filter(function(x){return x.mb!==mb;});
+      c.push({name:name,mb:mb,sRaw:b64u(d.sRaw),eRaw:b64u(d.eRaw),verified:false});
+      setContacts(c); $('#peerAddr').value=''; $('#peerName').value=''; $('#addstatus').textContent='Added.'; renderContacts();
+    }catch(e){ $('#addstatus').textContent='That is not a Sparrow address.'; }
+  };
+  $('#copyBtn').onclick=function(){ if(navigator.clipboard) navigator.clipboard.writeText(ID.address); };
+  $('#resetIdBtn').onclick=function(){ if(!confirm('Delete this identity and all messages? People will need your new address.')) return; try{Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);});}catch(e){} location.reload(); };
+
+  // QR scan (jsqr + camera)
+  var scanStream=null, jsqrP=null;
+  function loadJsqr(){ if(window.jsQR) return Promise.resolve(); if(jsqrP) return jsqrP;
+    jsqrP=new Promise(function(res,rej){var s=document.createElement('script');s.src='/vendor/jsqr.min.js';s.onload=res;s.onerror=rej;document.head.appendChild(s);}); return jsqrP; }
+  $('#scanBtn').onclick=async function(){
+    try{ await loadJsqr(); var v=$('#scanvid'); $('#scanwrap').style.display='flex';
+      scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+      v.srcObject=scanStream; await v.play(); scanLoop();
+    }catch(e){ $('#scanwrap').style.display='none'; $('#addstatus').textContent='Camera unavailable.'; }
+  };
+  function stopScan(){ $('#scanwrap').style.display='none'; if(scanStream){scanStream.getTracks().forEach(function(t){t.stop()});scanStream=null;} }
+  $('#scanClose').onclick=stopScan;
+  function scanLoop(){
+    if(!scanStream) return; var v=$('#scanvid');
+    if(v.readyState===v.HAVE_ENOUGH_DATA){
+      var cv=document.createElement('canvas'); cv.width=v.videoWidth; cv.height=v.videoHeight;
+      var cx=cv.getContext('2d'); cx.drawImage(v,0,0,cv.width,cv.height);
+      var img=cx.getImageData(0,0,cv.width,cv.height); var q=window.jsQR(img.data,cv.width,cv.height);
+      if(q&&q.data){ try{ decodeAddress(q.data); $('#peerAddr').value=q.data; stopScan(); $('#addstatus').textContent='Scanned — tap Add.'; return; }catch(e){} }
+    }
+    requestAnimationFrame(scanLoop);
   }
 
-  // ---- wire up ----
-  $('#copyBtn').onclick=function(){ if(!ID) return;
-    navigator.clipboard && navigator.clipboard.writeText(ID.address);
-    $('#idstatus').textContent='Address copied.'; };
-  $('#resetBtn').onclick=async function(){
-    if(!confirm('Delete this identity and all local messages? People will need your new address.')) return;
-    try{ Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);}); }catch(e){}
-    location.reload();
-  };
-  $('#addBtn').onclick=async function(){
-    var addr=$('#peerAddr').value.trim(), name=$('#peerName').value.trim();
-    if(!addr){ $('#addstatus').textContent='Paste their address first.'; return; }
-    try{
-      var d=decodeAddress(addr); var mb=await mailboxOf(d.sRaw);
-      if(mb===ID.mailbox){ $('#addstatus').textContent='That is your own address.'; return; }
-      var contacts=getContacts().filter(function(x){return x.mb!==mb;});
-      contacts.push({name:name, mb:mb, sRaw:b64u(d.sRaw), eRaw:b64u(d.eRaw)});
-      setContacts(contacts);
-      $('#peerAddr').value=''; $('#peerName').value='';
-      $('#addstatus').textContent='Added.'; renderContacts();
-    }catch(e){ $('#addstatus').textContent='That does not look like a Sparrow address.'; }
-  };
-  $('#backChat').onclick=closeChat;
+  /* ---------- chirp sounds + notifications ---------- */
+  var actx=null;
+  function vol(){ try{ if($('#mute').checked) return 0; return (parseInt(LS.getItem('sparrow.send.vol')||'60',10)/100); }catch(e){ return .6; } }
+  function chirp(sent){
+    var v=vol(); if(v<=0) return;
+    try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==='suspended')actx.resume();
+      var t0=actx.currentTime, notes= sent ? [[2600,3200,0.05]] : [[3200,5200,0.06],[3000,4800,0.05],[3400,5600,0.05]];
+      var t=t0;
+      notes.forEach(function(n,i){
+        var o=actx.createOscillator(), g=actx.createGain();
+        o.type='sine'; o.frequency.setValueAtTime(n[0],t); o.frequency.exponentialRampToValueAtTime(n[1],t+n[2]);
+        g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.28*v,t+0.012); g.gain.exponentialRampToValueAtTime(0.0001,t+n[2]+0.03);
+        o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t+n[2]+0.05);
+        t += n[2]+ (sent?0:0.045);
+      });
+    }catch(e){}
+  }
+  function notifyIncoming(info){
+    chirp(false);
+    if(!info) return;
+    var focusedThis = !document.hidden && cur && cur.mb===info.mb;
+    if(focusedThis) return;
+    try{ if('Notification' in window && Notification.permission==='granted'){
+      var n=new Notification(info.name||'Sparrow Send',{body:info.text||'New message',icon:'/static/icon-192.png',tag:'sparrowsend-'+info.mb});
+      n.onclick=function(){ window.focus(); var c=contactByMb(info.mb); if(c) openChat(c); n.close(); };
+    }}catch(e){}
+  }
+  $('#notifBtn').onclick=function(){ if(!('Notification' in window)){ this.textContent='Not supported here'; return; }
+    Notification.requestPermission().then(function(p){ $('#notifBtn').textContent = p==='granted'?'Notifications on':'Blocked — allow in browser'; }); };
+  $('#vol').oninput=function(){ try{LS.setItem('sparrow.send.vol',this.value);}catch(e){} };
+  $('#testChirp').onclick=function(){ chirp(false); };
+
+  /* ---------- PWA install ---------- */
+  var deferredPrompt=null;
+  window.addEventListener('beforeinstallprompt',function(e){ e.preventDefault(); deferredPrompt=e; $('#installBtn').style.display='block'; $('#installNote').style.display='none'; });
+  $('#installBtn').onclick=async function(){ if(!deferredPrompt) return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $('#installBtn').style.display='none'; };
+  if('serviceWorker' in navigator){ navigator.serviceWorker.register('/send-sw.js',{scope:'/send'}).catch(function(){}); }
+
+  /* ---------- panels / wiring ---------- */
+  function closePanels(){ document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('open');}); }
+  function toggle(p){ var was=p.classList.contains('open'); closePanels(); if(!was) p.classList.add('open'); }
+  $('#contactsBtn').onclick=function(e){ e.stopPropagation(); toggle($('#contactsPanel')); };
+  $('#soundBtn').onclick=function(e){ e.stopPropagation(); toggle($('#soundPanel')); };
+  $('#chatmenu').onclick=function(e){ e.stopPropagation(); if(cur) openCmenu(cur, e.target); };
+  document.addEventListener('click',function(e){ if(!e.target.closest('.panel')&&!e.target.closest('.iconbtn')&&!e.target.closest('.cmenu')&&!e.target.closest('#chatmenu')) closePanels(); });
+  $('#backBtn').onclick=closeChat;
   $('#sendBtn').onclick=doSend;
-  var mi=$('#msgInput');
-  mi.addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); doSend(); } });
+  $('#attachBtn').onclick=function(){ $('#fileIn').click(); };
+  $('#fileIn').onchange=function(){ if(this.files&&this.files[0]) sendImage(this.files[0]); this.value=''; };
+  var mi=$('#msgIn');
+  mi.addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend();} });
   mi.addEventListener('input',function(){ this.style.height='auto'; this.style.height=Math.min(120,this.scrollHeight)+'px'; });
 
   (async function init(){
-    await loadOrCreateID();
+    await loadID();
     $('#myaddr').textContent=ID.address;
+    $('#myqr').src='/api/send/qr?d='+encodeURIComponent(ID.address);
+    try{ $('#vol').value=LS.getItem('sparrow.send.vol')||'60'; }catch(e){}
     renderContacts();
-    await poll();
-    setInterval(poll, 4000);
+    await poll(); setInterval(poll, 4000);
+    document.addEventListener('visibilitychange',function(){ if(!document.hidden) poll(); });
   })();
 })();
 </script>

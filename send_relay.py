@@ -38,9 +38,10 @@ SEND = core.DATA / "send"
 # outstanding challenges, which is harmless - the client just asks for another.
 _SECRET = secrets.token_bytes(32)
 
-MSG_MAX_BYTES = 64 * 1024        # one envelope; plenty for text, caps abuse
-MAILBOX_MAX = 500                # queued messages per mailbox before oldest drop
-GLOBAL_MAX = 200000              # total queued envelopes across all mailboxes
+MSG_MAX_BYTES = 800 * 1024       # one envelope; text is tiny, this allows a
+                                 # downscaled image attachment (encrypted) too
+MAILBOX_MAX = 300                # queued messages per mailbox before oldest drop
+GLOBAL_MAX = 60000               # total queued envelopes across all mailboxes
 TTL_S = 14 * 86400               # undelivered mail is dropped after two weeks
 CHALLENGE_TTL_S = 90.0
 _HEX = re.compile(r"^[0-9a-f]{16,64}$")
