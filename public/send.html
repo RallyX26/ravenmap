@@ -71,6 +71,10 @@
   .btn.ghost{background:rgba(255,255,255,.04);color:var(--ink);font-weight:600}
   .addr{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;word-break:break-all;
     background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:10px;padding:9px;color:#9fe6c4}
+  /* short fingerprint of your identity - the whole ADDRESS starts with the same
+     "eyJzIjoi..." for everyone, so this is the part that visibly changes on reset */
+  .myfp{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:19px;font-weight:800;
+    letter-spacing:2px;text-align:center;color:var(--accent);margin:4px 0;user-select:all}
   .qr{display:block;margin:10px auto 4px;width:232px;height:232px;border-radius:12px;background:#fff;padding:8px}
   .row{display:flex;gap:8px} .row .btn{margin-top:0}
   .status{font-size:12px;color:var(--muted);min-height:15px;margin-top:6px}
@@ -157,6 +161,7 @@
     <div class="panel" id="contactsPanel">
       <h4>Your address</h4>
       <div class="sub">Share this so people can message you. It's a public key — no phone number.</div>
+      <div class="myfp" id="myfp" title="A short fingerprint of your identity. It changes when you reset, and you can read it out to a contact to confirm you have the right person.">···· ····</div>
       <img class="qr" id="myqr" alt="your address QR">
       <div class="addr" id="myaddr">generating…</div>
       <div class="row" style="margin-top:9px">
@@ -257,6 +262,10 @@
   function b64u(b){var a=new Uint8Array(b),s='';for(var i=0;i<a.length;i++)s+=String.fromCharCode(a[i]);return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
   function ub64u(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';var x=atob(s),b=new Uint8Array(x.length);for(var i=0;i<x.length;i++)b[i]=x.charCodeAt(i);return b}
   function hex(b){var a=new Uint8Array(b),o='';for(var i=0;i<a.length;i++)o+=('0'+a[i].toString(16)).slice(-2);return o}
+  // Short human-readable fingerprint of a mailbox id (which is a hash, so unlike
+  // the address it looks different for every identity). Used for "did my reset
+  // take?" and as a read-aloud verify aid.
+  function fp(mb){mb=(mb||'').toUpperCase();return mb.slice(0,4)+' '+mb.slice(4,8)+' '+mb.slice(8,12);}
 
   /* ---------- identity: ECDSA (owns mailbox) + ECDH (encryption) ---------- */
   var ID=null, ID_KEY='sparrow.send.id';
@@ -677,6 +686,7 @@
   (async function init(){
     await loadID();
     $('#myaddr').textContent=ID.address;
+    $('#myfp').textContent=fp(ID.mailbox);
     $('#myqr').src='/api/send/qr?d='+encodeURIComponent(ID.address);
     try{ $('#vol').value=LS.getItem('sparrow.send.vol')||'60'; }catch(e){}
     renderContacts();
