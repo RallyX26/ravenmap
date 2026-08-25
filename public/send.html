@@ -682,6 +682,7 @@
     $('#chatwho').textContent=ct.name||('Unknown ('+ct.mb.slice(0,8)+'…)');
     $('#chatsub').textContent=ct.verified?'✓ verified':'unverified'; $('#chatsub').style.color=ct.verified?'var(--accent)':'var(--muted)';
     drawMsgs(); markRead(ct.mb); renderContacts();   // no auto-focus: don't pop the keyboard on open
+    requestAnimationFrame(scrollBottom); setTimeout(scrollBottom,80); setTimeout(scrollBottom,250);  // land at the newest message
   }
   function closeChat(){ showHome(); }
   // Split text into text nodes + clickable links (safe: no innerHTML).
@@ -695,12 +696,13 @@
     }
     if(last<text.length) el.appendChild(document.createTextNode(text.slice(last)));
   }
+  function scrollBottom(){ var m=$('#msgs'); if(m) m.scrollTop=m.scrollHeight; }
   function bubbleContent(el,o){
     // Only render a self-contained data:image. A peer must never be able to make
     // your browser fetch a REMOTE url (that would leak your IP + read-receipt to
     // them, out of band from the relay). CSP already blocks it on the live site;
     // this refuses it even on a mirror without that header.
-    if(o&&o.t==='img'&&typeof o.d==='string'&&/^data:image\//.test(o.d)){ var im=document.createElement('img'); im.src=o.d; el.appendChild(im); }
+    if(o&&o.t==='img'&&typeof o.d==='string'&&/^data:image\//.test(o.d)){ var im=document.createElement('img'); im.onload=scrollBottom; im.src=o.d; el.appendChild(im); }
     else if(o&&o.t==='img'){ el.appendChild(document.createTextNode('📷 photo (blocked: not an inline image)')); }
     else { appendText(el, (o&&o.x)||''); }
   }
