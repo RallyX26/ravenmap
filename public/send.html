@@ -153,6 +153,10 @@
   .send{width:44px;height:44px;flex:none;border-radius:50%;border:0;background:linear-gradient(180deg,var(--accent),#14508f);
     color:#04121f;cursor:pointer;display:flex;align-items:center;justify-content:center}
   .attach{width:42px;height:42px;flex:none;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center}
+  /* back + attach: no box, icon-blue glyph */
+  #backBtn,.attach{background:none!important;border:0!important;color:var(--accent)}
+  #backBtn:hover,.attach:hover{background:none}
+  #backBtn svg{width:27px;height:27px} .attach svg{width:25px;height:25px}
   .scanwrap{position:fixed;inset:0;z-index:60;background:rgba(4,7,12,.94);display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px}
   .scanwrap video{width:min(360px,86vw);border-radius:16px;border:1px solid var(--line2)}
   .slider{width:100%}
@@ -645,7 +649,7 @@
     $('#empty').style.display='none'; $('#convlist').style.display='none'; $('#msgs').style.display='flex';
     $('#compose').style.display='flex'; $('#chathead').style.display='flex';
     $('#chatwho').textContent=ct.name||('Unknown ('+ct.mb.slice(0,8)+'…)');
-    $('#chatsub').textContent=ct.verified?'verified':(ct.unknown?'unverified':'');
+    $('#chatsub').textContent=ct.verified?'✓ verified':'unverified'; $('#chatsub').style.color=ct.verified?'var(--accent)':'var(--muted)';
     drawMsgs(); markRead(ct.mb); renderContacts();   // no auto-focus: don't pop the keyboard on open
   }
   function closeChat(){ showHome(); }
@@ -751,7 +755,7 @@
     p.classList.add('open'); showScrim(true);
   }
   $('#renameBtn').onclick=function(){ if(!menuCt) return; var c=getContacts(); c.forEach(function(x){if(x.mb===menuCt.mb){x.name=$('#renameIn').value.trim();x.unknown=false;}}); setContacts(c); if(cur&&cur.mb===menuCt.mb){cur.name=$('#renameIn').value.trim();$('#chatwho').textContent=cur.name;} renderContacts(); closePanels(); };
-  $('#verifyBtn').onclick=function(){ if(!menuCt) return; var c=getContacts(); c.forEach(function(x){if(x.mb===menuCt.mb){x.verified=!x.verified;}}); setContacts(c); renderContacts(); if(cur&&cur.mb===menuCt.mb)$('#chatsub').textContent=(contactByMb(cur.mb).verified?'verified':'unverified'); closePanels(); };
+  $('#verifyBtn').onclick=function(){ if(!menuCt) return; var c=getContacts(); c.forEach(function(x){if(x.mb===menuCt.mb){x.verified=!x.verified;}}); setContacts(c); renderContacts(); if(cur&&cur.mb===menuCt.mb){ var vv=contactByMb(cur.mb).verified; $('#chatsub').textContent=vv?'✓ verified':'unverified'; $('#chatsub').style.color=vv?'var(--accent)':'var(--muted)'; } closePanels(); };
   $('#resetSessBtn').onclick=function(){ if(!menuCt) return; if(!confirm('Reset the secure session? BOTH of you should tap this, then ONLY ONE sends the next message (the other receives it, then replies). Old messages stay.')) return;
     var mb=menuCt.mb; delRat(mb); try{ LS.removeItem('sparrow.send.seen.'+mb); }catch(e){}   // full clear, like a fresh session
     pushHist(mb,{dir:'sys',o:{t:'text',x:'🔒 Secure session reset. Now ONE of you sends the next message — the other receives it, then replies. If it stays stuck, both Delete contact and re-add.'},ts:Date.now()});
