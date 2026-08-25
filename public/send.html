@@ -889,7 +889,7 @@
     try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==='suspended')actx.resume();
       ensureReverb(); var t=actx.currentTime;
       if(kind==='key'){ _bell(_penta[(Math.random()*_penta.length)|0], 0.55*v, 0.5, t); }
-      else { _bell(523.25, 0.5*v, 0.4, t); _bell(783.99, 0.32*v, 0.55, t+0.02); }   // tap = soft C+G chime
+      else { _bell(440, 0.22*v, 0.32, t); }   // tap = one soft, gentle note
     }catch(e){}
   }
   function notifyIncoming(info){
