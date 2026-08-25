@@ -238,16 +238,16 @@
     <div class="panel" id="contactsPanel">
       <h4>Your handle</h4>
       <div class="myhandle" id="myhandle" style="display:none"></div>
-      <div class="sub">Share <b>@yourname</b> — it's the easiest way for people to add you.</div>
+      <div class="sub">Share <b>@yourname</b>, it's the easiest way for people to add you.</div>
       <div class="row" style="margin-top:8px">
         <input id="handleIn" placeholder="claim a name" maxlength="20" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
         <button class="btn ghost" id="claimBtn" style="margin-top:0;flex:none;width:auto;white-space:nowrap">Claim</button>
       </div>
       <div class="status" id="handleStatus"></div>
 
-      <h4 style="margin-top:16px">Fingerprint — check it matches your contact</h4>
+      <h4 style="margin-top:16px">Fingerprint, check it matches your contact</h4>
       <div class="myfp" id="myfp" title="A short fingerprint of your identity. Read it to a contact to confirm you have the right person. It changes if you reset.">···· ····</div>
-      <div class="sub">Read this to a contact (in person / another app) to confirm you're really you. A handle doesn't prove identity — this does.</div>
+      <div class="sub">Read this to a contact (in person / another app) to confirm you're really you. A handle doesn't prove identity, this does.</div>
 
       <h4 style="margin-top:16px">Full address &amp; QR</h4>
       <div class="sub">If someone can't use your @handle, share this instead.</div>
@@ -259,7 +259,7 @@
       </div>
 
       <h4 style="margin-top:16px">Move to another device</h4>
-      <div class="sub">Carry your identity (and contacts) to a new phone or laptop. The key is like a seed phrase — anyone with it AND its password becomes you. One device at a time.</div>
+      <div class="sub">Carry your identity (and contacts) to a new phone or laptop. The key is like a seed phrase, anyone with it AND its password becomes you. One device at a time.</div>
       <div class="row" style="margin-top:8px">
         <button class="btn ghost" id="exportBtn" style="margin-top:0">Export login key</button>
         <button class="btn ghost" id="importBtn" style="margin-top:0">Use a login key</button>
@@ -307,7 +307,7 @@
       </div>
       <div class="empty" id="empty">
         <div class="big">✦</div>
-        <div>No conversations yet.<br>Add someone with <b>☰</b> — everything is end‑to‑end encrypted.</div>
+        <div>No conversations yet.<br>Add someone with <b>☰</b>, everything is end‑to‑end encrypted.</div>
       </div>
       <div class="convlist" id="convlist"></div>
       <div class="msgs" id="msgs" style="display:none"></div>
@@ -326,7 +326,7 @@
 <!-- contact ⋯ menu -->
 <div class="panel" id="cmenuPanel" style="top:auto">
   <h4>Contact</h4>
-  <div class="sub" style="margin-bottom:2px;text-align:center">Fingerprint — should match theirs</div>
+  <div class="sub" style="margin-bottom:2px;text-align:center">Fingerprint, should match theirs</div>
   <div id="cmenuFp" style="text-align:center;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:16px;font-weight:700;letter-spacing:1px;color:var(--accent);user-select:all;margin:0 0 8px"></div>
   <label>Rename</label>
   <input id="renameIn" placeholder="name">
@@ -799,7 +799,7 @@
   $('#verifyBtn').onclick=function(){ if(!menuCt) return; var c=getContacts(); c.forEach(function(x){if(x.mb===menuCt.mb){x.verified=!x.verified;}}); setContacts(c); renderContacts(); if(cur&&cur.mb===menuCt.mb){ var vv=contactByMb(cur.mb).verified; $('#chatsub').textContent=vv?'✓ verified':'unverified'; $('#chatsub').style.color=vv?'var(--accent)':'var(--muted)'; } closePanels(); };
   $('#resetSessBtn').onclick=function(){ if(!menuCt) return; if(!confirm('Reset the secure session? BOTH of you should tap this, then ONLY ONE sends the next message (the other receives it, then replies). Old messages stay.')) return;
     var mb=menuCt.mb; delRat(mb); try{ LS.removeItem('sparrow.send.seen.'+mb); }catch(e){}   // full clear, like a fresh session
-    pushHist(mb,{dir:'sys',o:{t:'text',x:'🔒 Secure session reset. Now ONE of you sends the next message — the other receives it, then replies. If it stays stuck, both Delete contact and re-add.'},ts:Date.now()});
+    pushHist(mb,{dir:'sys',o:{t:'text',x:'🔒 Secure session reset. Now ONE of you sends the next message, the other receives it, then replies. If it stays stuck, both Delete contact and re-add.'},ts:Date.now()});
     if(cur&&cur.mb===mb)drawMsgs(); closePanels(); };
   $('#deleteContactBtn').onclick=function(){ if(!menuCt) return; var mb=menuCt.mb;
     if(!confirm('Delete '+(menuCt.name||'this contact')+' and your message history with them? This cannot be undone.')) return;
@@ -836,7 +836,7 @@
   $('#copyBtn').onclick=function(){ if(navigator.clipboard) navigator.clipboard.writeText(ID.address); };
   $('#resetIdBtn').onclick=async function(){ if(!confirm('Delete this identity and all messages? People will need your new address, and your @handle (if any) is released.')) return; await releaseHandle(); try{Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);});}catch(e){} location.reload(); };
   $('#logoutBtn').onclick=function(){
-    if(!confirm('Log out of Sparrow Send on THIS device? Make sure you exported your login key first — this removes your identity from this device so it stops receiving your messages.')) return;
+    if(!confirm('Log out of Sparrow Send on THIS device? Make sure you exported your login key first, this removes your identity from this device so it stops receiving your messages.')) return;
     try{ Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);}); }catch(e){}
     location.reload();
   };
@@ -844,7 +844,7 @@
   $('#exportBtn').onclick=function(){ var b=$('#exportBox'); b.hidden=!b.hidden; $('#importBox').hidden=true; };
   $('#importBtn').onclick=function(){ var b=$('#importBox'); b.hidden=!b.hidden; $('#exportBox').hidden=true; };
   $('#exGo').onclick=async function(){
-    var p=$('#exPass').value; if(p.length<8){ $('#exStatus').textContent='Use at least 8 characters — longer is much stronger.'; return; }
+    var p=$('#exPass').value; if(p.length<8){ $('#exStatus').textContent='Use at least 8 characters, longer is much stronger.'; return; }
     $('#exStatus').textContent='Generating…';
     try{ var key=await exportLoginKey(p); var out=$('#exOut'); out.value=key; out.hidden=false; $('#exCopy').hidden=false; $('#exDownload').hidden=false;
       $('#exStatus').textContent='⚠️ Save the file (or copy the text) somewhere safe. With the password, it IS your account.'; }
@@ -856,15 +856,15 @@
     var blob=new Blob([$('#exOut').value], {type:'text/plain'});
     var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='sparrow-send-backup.txt';
     document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-    $('#exStatus').textContent='Saved. Keep this file safe — it restores your account.'; markedUp();
+    $('#exStatus').textContent='Saved. Keep this file safe, it restores your account.'; markedUp();
   };
-  $('#imFile').onchange=function(){ var f=this.files&&this.files[0]; if(!f) return; var r=new FileReader(); r.onload=function(){ $('#imKey').value=(r.result||'').toString().trim(); $('#imStatus').textContent='File loaded — enter the password and sign in.'; }; r.readAsText(f); };
+  $('#imFile').onchange=function(){ var f=this.files&&this.files[0]; if(!f) return; var r=new FileReader(); r.onload=function(){ $('#imKey').value=(r.result||'').toString().trim(); $('#imStatus').textContent='File loaded, enter the password and sign in.'; }; r.readAsText(f); };
   $('#imGo').onclick=async function(){
     var k=$('#imKey').value, p=$('#imPass').value;
     if(!k||!p){ $('#imStatus').textContent='Paste your key and its password.'; return; }
     if(!confirm('Sign in as the account in this key on THIS device? It replaces the current identity here. Existing chats may need “Reset secure session”.')) return;
     $('#imStatus').textContent='Signing in…';
-    try{ await importLoginKey(k,p); try{LS.setItem('sparrow.send.backed_up','1');}catch(e){} $('#imStatus').textContent='Success — reloading…'; setTimeout(function(){ location.reload(); },600); }
+    try{ await importLoginKey(k,p); try{LS.setItem('sparrow.send.backed_up','1');}catch(e){} $('#imStatus').textContent='Success, reloading…'; setTimeout(function(){ location.reload(); },600); }
     catch(e){ $('#imStatus').textContent='Wrong password or invalid key.'; }
   };
 
@@ -886,7 +886,7 @@
       var cv=document.createElement('canvas'); cv.width=v.videoWidth; cv.height=v.videoHeight;
       var cx=cv.getContext('2d'); cx.drawImage(v,0,0,cv.width,cv.height);
       var img=cx.getImageData(0,0,cv.width,cv.height); var q=window.jsQR(img.data,cv.width,cv.height);
-      if(q&&q.data){ try{ decodeAddress(q.data); $('#peerAddr').value=q.data; stopScan(); $('#addstatus').textContent='Scanned — tap Add.'; return; }catch(e){} }
+      if(q&&q.data){ try{ decodeAddress(q.data); $('#peerAddr').value=q.data; stopScan(); $('#addstatus').textContent='Scanned, tap Add.'; return; }catch(e){} }
     }
     requestAnimationFrame(scanLoop);
   }
@@ -962,7 +962,7 @@
   async function enablePush(){
     if(!('Notification' in window)) throw new Error('Notifications not supported here');
     var perm = await Notification.requestPermission();
-    if(perm!=='granted') throw new Error('Blocked — allow in settings');
+    if(perm!=='granted') throw new Error('Blocked, allow in settings');
     if(!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('On iPhone: Add to Home Screen first, then enable');
     var reg = await navigator.serviceWorker.ready;
     var vk = (await (await fetch('/api/send/vapid')).json()).key;
