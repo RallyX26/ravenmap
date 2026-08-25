@@ -12,27 +12,27 @@
 <meta name="apple-mobile-web-app-title" content="Sparrow Send">
 <style>
   :root{
-    --ink:#eaf1fa; --muted:#93a3b3; --accent:#2b86e0; --accent2:#38bdf8;
-    --glass:rgba(16,22,33,0.92); --glass2:rgba(22,30,44,0.96);
-    --line:rgba(255,255,255,0.09); --line2:rgba(255,255,255,0.14);
-    --me:linear-gradient(180deg,#235e9e,#16456f); --them:rgba(40,52,72,0.75);
+    --ink:#eef4fc; --muted:#8ea2b8; --accent:#2b86e0; --accent2:#48b0f5;
+    --glass:rgba(8,11,18,0.58); --glass2:rgba(11,15,24,0.72);
+    --line:rgba(120,170,235,0.12); --line2:rgba(120,170,235,0.20);
+    --me:linear-gradient(180deg,#2b7fd6,#134a86); --them:rgba(20,28,44,0.60);
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
   body{font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--ink);
-    background:#070a10;overflow:hidden}
-  /* living gradient behind the glass */
+    background:#04060a;overflow:hidden}
+  /* deep black with SparrowMap-blue glows behind the glass */
   .bg{position:fixed;inset:0;z-index:0;overflow:hidden;background:
-      radial-gradient(1200px 700px at 15% -10%,#123a2e 0%,transparent 55%),
-      radial-gradient(1000px 800px at 110% 20%,#12314d 0%,transparent 55%),
-      radial-gradient(900px 900px at 50% 120%,#1a1330 0%,transparent 55%),#070a10}
+      radial-gradient(1100px 680px at 12% -12%,rgba(27,116,209,0.32) 0%,transparent 58%),
+      radial-gradient(1000px 760px at 112% 16%,rgba(20,84,158,0.30) 0%,transparent 56%),
+      radial-gradient(900px 900px at 50% 124%,rgba(14,44,92,0.34) 0%,transparent 56%),#04060a}
 
-  /* the floating window */
+  /* the floating black-glass window */
   .app{position:fixed;z-index:1;inset:0;display:flex;align-items:center;justify-content:center;padding:22px}
   .win{width:100%;max-width:440px;height:min(760px,92vh);display:flex;flex-direction:column;
-    background:var(--glass);backdrop-filter:blur(26px) saturate(1.5);-webkit-backdrop-filter:blur(26px) saturate(1.5);
-    border:1px solid var(--line2);border-radius:22px;overflow:hidden;
-    box-shadow:0 30px 80px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08)}
+    background:var(--glass);backdrop-filter:blur(34px) saturate(1.6);-webkit-backdrop-filter:blur(34px) saturate(1.6);
+    border:1px solid var(--line2);border-radius:24px;overflow:hidden;
+    box-shadow:0 40px 100px rgba(0,0,0,.6),0 0 0 1px rgba(43,134,224,.08),inset 0 1px 0 rgba(120,170,235,.12)}
   @media(max-width:520px){ .app{padding:0} .win{max-width:none;height:100%;border-radius:0;border:0} }
 
   .brandlogo{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:32px;height:32px;border-radius:9px;pointer-events:none}
