@@ -960,6 +960,7 @@
   // Play the note on 'input' (not keydown) so autocomplete, emoji, predictive
   // text and paste all chime too - those never fire keydown.
   mi.addEventListener('input',function(){ blip('key'); });
+  mi.addEventListener('focus',function(){ blip('tap'); });   // chime when you tap into the box
   // Button/tap sounds. CAPTURE phase so it fires even for buttons that
   // stopPropagation (the top-right menu/bell). Skip send (it already chirps).
   document.addEventListener('click',function(e){ var t=e.target.closest('button,.iconbtn,.cmenu,.conv,.contact,.pill,.rbtn,.later,.x'); if(t&&t.id!=='sendBtn') blip('tap'); }, true);
