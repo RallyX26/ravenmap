@@ -35,8 +35,8 @@
     box-shadow:0 40px 100px rgba(0,0,0,.6),0 0 0 1px rgba(43,134,224,.08),inset 0 1px 0 rgba(120,170,235,.12)}
   @media(max-width:520px){ .app{padding:0} .win{max-width:none;height:100%;border-radius:0;border:0} }
 
-  .brandlogo{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:32px;height:32px;border-radius:9px;pointer-events:none}
-  .top{position:relative;display:flex;align-items:center;gap:10px;padding:13px 14px;border-bottom:1px solid var(--line);
+  .brandlogo{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:48px;height:48px;border-radius:11px;pointer-events:none}
+  .top{position:relative;display:flex;align-items:center;gap:10px;padding:6px 14px;border-bottom:1px solid var(--line);
     background:linear-gradient(180deg,rgba(255,255,255,.05),transparent)}
   .top .brand{font-weight:750;letter-spacing:.3px;display:flex;align-items:center;gap:8px}
   .top .brand .logo{width:22px;height:22px;border-radius:6px;display:block}
@@ -853,9 +853,9 @@
   /* ---------- chirp sounds + notifications ---------- */
   var actx=null, _reverb=null, _wet=null;
   function ensureReverb(){
-    if(_reverb) return; var len=Math.floor(actx.sampleRate*0.5), buf=actx.createBuffer(2,len,actx.sampleRate);
-    for(var ch=0;ch<2;ch++){ var d=buf.getChannelData(ch); for(var i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.6); }
-    _reverb=actx.createConvolver(); _reverb.buffer=buf; _wet=actx.createGain(); _wet.gain.value=0.4; _reverb.connect(_wet); _wet.connect(actx.destination);
+    if(_reverb) return; var len=Math.floor(actx.sampleRate*0.9), buf=actx.createBuffer(2,len,actx.sampleRate);
+    for(var ch=0;ch<2;ch++){ var d=buf.getChannelData(ch); for(var i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.2); }
+    _reverb=actx.createConvolver(); _reverb.buffer=buf; _wet=actx.createGain(); _wet.gain.value=0.6; _reverb.connect(_wet); _wet.connect(actx.destination);
   }
   function vol(){ try{ if($('#mute').checked) return 0; return (parseInt(LS.getItem('sparrow.send.vol')||'60',10)/100); }catch(e){ return .6; } }
   function chirp(sent){
@@ -872,18 +872,24 @@
       });
     }catch(e){}
   }
-  // Short UI blips: 'key' = keyboard tick, 'tap' = button press. Gated by volume/mute.
+  // Euphoric UI sounds: 'key' plays a soft glassy bell on a random pentatonic
+  // note (so typing becomes a gentle melody); 'tap' is a warm chime. Mid-range
+  // so phone speakers actually reproduce it. Gated by volume/mute.
+  var _penta=[587.33,659.25,783.99,880.00,1046.50,1174.66,1318.51];  // D5 E5 G5 A5 C6 D6 E6
+  function _bell(f, peak, dur, t){
+    // fundamental + shimmering upper partial through a gentle reverb = blissful
+    var o=actx.createOscillator(), o2=actx.createOscillator(), g=actx.createGain(), g2=actx.createGain();
+    o.type='sine'; o.frequency.value=f; o2.type='sine'; o2.frequency.value=f*2.005; g2.gain.value=0.35;
+    o.connect(g); o2.connect(g2); g2.connect(g); g.connect(actx.destination); if(_reverb) g.connect(_reverb);
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(peak,t+0.006); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.start(t); o2.start(t); o.stop(t+dur+0.05); o2.stop(t+dur+0.05);
+  }
   function blip(kind){
     var v=vol(); if(v<=0) return;
     try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==='suspended')actx.resume();
-      ensureReverb();
-      var t=actx.currentTime, o=actx.createOscillator(), g=actx.createGain(), lp=actx.createBiquadFilter();
-      lp.type='lowpass'; lp.frequency.value=1200;                 // soften: roll off the highs
-      o.connect(lp); lp.connect(g); g.connect(actx.destination); if(_reverb) g.connect(_reverb);   // dry + reverb tail
-      if(kind==='key'){ o.type='sine'; o.frequency.setValueAtTime(320,t); o.frequency.exponentialRampToValueAtTime(190,t+0.07);
-        g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.16*v,t+0.010); g.gain.exponentialRampToValueAtTime(0.0001,t+0.17); o.start(t); o.stop(t+0.19); }
-      else { o.type='sine'; o.frequency.setValueAtTime(300,t); o.frequency.exponentialRampToValueAtTime(150,t+0.10);
-        g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.30*v,t+0.010); g.gain.exponentialRampToValueAtTime(0.0001,t+0.24); o.start(t); o.stop(t+0.26); }
+      ensureReverb(); var t=actx.currentTime;
+      if(kind==='key'){ _bell(_penta[(Math.random()*_penta.length)|0], 0.55*v, 0.5, t); }
+      else { _bell(523.25, 0.5*v, 0.4, t); _bell(783.99, 0.32*v, 0.55, t+0.02); }   // tap = soft C+G chime
     }catch(e){}
   }
   function notifyIncoming(info){
