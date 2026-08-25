@@ -69,6 +69,7 @@
   .btn{width:100%;border:1px solid var(--line2);background:rgba(62,224,138,.12);color:var(--accent);
     border-radius:11px;padding:10px;font:700 14px system-ui;cursor:pointer;margin-top:9px}
   .btn.ghost{background:rgba(255,255,255,.04);color:var(--ink);font-weight:600}
+  .btn.ghost.danger{color:#ff9a9a;border-color:rgba(255,120,120,.35);background:rgba(255,80,80,.08)}
   .addr{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;word-break:break-all;
     background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:10px;padding:9px;color:#9fe6c4}
   /* short fingerprint of your identity - the whole ADDRESS starts with the same
@@ -95,6 +96,22 @@
   /* chat */
   .chat{flex:1;display:flex;flex-direction:column;min-height:0}
   .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted);text-align:center;padding:30px}
+  /* conversation list (home view before a chat is opened) */
+  .convlist{flex:1;overflow:auto;display:none}
+  .conv{display:flex;align-items:center;gap:12px;padding:11px 14px 11px 20px;cursor:pointer;position:relative;border-bottom:1px solid var(--line)}
+  .conv:hover{background:rgba(255,255,255,.045)} .conv:active{background:rgba(255,255,255,.08)}
+  .conv .cav{width:46px;height:46px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:16px;background:linear-gradient(180deg,#284a6a,#1a2c44);color:#cfe3f5}
+  .conv .cmeta{flex:1;min-width:0}
+  .conv .crow1{display:flex;align-items:center;gap:6px}
+  .conv .cnm{font-weight:650;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+  .conv .ctime{font-size:11.5px;color:var(--muted);flex:none}
+  .conv .cprev{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+  .conv.unread .cprev{color:var(--ink)} .conv.unread .cnm{font-weight:750}
+  .conv .cunread{position:absolute;left:7px;top:50%;margin-top:-4px;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px rgba(62,224,138,.6)}
+  /* clickable links inside message bubbles */
+  .msg a.lnk{color:#bff3d6;text-decoration:underline;word-break:break-all}
+  .msg.in a.lnk{color:#8fe3ff}
   .empty .big{font-size:40px;opacity:.6}
   .chathead{display:none;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
   .chathead .who{font-weight:700}
@@ -228,8 +245,9 @@
       </div>
       <div class="empty" id="empty">
         <div class="big">✦</div>
-        <div>Pick a contact, or add someone with <b>☰</b>.<br>Everything you send is end‑to‑end encrypted.</div>
+        <div>No conversations yet.<br>Add someone with <b>☰</b> — everything is end‑to‑end encrypted.</div>
       </div>
+      <div class="convlist" id="convlist"></div>
       <div class="msgs" id="msgs" style="display:none"></div>
       <div class="replybar" id="replybar"><div class="rq" id="replyq"></div><span class="x" id="replyx">✕</span></div>
       <div class="compose" id="compose">
@@ -251,6 +269,7 @@
   <button class="btn ghost" id="renameBtn">Save name</button>
   <button class="btn ghost" id="verifyBtn" style="margin-top:8px">Mark verified</button>
   <button class="btn ghost" id="resetSessBtn" style="margin-top:8px">Reset secure session</button>
+  <button class="btn ghost danger" id="deleteContactBtn" style="margin-top:8px">Delete contact</button>
   <div class="sub" style="margin-top:8px">Verify by comparing addresses in person or over another channel.</div>
 </div>
 
@@ -458,7 +477,7 @@
         body:JSON.stringify({mb:ID.mailbox,pk:b64u(ID.sPubRaw),ch:c.challenge,sig:b64u(sig)})})).json();
       var got=res.msgs||[], any=false, incoming=null;
       for(var i=0;i<got.length;i++){ var r=await ingest(got[i]); if(r){ any=true; incoming=r; } }
-      if(any){ renderContacts(); if(cur) drawMsgs(); notifyIncoming(incoming); }
+      if(any){ if(cur){ drawMsgs(); markRead(cur.mb); renderContacts(); } else { showHome(); } notifyIncoming(incoming); }
     }catch(e){ /* offline; retry next tick */ }
     finally{ _polling=false; }
   }
@@ -510,20 +529,76 @@
       el.querySelector('.av').textContent=initials(ct.name);
       var nm=el.querySelector('.n'); nm.textContent=ct.name||'(unnamed)';
       if(ct.verified){var b=document.createElement('span');b.className='vbadge';b.textContent='✓ verified';nm.appendChild(b);}
-      el.onclick=function(ev){ if(ev.target.classList.contains('cmenu')){ openCmenu(ct, ev.target); return; } openChat(ct); };
+      el.onclick=function(){ openChat(ct); };
+      var mbtn=el.querySelector('.cmenu'); mbtn.onclick=function(ev){ ev.stopPropagation(); openCmenu(ct, ev.currentTarget); };
+      box.appendChild(el);
+    });
+    // keep the home conversation list in sync whenever contacts change
+    if(!cur){ var has=c.length>0; $('#empty').style.display=has?'none':'flex'; $('#convlist').style.display=has?'block':'none'; if(has) renderConvList(); }
+  }
+  var cur=null;
+  function readKey(mb){return 'sparrow.send.read.'+mb;}
+  function markRead(mb){ try{ var h=getHist(mb), t=h.length?h[h.length-1].ts:0; LS.setItem(readKey(mb), String(t)); }catch(e){} }
+  function isUnread(mb){ try{ var h=getHist(mb); if(!h.length) return false; var last=h[h.length-1]; if(last.dir!=='in') return false; return last.ts > (parseInt(LS.getItem(readKey(mb))||'0',10)); }catch(e){ return false; } }
+  function shortTime(ts){ if(!ts) return ''; var d=new Date(ts), now=new Date();
+    if(d.toDateString()===now.toDateString()) return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    var y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString([], {month:'numeric',day:'numeric'}); }
+  // Home view: an iMessage-style conversation list, newest first, with previews.
+  function renderConvList(){
+    var box=$('#convlist');
+    var rows=getContacts().map(function(ct){ var h=getHist(ct.mb), last=h.length?h[h.length-1]:null; return {ct:ct, last:last, ts:last?last.ts:0}; })
+      .sort(function(a,b){ return b.ts-a.ts; });
+    box.innerHTML='';
+    rows.forEach(function(row){
+      var ct=row.ct, last=row.last, unread=isUnread(ct.mb);
+      var el=document.createElement('div'); el.className='conv'+(unread?' unread':'');
+      if(unread){ var u=document.createElement('div'); u.className='cunread'; el.appendChild(u); }
+      var av=document.createElement('div'); av.className='cav'; av.textContent=initials(ct.name); el.appendChild(av);
+      var meta=document.createElement('div'); meta.className='cmeta';
+      var r1=document.createElement('div'); r1.className='crow1';
+      var nm=document.createElement('span'); nm.className='cnm'; nm.textContent=ct.name||('Unknown ('+ct.mb.slice(0,6)+'…)'); r1.appendChild(nm);
+      if(ct.verified){ var vb=document.createElement('span'); vb.className='vbadge'; vb.textContent='✓'; r1.appendChild(vb); }
+      var tm=document.createElement('span'); tm.className='ctime'; tm.textContent=last?shortTime(last.ts):''; r1.appendChild(tm);
+      meta.appendChild(r1);
+      var pv=document.createElement('div'); pv.className='cprev';
+      pv.textContent = last ? ((last.dir==='out'?'You: ':'')+(last.o&&last.o.t==='img'?'📷 Photo':(last.o&&last.o.x)||'')) : 'Say hello 👋';
+      meta.appendChild(pv); el.appendChild(meta);
+      el.onclick=function(){ openChat(ct); };
+      addLongPress(el, function(){ openCmenu(ct, el); });   // long-press = rename/verify/delete
       box.appendChild(el);
     });
   }
-  var cur=null;
+  // Show the home (list) view - no chat open.
+  function showHome(){
+    cur=null; clearReply();
+    $('#msgs').style.display='none'; $('#compose').style.display='none'; $('#chathead').style.display='none';
+    var has=getContacts().length>0;
+    $('#empty').style.display=has?'none':'flex';
+    $('#convlist').style.display=has?'block':'none';
+    if(has) renderConvList();
+    renderContacts();
+  }
   function openChat(ct){
     cur=ct; closePanels(); clearReply();
-    $('#empty').style.display='none'; $('#msgs').style.display='flex';
+    $('#empty').style.display='none'; $('#convlist').style.display='none'; $('#msgs').style.display='flex';
     $('#compose').style.display='flex'; $('#chathead').style.display='flex';
     $('#chatwho').textContent=ct.name||('Unknown ('+ct.mb.slice(0,8)+'…)');
     $('#chatsub').textContent=ct.verified?'verified':(ct.unknown?'unverified':'');
-    drawMsgs(); renderContacts(); $('#msgIn').focus();
+    drawMsgs(); markRead(ct.mb); renderContacts(); $('#msgIn').focus();
   }
-  function closeChat(){ cur=null; clearReply(); $('#msgs').style.display='none'; $('#compose').style.display='none'; $('#chathead').style.display='none'; $('#empty').style.display='flex'; }
+  function closeChat(){ showHome(); }
+  // Split text into text nodes + clickable links (safe: no innerHTML).
+  function appendText(el, text){
+    text=text||''; var re=/(https?:\/\/[^\s]+)/g, last=0, m;
+    while((m=re.exec(text))){
+      if(m.index>last) el.appendChild(document.createTextNode(text.slice(last,m.index)));
+      var url=m[0].replace(/[.,!?)]+$/,''); // don't swallow trailing punctuation
+      var a=document.createElement('a'); a.className='lnk'; a.href=url; a.textContent=url; a.target='_blank'; a.rel='noopener noreferrer nofollow';
+      el.appendChild(a); last=m.index+url.length;
+    }
+    if(last<text.length) el.appendChild(document.createTextNode(text.slice(last)));
+  }
   function bubbleContent(el,o){
     // Only render a self-contained data:image. A peer must never be able to make
     // your browser fetch a REMOTE url (that would leak your IP + read-receipt to
@@ -531,7 +606,7 @@
     // this refuses it even on a mirror without that header.
     if(o&&o.t==='img'&&typeof o.d==='string'&&/^data:image\//.test(o.d)){ var im=document.createElement('img'); im.src=o.d; el.appendChild(im); }
     else if(o&&o.t==='img'){ el.appendChild(document.createTextNode('📷 photo (blocked: not an inline image)')); }
-    else { el.appendChild(document.createTextNode((o&&o.x)||'')); }
+    else { appendText(el, (o&&o.x)||''); }
   }
   // Long-press = reply, on touch devices (desktop uses the hover ↩ button).
   function addLongPress(el, cb){
@@ -617,6 +692,11 @@
   $('#renameBtn').onclick=function(){ if(!menuCt) return; var c=getContacts(); c.forEach(function(x){if(x.mb===menuCt.mb){x.name=$('#renameIn').value.trim();x.unknown=false;}}); setContacts(c); if(cur&&cur.mb===menuCt.mb){cur.name=$('#renameIn').value.trim();$('#chatwho').textContent=cur.name;} renderContacts(); closePanels(); };
   $('#verifyBtn').onclick=function(){ if(!menuCt) return; var c=getContacts(); c.forEach(function(x){if(x.mb===menuCt.mb){x.verified=!x.verified;}}); setContacts(c); renderContacts(); if(cur&&cur.mb===menuCt.mb)$('#chatsub').textContent=(contactByMb(cur.mb).verified?'verified':'unverified'); closePanels(); };
   $('#resetSessBtn').onclick=function(){ if(!menuCt) return; if(!confirm('Reset the secure session with this contact? Your next message re-establishes encryption. Old messages stay.')) return; delRat(menuCt.mb); pushHist(menuCt.mb,{dir:'sys',o:{t:'text',x:'Secure session reset. The next message re-establishes end-to-end encryption.'},ts:Date.now()}); if(cur&&cur.mb===menuCt.mb)drawMsgs(); closePanels(); };
+  $('#deleteContactBtn').onclick=function(){ if(!menuCt) return; var mb=menuCt.mb;
+    if(!confirm('Delete '+(menuCt.name||'this contact')+' and your message history with them? This cannot be undone.')) return;
+    setContacts(getContacts().filter(function(x){return x.mb!==mb;}));
+    try{ LS.removeItem(hKey(mb)); delRat(mb); LS.removeItem('sparrow.send.seen.'+mb); LS.removeItem(readKey(mb)); }catch(e){}
+    closePanels(); if(cur&&cur.mb===mb) closeChat(); else showHome(); };
 
   /* ---------- add contact + QR ---------- */
   $('#addBtn').onclick=async function(){
@@ -755,7 +835,7 @@
     showMyHandle();
     $('#myqr').src='/api/send/qr?d='+encodeURIComponent(ID.address);
     try{ $('#vol').value=LS.getItem('sparrow.send.vol')||'60'; }catch(e){}
-    renderContacts();
+    showHome();
     await poll(); setInterval(poll, 4000);
     document.addEventListener('visibilitychange',function(){ if(!document.hidden) poll(); });
   })();

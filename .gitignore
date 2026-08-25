@@ -142,3 +142,8 @@ docs/abuse_reports_*.md
 docs/email_replies_*.md
 docs/replies_*.md
 camctl/proof.html
+
+tools/.sparrow_claude_state.json
+tools/.sparrow_claude_state.json.lock
+tools/claude_poll.err
+tools/inbox_media/
