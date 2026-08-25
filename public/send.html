@@ -103,12 +103,12 @@
   .chat{flex:1;display:flex;flex-direction:column;min-height:0}
   .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted);text-align:center;padding:30px}
   /* favorites bar: top 3 contacts as floating avatars, black glass, under header */
-  .favbar{display:none;gap:18px;justify-content:center;padding:14px 10px 16px;
-    background:linear-gradient(180deg,rgba(5,8,14,0.5),rgba(5,8,14,0.12))}
-  .fav{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;width:68px}
-  .fav .fav-av{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-    font-weight:700;font-size:20px;color:#dcebfb;background:linear-gradient(180deg,#2f5c8f,#1a3252);
-    box-shadow:0 8px 20px rgba(0,0,0,.45),0 0 0 1px rgba(120,170,235,.20);transition:transform .12s}
+  .favbar{display:none;gap:20px;justify-content:center;align-items:center;padding:7px 10px;
+    background:rgba(5,8,14,0.5)}
+  .fav{display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;width:62px}
+  .fav .fav-av{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:15px;color:#dcebfb;background:linear-gradient(180deg,#2f5c8f,#1a3252);
+    box-shadow:0 6px 16px rgba(0,0,0,.4),0 0 0 1px rgba(120,170,235,.20);transition:transform .12s}
   .fav:active .fav-av{transform:scale(.93)}
   .fav .fav-nm{font-size:11px;color:var(--muted);max-width:66px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* conversation list (home view before a chat is opened) */
