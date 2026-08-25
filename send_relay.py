@@ -185,7 +185,8 @@ HANDLES = core.DATA / "send_handles"
 _HANDLE = re.compile(r"^[a-z0-9_]{3,20}\Z")
 HANDLE_CLAIM_BITS = 18   # one-time; rate limit (120/hr) is the real anti-squat
 _RESERVED = {
-    "admin", "administrator", "root", "sparrow", "sparrowmap", "sparrowsend",
+    # "sparrow" is intentionally NOT reserved - it's the project owner's to claim.
+    "admin", "administrator", "root", "sparrowmap", "sparrowsend",
     "send", "sends", "support", "help", "helpdesk", "system", "sys", "abuse",
     "security", "official", "staff", "team", "mod", "moderator", "police",
     "gov", "government", "null", "undefined", "none", "me", "you", "everyone",
