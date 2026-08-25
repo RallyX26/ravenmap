@@ -796,8 +796,11 @@
     if(!info) return;
     var focusedThis = !document.hidden && cur && cur.mb===info.mb;
     if(focusedThis) return;
+    // If Web Push is on, the hub's (content-free) push already shows the banner.
+    // Firing an in-page Notification too made every message appear TWICE.
+    try{ if(LS.getItem('sparrow.send.push')==='1') return; }catch(e){}
     try{ if('Notification' in window && Notification.permission==='granted'){
-      var n=new Notification(info.name||'Sparrow Send',{body:info.text||'New message',icon:'/static/icon-192.png',tag:'sparrowsend-'+info.mb});
+      var n=new Notification(info.name||'Sparrow Send',{body:info.text||'New message',icon:'/static/apple-touch-icon.png',tag:'sparrowsend-'+info.mb});
       n.onclick=function(){ window.focus(); var c=contactByMb(info.mb); if(c) openChat(c); n.close(); };
     }}catch(e){}
   }
