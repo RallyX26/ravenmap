@@ -150,12 +150,26 @@
   .slider{width:100%}
   a.plain{color:var(--accent);text-decoration:none}
   .foot{color:var(--muted);font-size:11px;text-align:center;padding:8px}
+  /* invisible backdrop: catches an outside tap to close open dropdowns (iOS does
+     not bubble taps on non-interactive elements to document, so a scrim is the
+     reliable way to auto-close). */
+  .scrim{position:absolute;inset:0;z-index:15;display:none}
+  .scrim.on{display:block}
+  /* back-up-your-account nag */
+  .backup-nag{display:none;align-items:center;gap:8px;padding:9px 12px;font-size:12.5px;
+    background:rgba(43,134,224,.14);border-bottom:1px solid rgba(43,134,224,.35);color:#cfe6ff}
+  .backup-nag button{flex:none;border:1px solid var(--accent);background:var(--accent);color:#04121f;
+    font:700 12px system-ui;border-radius:8px;padding:5px 9px;cursor:pointer}
+  .backup-nag .later{flex:none;color:var(--muted);cursor:pointer;padding:4px}
 </style>
 </head>
 <body>
 <div class="bg"></div>
 <div class="app">
   <div class="win">
+    <div class="scrim" id="scrim"></div>
+    <div class="backup-nag" id="backupNag">⚠️ Back up your account so a lost bookmark can't wipe it.
+      <div class="grow"></div><button id="nagBackup">Back up now</button><span class="later" id="nagLater">Later</span></div>
     <div class="top">
       <div class="brand"><img class="logo" src="/static/mark.png" alt="" width="22" height="22">Sparrow Send</div>
       <div class="grow"></div>
@@ -179,24 +193,27 @@
 
     <!-- contacts dropdown -->
     <div class="panel" id="contactsPanel">
-      <h4>Your address</h4>
-      <div class="sub">Share this so people can message you. It's a public key — no phone number.</div>
-      <div class="myfp" id="myfp" title="A short fingerprint of your identity. It changes when you reset, and you can read it out to a contact to confirm you have the right person.">···· ····</div>
+      <h4>Your handle</h4>
+      <div class="myhandle" id="myhandle" style="display:none"></div>
+      <div class="sub">Share <b>@yourname</b> — it's the easiest way for people to add you.</div>
+      <div class="row" style="margin-top:8px">
+        <input id="handleIn" placeholder="claim a name" maxlength="20" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+        <button class="btn ghost" id="claimBtn" style="margin-top:0;flex:none;width:auto;white-space:nowrap">Claim</button>
+      </div>
+      <div class="status" id="handleStatus"></div>
+
+      <h4 style="margin-top:16px">Fingerprint — check it matches your contact</h4>
+      <div class="myfp" id="myfp" title="A short fingerprint of your identity. Read it to a contact to confirm you have the right person. It changes if you reset.">···· ····</div>
+      <div class="sub">Read this to a contact (in person / another app) to confirm you're really you. A handle doesn't prove identity — this does.</div>
+
+      <h4 style="margin-top:16px">Full address &amp; QR</h4>
+      <div class="sub">If someone can't use your @handle, share this instead.</div>
       <img class="qr" id="myqr" alt="your address QR">
       <div class="addr" id="myaddr">generating…</div>
       <div class="row" style="margin-top:9px">
         <button class="btn ghost" id="copyBtn" style="margin-top:0">Copy</button>
         <button class="btn ghost" id="resetIdBtn" style="margin-top:0">Reset ID</button>
       </div>
-
-      <h4 style="margin-top:16px">Your handle (optional)</h4>
-      <div class="sub">Claim a short name so people can add you as <b>@name</b> instead of the long address. First-come — a handle doesn't prove who you are, the fingerprint does.</div>
-      <div class="myhandle" id="myhandle" style="display:none"></div>
-      <div class="row" style="margin-top:8px">
-        <input id="handleIn" placeholder="yourname" maxlength="20" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
-        <button class="btn ghost" id="claimBtn" style="margin-top:0;flex:none;width:auto;white-space:nowrap">Claim</button>
-      </div>
-      <div class="status" id="handleStatus"></div>
 
       <h4 style="margin-top:16px">Move to another device</h4>
       <div class="sub">Carry your identity (and contacts) to a new phone or laptop. The key is like a seed phrase — anyone with it AND its password becomes you. One device at a time.</div>
@@ -210,12 +227,14 @@
         <label>Set a password for the key</label>
         <input id="exPass" type="password" placeholder="a strong password" autocomplete="new-password">
         <button class="btn" id="exGo">Generate login key</button>
+        <div class="row" style="margin-top:8px"><button class="btn" id="exDownload" hidden style="margin-top:0">⬇ Download backup file</button><button class="btn ghost" id="exCopy" hidden style="margin-top:0">Copy key text</button></div>
         <textarea id="exOut" readonly rows="4" hidden style="margin-top:8px;font-family:ui-monospace,monospace;font-size:11px"></textarea>
-        <button class="btn ghost" id="exCopy" hidden>Copy login key</button>
         <div class="status" id="exStatus"></div>
       </div>
       <div id="importBox" hidden style="margin-top:10px">
-        <label>Paste your login key</label>
+        <label>Upload your backup file</label>
+        <input type="file" id="imFile" accept=".txt,text/plain" style="font-size:13px">
+        <label style="margin-top:8px">…or paste your login key</label>
         <textarea id="imKey" rows="3" placeholder="login key" style="font-family:ui-monospace,monospace;font-size:11px"></textarea>
         <label>Password</label>
         <input id="imPass" type="password" placeholder="the key's password" autocomplete="off">
@@ -687,11 +706,14 @@
     var r=anchor.getBoundingClientRect();
     p.style.top=Math.min(window.innerHeight-330, r.bottom+6)+'px';
     p.style.right=Math.max(12, window.innerWidth-r.right)+'px'; p.style.left='auto';
-    p.classList.add('open');
+    p.classList.add('open'); showScrim(true);
   }
   $('#renameBtn').onclick=function(){ if(!menuCt) return; var c=getContacts(); c.forEach(function(x){if(x.mb===menuCt.mb){x.name=$('#renameIn').value.trim();x.unknown=false;}}); setContacts(c); if(cur&&cur.mb===menuCt.mb){cur.name=$('#renameIn').value.trim();$('#chatwho').textContent=cur.name;} renderContacts(); closePanels(); };
   $('#verifyBtn').onclick=function(){ if(!menuCt) return; var c=getContacts(); c.forEach(function(x){if(x.mb===menuCt.mb){x.verified=!x.verified;}}); setContacts(c); renderContacts(); if(cur&&cur.mb===menuCt.mb)$('#chatsub').textContent=(contactByMb(cur.mb).verified?'verified':'unverified'); closePanels(); };
-  $('#resetSessBtn').onclick=function(){ if(!menuCt) return; if(!confirm('Reset the secure session with this contact? Your next message re-establishes encryption. Old messages stay.')) return; delRat(menuCt.mb); pushHist(menuCt.mb,{dir:'sys',o:{t:'text',x:'Secure session reset. The next message re-establishes end-to-end encryption.'},ts:Date.now()}); if(cur&&cur.mb===menuCt.mb)drawMsgs(); closePanels(); };
+  $('#resetSessBtn').onclick=function(){ if(!menuCt) return; if(!confirm('Reset the secure session? BOTH of you should tap this, then ONLY ONE sends the next message (the other receives it, then replies). Old messages stay.')) return;
+    var mb=menuCt.mb; delRat(mb); try{ LS.removeItem('sparrow.send.seen.'+mb); }catch(e){}   // full clear, like a fresh session
+    pushHist(mb,{dir:'sys',o:{t:'text',x:'🔒 Secure session reset. Now ONE of you sends the next message — the other receives it, then replies. If it stays stuck, both Delete contact and re-add.'},ts:Date.now()});
+    if(cur&&cur.mb===mb)drawMsgs(); closePanels(); };
   $('#deleteContactBtn').onclick=function(){ if(!menuCt) return; var mb=menuCt.mb;
     if(!confirm('Delete '+(menuCt.name||'this contact')+' and your message history with them? This cannot be undone.')) return;
     setContacts(getContacts().filter(function(x){return x.mb!==mb;}));
@@ -737,17 +759,25 @@
   $('#exGo').onclick=async function(){
     var p=$('#exPass').value; if(p.length<8){ $('#exStatus').textContent='Use at least 8 characters — longer is much stronger.'; return; }
     $('#exStatus').textContent='Generating…';
-    try{ var key=await exportLoginKey(p); var out=$('#exOut'); out.value=key; out.hidden=false; $('#exCopy').hidden=false;
-      $('#exStatus').textContent='⚠️ Save this somewhere safe. With the password, it IS your account.'; }
+    try{ var key=await exportLoginKey(p); var out=$('#exOut'); out.value=key; out.hidden=false; $('#exCopy').hidden=false; $('#exDownload').hidden=false;
+      $('#exStatus').textContent='⚠️ Save the file (or copy the text) somewhere safe. With the password, it IS your account.'; }
     catch(e){ $('#exStatus').textContent='Could not generate: '+e.message; }
   };
-  $('#exCopy').onclick=function(){ if(navigator.clipboard) navigator.clipboard.writeText($('#exOut').value); $('#exStatus').textContent='Copied.'; };
+  function markedUp(){ try{LS.setItem('sparrow.send.backed_up','1');}catch(e){} updateBackupNag(); }
+  $('#exCopy').onclick=function(){ if(navigator.clipboard) navigator.clipboard.writeText($('#exOut').value); $('#exStatus').textContent='Copied. Paste it into your notes or password manager.'; markedUp(); };
+  $('#exDownload').onclick=function(){
+    var blob=new Blob([$('#exOut').value], {type:'text/plain'});
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='sparrow-send-backup.txt';
+    document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    $('#exStatus').textContent='Saved. Keep this file safe — it restores your account.'; markedUp();
+  };
+  $('#imFile').onchange=function(){ var f=this.files&&this.files[0]; if(!f) return; var r=new FileReader(); r.onload=function(){ $('#imKey').value=(r.result||'').toString().trim(); $('#imStatus').textContent='File loaded — enter the password and sign in.'; }; r.readAsText(f); };
   $('#imGo').onclick=async function(){
     var k=$('#imKey').value, p=$('#imPass').value;
     if(!k||!p){ $('#imStatus').textContent='Paste your key and its password.'; return; }
     if(!confirm('Sign in as the account in this key on THIS device? It replaces the current identity here. Existing chats may need “Reset secure session”.')) return;
     $('#imStatus').textContent='Signing in…';
-    try{ await importLoginKey(k,p); $('#imStatus').textContent='Success — reloading…'; setTimeout(function(){ location.reload(); },600); }
+    try{ await importLoginKey(k,p); try{LS.setItem('sparrow.send.backed_up','1');}catch(e){} $('#imStatus').textContent='Success — reloading…'; setTimeout(function(){ location.reload(); },600); }
     catch(e){ $('#imStatus').textContent='Wrong password or invalid key.'; }
   };
 
@@ -835,12 +865,18 @@
   if('serviceWorker' in navigator){ navigator.serviceWorker.register('/send-sw.js',{scope:'/send'}).catch(function(){}); }
 
   /* ---------- panels / wiring ---------- */
-  function closePanels(){ document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('open');}); }
-  function toggle(p){ var was=p.classList.contains('open'); closePanels(); if(!was) p.classList.add('open'); }
+  function showScrim(on){ var s=$('#scrim'); if(s) s.classList.toggle('on', !!on); }
+  // Nag to back up (export a login key) until they have - the account-loss fix.
+  function updateBackupNag(){ var n=$('#backupNag'); if(!n) return; var need=true; try{ need=LS.getItem('sparrow.send.backed_up')!=='1'; }catch(e){ need=false; } n.style.display=(need && !window.__nagOff)?'flex':'none'; }
+  function closePanels(){ document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('open');}); showScrim(false); }
+  function toggle(p){ var was=p.classList.contains('open'); closePanels(); if(!was){ p.classList.add('open'); showScrim(true); } }
   $('#contactsBtn').onclick=function(e){ e.stopPropagation(); toggle($('#contactsPanel')); };
   $('#soundBtn').onclick=function(e){ e.stopPropagation(); toggle($('#soundPanel')); };
   $('#chatmenu').onclick=function(e){ e.stopPropagation(); if(cur) openCmenu(cur, e.target); };
   document.addEventListener('click',function(e){ if(!e.target.closest('.panel')&&!e.target.closest('.iconbtn')&&!e.target.closest('.cmenu')&&!e.target.closest('#chatmenu')) closePanels(); });
+  $('#scrim').onclick=closePanels;
+  $('#nagBackup').onclick=function(){ closePanels(); $('#contactsPanel').classList.add('open'); showScrim(true); $('#exportBox').hidden=false; $('#importBox').hidden=true; var e=$('#exPass'); if(e){ try{e.scrollIntoView({block:'center'});}catch(_){} e.focus(); } };
+  $('#nagLater').onclick=function(){ window.__nagOff=true; updateBackupNag(); };
   $('#backBtn').onclick=closeChat;
   $('#replyx').onclick=clearReply;
   $('#sendBtn').onclick=doSend;
@@ -859,6 +895,7 @@
     $('#myqr').src='/api/send/qr?d='+encodeURIComponent(ID.address);
     try{ $('#vol').value=LS.getItem('sparrow.send.vol')||'60'; }catch(e){}
     showHome();
+    updateBackupNag();
     await poll(); setInterval(poll, 4000);
     document.addEventListener('visibilitychange',function(){ if(!document.hidden) poll(); });
   })();

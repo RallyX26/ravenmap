@@ -173,6 +173,19 @@ async function poll(ID, st, onMsg){
     if(r.ok && r.j.ok){ if(st.handle===h)st.handle=null; saveState(st); console.log("released @"+h); } else console.log("release failed: "+(r.j.error||r.status));
     return;
   }
+  if(cmd==="resetpeer"){
+    // Clear the ratchet + seen-mids for a peer so the next inbound re-inits the
+    // session (use after THEY delete+re-add us, or an identity rotation).
+    var t=(args[0]||""); var mb;
+    if(/^[0-9a-f]{32}$/.test(t)) mb=t;
+    else { var h=t.replace(/^@/,""); var look=await (await fetch(HUB+"/api/send/handle?h="+encodeURIComponent(h),{headers:{"User-Agent":UA}})).json().catch(function(){return{};});
+      if(!look.address){ console.log("no such @handle"); return; } var d=decodeAddress(look.address); mb=await mailboxOf(d.sRaw); }
+    await lock();
+    try{ var s2=loadState(); delete s2.rat[mb]; delete s2.seen[mb]; saveState(s2); }
+    finally{ unlock(); }
+    console.log("reset session with "+mb.slice(0,8)+" (bot will re-init on their next message)");
+    return;
+  }
   if(cmd==="allow"){
     const t=(args[0]||""); let mb;
     if(/^[0-9a-f]{32}$/.test(t)) mb=t;
