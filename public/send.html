@@ -875,8 +875,8 @@
   $('#chatmenu').onclick=function(e){ e.stopPropagation(); if(cur) openCmenu(cur, e.target); };
   document.addEventListener('click',function(e){ if(!e.target.closest('.panel')&&!e.target.closest('.iconbtn')&&!e.target.closest('.cmenu')&&!e.target.closest('#chatmenu')) closePanels(); });
   $('#scrim').onclick=closePanels;
-  $('#nagBackup').onclick=function(){ closePanels(); $('#contactsPanel').classList.add('open'); showScrim(true); $('#exportBox').hidden=false; $('#importBox').hidden=true; var e=$('#exPass'); if(e){ try{e.scrollIntoView({block:'center'});}catch(_){} e.focus(); } };
-  $('#nagLater').onclick=function(){ window.__nagOff=true; updateBackupNag(); };
+  $('#nagBackup').onclick=function(ev){ ev.stopPropagation(); closePanels(); $('#contactsPanel').classList.add('open'); showScrim(true); $('#exportBox').hidden=false; $('#importBox').hidden=true; var e=$('#exPass'); if(e){ try{e.scrollIntoView({block:'center'});}catch(_){} e.focus(); } };
+  $('#nagLater').onclick=function(ev){ ev.stopPropagation(); window.__nagOff=true; updateBackupNag(); };
   $('#backBtn').onclick=closeChat;
   $('#replyx').onclick=clearReply;
   $('#sendBtn').onclick=doSend;
