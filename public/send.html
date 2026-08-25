@@ -150,6 +150,16 @@
   .slider{width:100%}
   a.plain{color:var(--accent);text-decoration:none}
   .foot{color:var(--muted);font-size:11px;text-align:center;padding:8px}
+  /* custom SVG button icons (inherit color, crisp at any DPI) */
+  .iconbtn svg{width:23px;height:23px;display:block}
+  .send svg{width:24px;height:24px;display:block;margin-left:1px}
+  .attach svg{width:23px;height:23px;display:block}
+  .cmenu svg{width:20px;height:20px;display:block}
+  .conv .cmenu,.contact .cmenu{display:flex;align-items:center;justify-content:center}
+  .rbtn svg{width:15px;height:15px;display:block}
+  .replybar .x svg,.scanwrap .pill svg{width:16px;height:16px;display:block}
+  .btn svg{width:18px;height:18px;display:inline-block;vertical-align:-4px;margin-right:5px}
+  .iconbtn{overflow:visible}
   /* invisible backdrop: catches an outside tap to close open dropdowns (iOS does
      not bubble taps on non-interactive elements to document, so a scrim is the
      reliable way to auto-close). */
@@ -305,6 +315,30 @@
 (function(){
   "use strict";
   var $=function(s){return document.querySelector(s)};
+  /* ---------- custom SVG icons (Feather-style, currentColor) ---------- */
+  var _s='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+  var ICON={
+    menu:_s+'<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
+    bell:_s+'<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
+    back:_s+'<polyline points="15 18 9 12 15 6"/></svg>',
+    more:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>',
+    send:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.4l17.45-7.48a1 1 0 0 0 0-1.84L3.4 3.6a1 1 0 0 0-1.4.92L2 9.12a1 1 0 0 0 .82.98L15 12 2.82 13.9a1 1 0 0 0-.82.98l0 4.6a1 1 0 0 0 1.4.92z"/></svg>',
+    attach:_s+'<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
+    camera:_s+'<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>',
+    close:_s+'<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    reply:_s+'<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>'
+  };
+  function applyIcons(){
+    var b;
+    if((b=$('#soundBtn'))) b.innerHTML=ICON.bell;
+    if((b=$('#contactsBtn'))) b.innerHTML=ICON.menu+'<span class="dot" id="cdot"></span>';
+    if((b=$('#backBtn'))) b.innerHTML=ICON.back;
+    if((b=$('#chatmenu'))) b.innerHTML=ICON.more;
+    if((b=$('#sendBtn'))) b.innerHTML=ICON.send;
+    if((b=$('#attachBtn'))) b.innerHTML=ICON.attach;
+    if((b=$('#scanBtn'))) b.innerHTML=ICON.camera+'<span style="margin-left:6px">Scan</span>';
+    if((b=$('#replyx'))) b.innerHTML=ICON.close;
+  }
   var LS=window.localStorage, R=window.SparrowRatchet;
   var subtle=(window.crypto&&window.crypto.subtle);
   if(!subtle||!R||!window.SparrowPow){ document.body.innerHTML='<div style="color:#eaf1fa;font:16px system-ui;padding:40px">This browser can’t run Sparrow Send (needs Web Crypto over https). Try current Chrome, Safari, Firefox or Edge.</div>'; return; }
@@ -544,7 +578,7 @@
     box.innerHTML='';
     c.forEach(function(ct){
       var el=document.createElement('div'); el.className='contact';
-      el.innerHTML='<div class="av"></div><div style="min-width:0"><div class="n"></div><div class="a">'+ct.mb.slice(0,10)+'…</div></div><div class="cmenu" title="options">⋯</div>';
+      el.innerHTML='<div class="av"></div><div style="min-width:0"><div class="n"></div><div class="a">'+ct.mb.slice(0,10)+'…</div></div><div class="cmenu" title="options">'+ICON.more+'</div>';
       el.querySelector('.av').textContent=initials(ct.name);
       var nm=el.querySelector('.n'); nm.textContent=ct.name||'(unnamed)';
       if(ct.verified){var b=document.createElement('span');b.className='vbadge';b.textContent='✓ verified';nm.appendChild(b);}
@@ -648,7 +682,7 @@
       bubbleContent(el,m.o);
       if(m.dir!=='sys'){
         var t=document.createElement('span');t.className='t';t.textContent=new Date(m.ts).toLocaleString([], {hour:'2-digit',minute:'2-digit'});el.appendChild(t);
-        var rb=document.createElement('div'); rb.className='rbtn'; rb.textContent='↩'; rb.title='Reply';
+        var rb=document.createElement('div'); rb.className='rbtn'; rb.innerHTML=ICON.reply; rb.title='Reply';
         rb.onclick=function(e){ e.stopPropagation(); setReply(m); };
         el.appendChild(rb);
         addLongPress(el, function(){ setReply(m); });
@@ -821,6 +855,17 @@
       });
     }catch(e){}
   }
+  // Short UI blips: 'key' = keyboard tick, 'tap' = button press. Gated by volume/mute.
+  function blip(kind){
+    var v=vol(); if(v<=0) return;
+    try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==='suspended')actx.resume();
+      var t=actx.currentTime, o=actx.createOscillator(), g=actx.createGain(); o.connect(g); g.connect(actx.destination);
+      if(kind==='key'){ o.type='square'; o.frequency.setValueAtTime(1800,t);
+        g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.05*v,t+0.003); g.gain.exponentialRampToValueAtTime(0.0001,t+0.035); o.start(t); o.stop(t+0.045); }
+      else { o.type='sine'; o.frequency.setValueAtTime(680,t); o.frequency.exponentialRampToValueAtTime(360,t+0.06);
+        g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.11*v,t+0.006); g.gain.exponentialRampToValueAtTime(0.0001,t+0.09); o.start(t); o.stop(t+0.11); }
+    }catch(e){}
+  }
   function notifyIncoming(info){
     chirp(false);
     if(!info) return;
@@ -883,10 +928,16 @@
   $('#attachBtn').onclick=function(){ $('#fileIn').click(); };
   $('#fileIn').onchange=function(){ if(this.files&&this.files[0]) sendImage(this.files[0]); this.value=''; };
   var mi=$('#msgIn');
-  mi.addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend();} });
+  mi.addEventListener('keydown',function(e){
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend();return;}
+    if(e.key&&(e.key.length===1||e.key==='Backspace'||e.key==='Enter')) blip('key');   // iPhone-style typing tick
+  });
+  // Button/tap sounds (skip the send button - it already chirps).
+  document.addEventListener('click',function(e){ var t=e.target.closest('button,.iconbtn,.cmenu,.conv,.contact,.pill,.rbtn,.later,.x'); if(t&&t.id!=='sendBtn') blip('tap'); });
   mi.addEventListener('input',function(){ this.style.height='auto'; this.style.height=Math.min(120,this.scrollHeight)+'px'; });
 
   (async function init(){
+    applyIcons();
     await loadID();
     $('#myaddr').textContent=ID.address;
     $('#myfp').textContent=fp(ID.mailbox);
