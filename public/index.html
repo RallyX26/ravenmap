@@ -50,6 +50,10 @@
     <div class="pmodal-bg" id="newsclose"></div>
     <div class="pmodal-card" role="dialog" aria-modal="true" aria-label="What's new">
       <div class="newshead">&#10024; What&#39;s new</div>
+      <a class="newsitem" href="/send">
+        <b>Sparrow Send &mdash; private messaging <span class="newsbeta">NEW</span></b>
+        <span>End-to-end encrypted 1:1 messages with no phone number and no email &mdash; just a key made in your browser. The server only relays sealed ciphertext it can't read. <b>Open Send</b> in the menu to start a chat.</span>
+      </a>
       <a class="newsitem" href="/buy">
         <b>What to buy — plug-and-play picks <span class="newsbeta">NEW</span></b>
         <span>Don't want to build? One recommended device per job &mdash; radar detector, camera (IR / webcam / IP), plane, drone, radio &mdash; and connect a radar detector <a href="/radarlink">right in your browser</a>, no app.</span>
@@ -313,7 +317,7 @@
 <script src="/vendor/leaflet.js"></script>
 <script src="/static/transparency.js?v=20"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
-<script src="/static/sitenav.js?v=36"></script>
+<script src="/static/sitenav.js?v=37"></script>
 <script src="/static/app.js?v=123"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->
@@ -338,7 +342,7 @@ if ('serviceWorker' in navigator) {
      feature ships and the dot lights up again for everyone. -->
 <script>
 (function () {
-  var NEWS_VERSION = '2026-08-23-buy-guide';
+  var NEWS_VERSION = '2026-08-24-sparrow-send';
   var open = document.getElementById('newsopen');
   var modal = document.getElementById('newsmodal');
   var bg = document.getElementById('newsclose');

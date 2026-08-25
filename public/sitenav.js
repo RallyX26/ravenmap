@@ -26,6 +26,9 @@
   var ITEMS = [
     { href: "/",             icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6.5v13L9 17l6 3 6-2.5v-13L15 7z"/><path d="M9 4v13M15 7v13"/></svg>', label: "Map",          mode: "map" },
     { href: "/drive",        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 16v2a1 1 0 0 1-1 1H3.5A1.5 1.5 0 0 1 2 17.5V12l2.2-5.1A2 2 0 0 1 6 5.6h12a2 2 0 0 1 1.8 1.3L22 12v5.5a1.5 1.5 0 0 1-1.5 1.5H20a1 1 0 0 1-1-1v-2"/><path d="M2 12h20"/><circle cx="6.5" cy="15" r="1"/><circle cx="17.5" cy="15" r="1"/></svg>', label: "Driving" },
+    // Sparrow Send - end-to-end encrypted 1:1 messaging built on the same
+    // no-phone-number identity. Announced 2026-08-24.
+    { href: "/send",         icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22 11 13 2 9z"/></svg>', label: "Send" },
     // Growth, live capacity and costs, generated from the database. Labelled
     // "Support" rather than "Donate" because the page is mostly numbers - the
     // costs and the bad retention figure included - and the ask is the last
