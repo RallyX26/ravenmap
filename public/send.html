@@ -19,6 +19,9 @@
     --me:linear-gradient(180deg,#2b7fd6,#134a86); --them:rgba(20,28,44,0.60);
   }
   *{box-sizing:border-box}
+  /* stop iOS Safari from auto-inflating text on rotate (it grew in landscape and
+     stayed big coming back to portrait) */
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
   html,body{height:100%;margin:0}
   body{font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--ink);
     background:#04060a;overflow:hidden}
