@@ -509,6 +509,28 @@
   function getRat(mb){try{var s=LS.getItem(rKey(mb));return s?JSON.parse(s):null;}catch(e){return null}}
   function setRat(mb,st){try{LS.setItem(rKey(mb),JSON.stringify(st));}catch(e){}}
   function delRat(mb){try{LS.removeItem(rKey(mb));}catch(e){}}
+  /* ---------- photo store (IndexedDB, NOT localStorage) ----------
+   * A downscaled photo is ~0.5MB. localStorage is tiny (~5MB), synchronous, and
+   * iOS evicts it under memory pressure - so a few photos blew the quota and a
+   * write could fail silently, making a sent photo vanish on reopen. Photos now
+   * live in IndexedDB (large + durable on an installed PWA); history keeps only a
+   * short id. Text is unaffected. Best-effort throughout: if IDB is unavailable
+   * the photo just won't persist locally, it never blocks sending. */
+  var _idb=null;
+  function idb(){ return _idb || (_idb=new Promise(function(res){
+    try{ var r=indexedDB.open('sparrowsend',1);
+      r.onupgradeneeded=function(){ try{ r.result.createObjectStore('img'); }catch(e){} };
+      r.onsuccess=function(){ res(r.result); }; r.onerror=function(){ res(null); };
+    }catch(e){ res(null); } })); }
+  function idbPut(id,dataUrl){ return idb().then(function(db){ if(!db)return false; return new Promise(function(res){
+    try{ var tx=db.transaction('img','readwrite'); tx.objectStore('img').put(dataUrl,id); tx.oncomplete=function(){res(true)}; tx.onerror=function(){res(false)}; tx.onabort=function(){res(false)}; }catch(e){res(false)} }); }); }
+  function idbGet(id){ return idb().then(function(db){ if(!db)return null; return new Promise(function(res){
+    try{ var tx=db.transaction('img','readonly'); var q=tx.objectStore('img').get(id); q.onsuccess=function(){res(q.result||null)}; q.onerror=function(){res(null)}; }catch(e){res(null)} }); }); }
+  function idbDel(id){ idb().then(function(db){ if(!db)return; try{ db.transaction('img','readwrite').objectStore('img').delete(id); }catch(e){} }); }
+  // Keep the newest ~300 photos; drop the oldest so IDB can't grow without bound.
+  function noteImgId(id){ try{ var k='sparrow.send.imgids', a=JSON.parse(LS.getItem(k)||'[]'); a.push(id); while(a.length>300){ idbDel(a.shift()); } LS.setItem(k,JSON.stringify(a)); }catch(e){} }
+  // Store a photo's bytes and return the history object that references them.
+  async function storeImg(dataUrl){ var id=b64u(crypto.getRandomValues(new Uint8Array(9))); var ok=await idbPut(id,dataUrl); if(!ok) return {t:'img',d:dataUrl}; noteImgId(id); return {t:'img',id:id}; }
 
   /* ---------- ratchet-backed send / receive ---------- */
   async function ratForSend(ct){
@@ -599,7 +621,9 @@
     var text=null;
     try{ var pt=await R.decrypt(st, env.r); setRat(mb, st);
       var obj=JSON.parse(dec.decode(pt));
-      pushHist(mb,{dir:'in',o:obj,ts:Date.now()});
+      var stored=obj;                                    // move a photo's bytes into IDB, keep an id in history
+      if(obj&&obj.t==='img'&&typeof obj.d==='string'&&/^data:image\//.test(obj.d)){ stored=await storeImg(obj.d); if(obj.re) stored.re=obj.re; }
+      pushHist(mb,{dir:'in',o:stored,ts:Date.now()});
       text=obj.t==='img'?'📷 photo':(obj.x||'');
     }catch(e){
       // Undecryptable (rare: simultaneous first-contact, or a reset on their side).
@@ -713,7 +737,9 @@
     // your browser fetch a REMOTE url (that would leak your IP + read-receipt to
     // them, out of band from the relay). CSP already blocks it on the live site;
     // this refuses it even on a mirror without that header.
-    if(o&&o.t==='img'&&typeof o.d==='string'&&/^data:image\//.test(o.d)){ var im=document.createElement('img'); im.onload=scrollBottom; im.src=o.d; el.appendChild(im); }
+    if(o&&o.t==='img'&&o.id){ var im=document.createElement('img'); im.onload=scrollBottom; el.appendChild(im);
+      idbGet(o.id).then(function(d){ if(d&&/^data:image\//.test(d)){ im.src=d; } else { var tn=document.createTextNode('📷 photo (not on this device)'); if(im.parentNode) im.parentNode.replaceChild(tn,im); } }); }
+    else if(o&&o.t==='img'&&typeof o.d==='string'&&/^data:image\//.test(o.d)){ var im2=document.createElement('img'); im2.onload=scrollBottom; im2.src=o.d; el.appendChild(im2); }
     else if(o&&o.t==='img'){ el.appendChild(document.createTextNode('📷 photo (blocked: not an inline image)')); }
     else { appendText(el, (o&&o.x)||''); }
   }
@@ -767,9 +793,11 @@
   async function sendImage(file){
     if(!cur||!file) return;
     var d=await downscale(file); if(!d){ return; }
-    var obj={t:'img',d:d}; if(replyTo) obj.re=replyTo; clearReply();
-    pushHist(cur.mb,{dir:'out',o:obj,ts:Date.now()}); drawMsgs(); chirp(true);
-    try{ await sendTo(cur,obj); }catch(e){ pushHist(cur.mb,{dir:'sys',o:{t:'text',x:'Photo not delivered: '+e.message},ts:Date.now()}); drawMsgs(); }
+    var wire={t:'img',d:d}; if(replyTo) wire.re=replyTo;        // full bytes go to the peer (encrypted)
+    var local=await storeImg(d); if(replyTo) local.re=replyTo; // local history keeps just an IDB id
+    clearReply();
+    pushHist(cur.mb,{dir:'out',o:local,ts:Date.now()}); drawMsgs(); chirp(true);
+    try{ await sendTo(cur,wire); }catch(e){ pushHist(cur.mb,{dir:'sys',o:{t:'text',x:'Photo not delivered: '+e.message},ts:Date.now()}); drawMsgs(); }
   }
   // Shrink a photo until the data URL fits comfortably in one envelope. Starts
   // large and only steps down if needed, so it never fails with a "too large"
