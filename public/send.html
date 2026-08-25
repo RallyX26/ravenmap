@@ -35,7 +35,8 @@
     box-shadow:0 30px 80px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08)}
   @media(max-width:520px){ .app{padding:0} .win{max-width:none;height:100%;border-radius:0;border:0} }
 
-  .top{display:flex;align-items:center;gap:10px;padding:13px 14px;border-bottom:1px solid var(--line);
+  .brandlogo{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:32px;height:32px;border-radius:9px;pointer-events:none}
+  .top{position:relative;display:flex;align-items:center;gap:10px;padding:13px 14px;border-bottom:1px solid var(--line);
     background:linear-gradient(180deg,rgba(255,255,255,.05),transparent)}
   .top .brand{font-weight:750;letter-spacing:.3px;display:flex;align-items:center;gap:8px}
   .top .brand .logo{width:22px;height:22px;border-radius:6px;display:block}
@@ -92,6 +93,11 @@
   .vbadge{font-size:10px;color:var(--accent);border:1px solid rgba(43,134,224,.4);border-radius:20px;padding:0 6px}
   .cmenu{margin-left:auto;color:var(--muted);padding:4px 6px;border-radius:8px}
   .cmenu:hover{background:rgba(255,255,255,.08)}
+  /* the chat-header ⋯ is a <button>; give it an explicit blue style so iOS
+     doesn't paint its default white button chrome */
+  #chatmenu{margin-left:auto;width:38px;height:38px;padding:0;border-radius:11px;display:flex;align-items:center;justify-content:center;
+    background:rgba(43,134,224,.16);border:1px solid rgba(43,134,224,.45);color:#bcdcff;cursor:pointer}
+  #chatmenu:hover{background:rgba(43,134,224,.28)}
 
   /* chat */
   .chat{flex:1;display:flex;flex-direction:column;min-height:0}
@@ -113,7 +119,9 @@
   .msg a.lnk{color:#bcdcff;text-decoration:underline;word-break:break-all}
   .msg.in a.lnk{color:#8fe3ff}
   .empty .big{font-size:40px;opacity:.6}
-  .chathead{display:none;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .chathead{display:none;position:relative;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .chatwho-wrap{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;max-width:58%;pointer-events:none}
+  .chatwho-wrap .who{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .chathead .who{font-weight:700}
   .msgs{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:7px}
   .msg{max-width:80%;padding:8px 12px;border-radius:16px;font-size:14.5px;word-wrap:break-word;white-space:pre-wrap;line-height:1.35;position:relative}
@@ -143,8 +151,8 @@
   .compose{display:none;gap:8px;padding:10px;border-top:1px solid var(--line);align-items:flex-end}
   .compose textarea{flex:1;max-height:120px;min-height:42px}
   .send{width:44px;height:44px;flex:none;border-radius:50%;border:0;background:linear-gradient(180deg,var(--accent),#14508f);
-    color:#04121f;font-size:18px;cursor:pointer;font-weight:900}
-  .attach{width:42px;height:42px;flex:none;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted);cursor:pointer;font-size:18px}
+    color:#04121f;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .attach{width:42px;height:42px;flex:none;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center}
   .scanwrap{position:fixed;inset:0;z-index:60;background:rgba(4,7,12,.94);display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px}
   .scanwrap video{width:min(360px,86vw);border-radius:16px;border:1px solid var(--line2)}
   .slider{width:100%}
@@ -152,7 +160,7 @@
   .foot{color:var(--muted);font-size:11px;text-align:center;padding:8px}
   /* custom SVG button icons (inherit color, crisp at any DPI) */
   .iconbtn svg{width:23px;height:23px;display:block}
-  .send svg{width:24px;height:24px;display:block;margin-left:1px}
+  .send svg{width:23px;height:23px;display:block}
   .attach svg{width:23px;height:23px;display:block}
   .cmenu svg{width:20px;height:20px;display:block}
   .conv .cmenu,.contact .cmenu{display:flex;align-items:center;justify-content:center}
@@ -181,7 +189,7 @@
     <div class="backup-nag" id="backupNag">⚠️ Back up your account so a lost bookmark can't wipe it.
       <div class="grow"></div><button id="nagBackup">Back up now</button><span class="later" id="nagLater">Later</span></div>
     <div class="top">
-      <div class="brand"><img class="logo" src="/static/mark.png" alt="" width="22" height="22">Sparrow Send</div>
+      <img class="brandlogo" src="/static/mark.png" alt="Sparrow Send" width="32" height="32">
       <div class="grow"></div>
       <button class="iconbtn" id="soundBtn" title="Sound &amp; app">🔔</button>
       <button class="iconbtn badge" id="contactsBtn" title="Contacts">☰<span class="dot" id="cdot"></span></button>
@@ -268,7 +276,7 @@
     <div class="chat">
       <div class="chathead" id="chathead">
         <button class="iconbtn" id="backBtn" title="Back">‹</button>
-        <div><div class="who" id="chatwho"></div><div class="a" id="chatsub" style="font-size:11px;color:var(--muted)"></div></div>
+        <div class="chatwho-wrap"><div class="who" id="chatwho"></div><div class="a" id="chatsub" style="font-size:11px;color:var(--muted)"></div></div>
         <div class="grow"></div>
         <button class="cmenu" id="chatmenu" title="Contact options">⋯</button>
       </div>
@@ -638,7 +646,7 @@
     $('#compose').style.display='flex'; $('#chathead').style.display='flex';
     $('#chatwho').textContent=ct.name||('Unknown ('+ct.mb.slice(0,8)+'…)');
     $('#chatsub').textContent=ct.verified?'verified':(ct.unknown?'unverified':'');
-    drawMsgs(); markRead(ct.mb); renderContacts(); $('#msgIn').focus();
+    drawMsgs(); markRead(ct.mb); renderContacts();   // no auto-focus: don't pop the keyboard on open
   }
   function closeChat(){ showHome(); }
   // Split text into text nodes + clickable links (safe: no innerHTML).
@@ -839,7 +847,12 @@
   }
 
   /* ---------- chirp sounds + notifications ---------- */
-  var actx=null;
+  var actx=null, _reverb=null, _wet=null;
+  function ensureReverb(){
+    if(_reverb) return; var len=Math.floor(actx.sampleRate*0.5), buf=actx.createBuffer(2,len,actx.sampleRate);
+    for(var ch=0;ch<2;ch++){ var d=buf.getChannelData(ch); for(var i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.6); }
+    _reverb=actx.createConvolver(); _reverb.buffer=buf; _wet=actx.createGain(); _wet.gain.value=0.4; _reverb.connect(_wet); _wet.connect(actx.destination);
+  }
   function vol(){ try{ if($('#mute').checked) return 0; return (parseInt(LS.getItem('sparrow.send.vol')||'60',10)/100); }catch(e){ return .6; } }
   function chirp(sent){
     var v=vol(); if(v<=0) return;
@@ -859,11 +872,14 @@
   function blip(kind){
     var v=vol(); if(v<=0) return;
     try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==='suspended')actx.resume();
-      var t=actx.currentTime, o=actx.createOscillator(), g=actx.createGain(); o.connect(g); g.connect(actx.destination);
-      if(kind==='key'){ o.type='square'; o.frequency.setValueAtTime(1800,t);
-        g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.05*v,t+0.003); g.gain.exponentialRampToValueAtTime(0.0001,t+0.035); o.start(t); o.stop(t+0.045); }
-      else { o.type='sine'; o.frequency.setValueAtTime(680,t); o.frequency.exponentialRampToValueAtTime(360,t+0.06);
-        g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.11*v,t+0.006); g.gain.exponentialRampToValueAtTime(0.0001,t+0.09); o.start(t); o.stop(t+0.11); }
+      ensureReverb();
+      var t=actx.currentTime, o=actx.createOscillator(), g=actx.createGain(), lp=actx.createBiquadFilter();
+      lp.type='lowpass'; lp.frequency.value=1200;                 // soften: roll off the highs
+      o.connect(lp); lp.connect(g); g.connect(actx.destination); if(_reverb) g.connect(_reverb);   // dry + reverb tail
+      if(kind==='key'){ o.type='sine'; o.frequency.setValueAtTime(320,t); o.frequency.exponentialRampToValueAtTime(190,t+0.07);
+        g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.16*v,t+0.010); g.gain.exponentialRampToValueAtTime(0.0001,t+0.17); o.start(t); o.stop(t+0.19); }
+      else { o.type='sine'; o.frequency.setValueAtTime(300,t); o.frequency.exponentialRampToValueAtTime(150,t+0.10);
+        g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.30*v,t+0.010); g.gain.exponentialRampToValueAtTime(0.0001,t+0.24); o.start(t); o.stop(t+0.26); }
     }catch(e){}
   }
   function notifyIncoming(info){
@@ -932,8 +948,9 @@
     if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend();return;}
     if(e.key&&(e.key.length===1||e.key==='Backspace'||e.key==='Enter')) blip('key');   // iPhone-style typing tick
   });
-  // Button/tap sounds (skip the send button - it already chirps).
-  document.addEventListener('click',function(e){ var t=e.target.closest('button,.iconbtn,.cmenu,.conv,.contact,.pill,.rbtn,.later,.x'); if(t&&t.id!=='sendBtn') blip('tap'); });
+  // Button/tap sounds. CAPTURE phase so it fires even for buttons that
+  // stopPropagation (the top-right menu/bell). Skip send (it already chirps).
+  document.addEventListener('click',function(e){ var t=e.target.closest('button,.iconbtn,.cmenu,.conv,.contact,.pill,.rbtn,.later,.x'); if(t&&t.id!=='sendBtn') blip('tap'); }, true);
   mi.addEventListener('input',function(){ this.style.height='auto'; this.style.height=Math.min(120,this.scrollHeight)+'px'; });
 
   (async function init(){
