@@ -326,6 +326,8 @@
 <!-- contact ⋯ menu -->
 <div class="panel" id="cmenuPanel" style="top:auto">
   <h4>Contact</h4>
+  <div class="sub" style="margin-bottom:2px">Fingerprint — should match theirs</div>
+  <div id="cmenuFp" style="text-align:center;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:16px;font-weight:700;letter-spacing:1px;color:var(--accent);user-select:all;margin:0 0 8px"></div>
   <label>Rename</label>
   <input id="renameIn" placeholder="name">
   <button class="btn ghost" id="renameBtn">Save name</button>
@@ -611,7 +613,7 @@
     box.innerHTML='';
     c.forEach(function(ct){
       var el=document.createElement('div'); el.className='contact';
-      el.innerHTML='<div class="av"></div><div style="min-width:0"><div class="n"></div><div class="a">'+ct.mb.slice(0,10)+'…</div></div><div class="cmenu" title="options">'+ICON.more+'</div>';
+      el.innerHTML='<div class="av"></div><div style="min-width:0"><div class="n"></div><div class="a">'+fp(ct.mb)+'</div></div><div class="cmenu" title="options">'+ICON.more+'</div>';
       el.querySelector('.av').textContent=initials(ct.name);
       var nm=el.querySelector('.n'); nm.textContent=ct.name||'(unnamed)';
       if(ct.verified){var b=document.createElement('span');b.className='vbadge';b.textContent='✓ verified';nm.appendChild(b);}
@@ -785,6 +787,7 @@
   var menuCt=null;
   function openCmenu(ct, anchor){
     menuCt=ct; closePanels(); var p=$('#cmenuPanel');
+    $('#cmenuFp').textContent=fp(ct.mb);
     $('#renameIn').value=ct.name||'';
     $('#verifyBtn').textContent=ct.verified?'Unverify':'Mark verified';
     var r=anchor.getBoundingClientRect();
