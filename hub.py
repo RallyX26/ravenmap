@@ -37,6 +37,7 @@ import privacy
 import review_api
 import review_auth
 import send_relay
+import send_push
 import snapshot
 from core import CONFIG, DATA, PUBLIC, SNAPS, is_operator_addr, now
 
@@ -659,6 +660,7 @@ RATE = {"/api/enroll": (600, 3600), "/api/sightings": (900, 3600),
         "/api/send/claim": (120, 3600),
         "/api/send/release": (120, 3600),
         "/api/send/handle": (3000, 3600),
+        "/api/send/subscribe": (300, 3600),
         # Local ADS-B receivers pushing aircraft they see. A busy sky is a lot of
         # aircraft per push but one push every few seconds, so this is roomy.
         "/api/aircraft/ingest": (1800, 3600),
@@ -1700,6 +1702,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, qr.png(d, scale=8), "image/png")
                 except Exception:
                     return self._err(400, "could not render")
+            if p == "/api/send/vapid":
+                # The public VAPID key the client needs to subscribe to push.
+                return self._json({"key": send_push.public_key()})
             if p == "/api/send/handle":
                 # Resolve a short handle -> address (an opt-in directory). The
                 # address is a public key, so this leaks nothing a shared address
@@ -3925,6 +3930,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not ok:
                     return self._err(400, "could not accept that message "
                                           "(bad mailbox, too large, or relay full)")
+                # Content-free push nudge so the recipient's phone rings even with
+                # the app closed. Fire-and-forget; never blocks the send.
+                send_push.notify_async(to)
                 return self._json({"ok": True})
 
             if p == "/api/send/claim":
@@ -3952,6 +3960,20 @@ class Handler(BaseHTTPRequestHandler):
                 if not ok:
                     return self._json({"error": res}, 400)
                 return self._json({"ok": True, "handle": res})
+
+            if p == "/api/send/subscribe":
+                # Store (or clear) a device's Web Push subscription for a mailbox
+                # so the hub can send content-free "new message" nudges. Opt-in.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "slow down")
+                b = self._body()
+                mb = str(b.get("mb") or "")
+                if b.get("unsubscribe"):
+                    send_push.unsubscribe(mb)
+                    return self._json({"ok": True})
+                if not send_push.subscribe(mb, b.get("sub")):
+                    return self._err(400, "bad subscription")
+                return self._json({"ok": True})
 
             if p == "/api/send/get":
                 # Prove ownership, then hand back and DELETE this mailbox's

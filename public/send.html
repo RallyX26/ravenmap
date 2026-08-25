@@ -801,8 +801,27 @@
       n.onclick=function(){ window.focus(); var c=contactByMb(info.mb); if(c) openChat(c); n.close(); };
     }}catch(e){}
   }
-  $('#notifBtn').onclick=function(){ if(!('Notification' in window)){ this.textContent='Not supported here'; return; }
-    Notification.requestPermission().then(function(p){ $('#notifBtn').textContent = p==='granted'?'Notifications on':'Blocked — allow in browser'; }); };
+  function urlB64ToU8(s){ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; var raw=atob(s), a=new Uint8Array(raw.length); for(var i=0;i<raw.length;i++)a[i]=raw.charCodeAt(i); return a; }
+  // Real Web Push: works when the app is CLOSED (iOS needs this - the in-page
+  // Notification API only fires while open). iPhone requires the app be added to
+  // the Home Screen first (PushManager only exists in an installed PWA).
+  async function enablePush(){
+    if(!('Notification' in window)) throw new Error('Notifications not supported here');
+    var perm = await Notification.requestPermission();
+    if(perm!=='granted') throw new Error('Blocked — allow in settings');
+    if(!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('On iPhone: Add to Home Screen first, then enable');
+    var reg = await navigator.serviceWorker.ready;
+    var vk = (await (await fetch('/api/send/vapid')).json()).key;
+    if(!vk) throw new Error('push not configured');
+    var sub = await reg.pushManager.getSubscription();
+    if(!sub) sub = await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey: urlB64ToU8(vk)});
+    var r = await fetch('/api/send/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mb:ID.mailbox, sub:sub.toJSON()})});
+    if(!r.ok) throw new Error('could not register on the hub');
+    try{ LS.setItem('sparrow.send.push','1'); }catch(e){}
+  }
+  $('#notifBtn').onclick=async function(){ var btn=this; btn.textContent='Enabling…';
+    try{ await enablePush(); btn.textContent='🔔 Notifications on'; }
+    catch(e){ btn.textContent=e.message||'Could not enable'; } };
   $('#vol').oninput=function(){ try{LS.setItem('sparrow.send.vol',this.value);}catch(e){} };
   $('#testChirp').onclick=function(){ chirp(false); };
 
@@ -833,6 +852,7 @@
     $('#myaddr').textContent=ID.address;
     $('#myfp').textContent=fp(ID.mailbox);
     showMyHandle();
+    try{ if(LS.getItem('sparrow.send.push')==='1') $('#notifBtn').textContent='🔔 Notifications on'; }catch(e){}
     $('#myqr').src='/api/send/qr?d='+encodeURIComponent(ID.address);
     try{ $('#vol').value=LS.getItem('sparrow.send.vol')||'60'; }catch(e){}
     showHome();

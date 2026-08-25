@@ -24,6 +24,23 @@ self.addEventListener("activate", function (e) {
       .map(function (k) { return caches.delete(k); }));
   }).then(function () { return self.clients.claim(); }));
 });
+// Web Push: the hub sends a content-free nudge when mail lands, so the phone
+// rings even with the app closed. No message content is ever in the push.
+self.addEventListener("push", function (e) {
+  var body = "New message";
+  try { if (e.data) { var d = e.data.json(); if (d && d.body) body = d.body; } } catch (_) {}
+  e.waitUntil(self.registration.showNotification("Sparrow Send", {
+    body: body, icon: "/static/icon-192.png", badge: "/static/icon-192.png",
+    tag: "sparrowsend-msg", renotify: true, data: { url: "/send" }
+  }));
+});
+self.addEventListener("notificationclick", function (e) {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (cl) {
+    for (var i = 0; i < cl.length; i++) { if (cl[i].url.indexOf("/send") >= 0 && "focus" in cl[i]) return cl[i].focus(); }
+    if (self.clients.openWindow) return self.clients.openWindow("/send");
+  }));
+});
 self.addEventListener("fetch", function (e) {
   var url = new URL(e.request.url);
   if (e.request.method !== "GET") return;             // never cache posts
