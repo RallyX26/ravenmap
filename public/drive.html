@@ -1136,10 +1136,20 @@
       var ox=(cv.width-v.videoWidth*s)/2, oy=(cv.height-v.videoHeight*s)/2;
       g.clearRect(0,0,cv.width,cv.height);
       g.lineWidth=1.5; g.strokeStyle='#60a5fa';
+      var now=performance.now();
       for(var i=0;i<dtracks.length;i++){
         var t=dtracks[i]; if(!t.box) continue;
         if(!t.disp){ t.disp=t.box.slice(); }
-        for(var k=0;k<4;k++){ t.disp[k]+=(t.box[k]-t.disp[k])*0.35; }
+        // Aim at where the vehicle IS NOW, not where it was at the last detection.
+        // The detector runs ~3x/sec, so between runs the measured box is up to a
+        // third of a second stale - a fast car moves most of its own width in
+        // that time, so easing toward the stale box makes the overlay trail and
+        // then snap to catch up. Extrapolate the measured box forward by its
+        // velocity (capped so a stale track cannot fly off) and ease toward THAT.
+        var pdt=Math.min(now-(t.last||now),250), pb=t.box;
+        if(t.vx!==undefined){ pb=[t.box[0]+t.vx*pdt, t.box[1]+t.vy*pdt,
+                                  t.box[2]+t.vx*pdt, t.box[3]+t.vy*pdt]; }
+        for(var k=0;k<4;k++){ t.disp[k]+=(pb[k]-t.disp[k])*0.5; }
         var b=t.disp;
         g.strokeRect(b[0]*s+ox,b[1]*s+oy,(b[2]-b[0])*s,(b[3]-b[1])*s);
       }
