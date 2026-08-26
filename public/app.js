@@ -219,15 +219,16 @@ addEventListener('error', (e) => {
 // ⚠️ Vector basemap is OPT-IN (`?vec=1`) while the MapLibre<->Leaflet bridge is
 // being brought up - it currently loads the style but stalls before rendering,
 // so the DEFAULT stays the proven Carto raster proxy to keep the live map intact.
-if (new URLSearchParams(location.search).has('vec')) {
-  L.maplibreGL({
-    style: '/basemap/style.json?v=1',
-    attribution: '&copy; OpenStreetMap contributors &middot; SparrowMap',
-  }).addTo(map);
-} else {
+if (new URLSearchParams(location.search).has('raster')) {
   L.tileLayer('/api/tile/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors &copy; CARTO &middot; SparrowMap',
     maxZoom: 20,
+  }).addTo(map);
+} else {
+  // DEFAULT (staging): our own SparrowMap-dark vector basemap (planet.pmtiles).
+  L.maplibreGL({
+    style: '/basemap/style.json?v=4',
+    attribution: '&copy; OpenStreetMap contributors &middot; SparrowMap',
   }).addTo(map);
 }
 
@@ -556,6 +557,7 @@ function renderList() {
   $('#list').innerHTML = rows.slice(0, 300).map((s) => `
     <li data-id="${s.id}" class="${s.id === state.selected ? 'sel' : ''}">
       <i class="sw" style="background:${COLOR[s.vclass] || COLOR.unknown}"></i>
+      ${s.snap ? `<img class="thumb" loading="lazy" src="/snap/${encodeURIComponent(s.snap)}" alt="">` : ''}
       <div class="who">
         <b class="${isPublic(s) ? '' : 'priv'}" style="${isPublic(s)
           ? 'color:' + (COLOR[s.vclass] || COLOR.unknown) : ''}">${

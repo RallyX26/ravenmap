@@ -18,7 +18,7 @@
  * JS fix quietly knocked every phone camera offline until it finished pulling
  * the model over mobile data. Version the code; never the thing that takes a
  * minute to fetch. */
-const CACHE = 'sparrow-app-v9';
+const CACHE = 'sparrow-app-v10';
 // Deliberately the LAST app cache name rather than a fresh one: devices already
 // hold the model under it, and renaming would throw away the very download this
 // split exists to protect. Bump ONLY when the vendored model itself changes.
@@ -128,6 +128,13 @@ self.addEventListener('fetch', (e) => {
     );
     return;
   }
+
+  // 🚨 Self-hosted VECTOR basemap (planet.pmtiles): pass straight through, never
+  // touch it. The tiles are gzip; a service worker that re-serves them (its own
+  // fetch decompresses the body but keeps Content-Encoding: gzip) makes the
+  // browser decompress a second time, so MapLibre gets garbage and the map is
+  // blank. Same reason /api/ is passed through below.
+  if (url.pathname.startsWith('/basemap/')) return;
 
   // Map tiles: cache-first with a ceiling, so the map has a map under it when
   // there is no signal. Static imagery only - see TILE_CACHE.
