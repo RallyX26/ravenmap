@@ -13,6 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
+<link rel="stylesheet" href="/vendor/maplibre-gl.css">
 <link rel="stylesheet" href="/static/style.css?v=115">
 </head>
 <body>
@@ -315,10 +316,14 @@
      miss the calls that fail first, which are the ones that matter. -->
 <script src="/static/offline.js?v=1"></script>
 <script src="/vendor/leaflet.js"></script>
+<!-- MapLibre GL + the Leaflet bridge, BEFORE app.js: app.js swaps the Carto raster
+     basemap for our own vector tiles (planet.pmtiles) rendered by MapLibre. -->
+<script src="/vendor/maplibre-gl.js"></script>
+<script src="/vendor/leaflet-maplibre-gl.js"></script>
 <script src="/static/transparency.js?v=20"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
 <script src="/static/sitenav.js?v=37"></script>
-<script src="/static/app.js?v=123"></script>
+<script src="/static/app.js?v=124"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->
 <script src="/static/updates.js?v=2"></script>

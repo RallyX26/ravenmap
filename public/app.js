@@ -208,14 +208,25 @@ addEventListener('error', (e) => {
   }
 }, true);
 
-/* Same-origin on purpose - see hub.py TILES. The tiles are CARTO's, fetched
- * and cached by the hub, so a viewer's IP and the streets they chose to look
- * at never reach a third party. Attribution is still required and still
- * shown; proxying the bytes does not proxy the credit. */
-L.tileLayer('/api/tile/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors &copy; CARTO &middot; SparrowMap',
-  maxZoom: 20,
-}).addTo(map);
+/* 🗺️ OUR OWN vector basemap. We serve a full-planet Protomaps archive
+ * (planet.pmtiles, on the box via `pmtiles serve`) and render it with MapLibre
+ * GL through the Leaflet bridge - keeping every Leaflet marker/layer below,
+ * only the basemap changes. This ends the dependency on Carto, whose rate-limit
+ * "API KEY REQUIRED" placeholder was poisoning tile caches at three layers
+ * (see the tile-cache note). The viewer's IP and the streets they look at still
+ * never leave our origin. `?raster=1` falls back to the old Carto proxy as an
+ * escape hatch if the vector map ever misbehaves on a device. */
+if (new URLSearchParams(location.search).has('raster')) {
+  L.tileLayer('/api/tile/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO &middot; SparrowMap',
+    maxZoom: 20,
+  }).addTo(map);
+} else {
+  L.maplibreGL({
+    style: '/basemap/style.json?v=1',
+    attribution: '&copy; OpenStreetMap contributors &middot; SparrowMap',
+  }).addTo(map);
+}
 
 state.camLayer.addTo(map);
 // The camera layer is the only one whose SHAPE depends on the zoom - a span
