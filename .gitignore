@@ -147,3 +147,4 @@ tools/.sparrow_claude_state.json
 tools/.sparrow_claude_state.json.lock
 tools/claude_poll.err
 tools/inbox_media/
+scratch/
