@@ -36,7 +36,18 @@ async function sha256(bytes){ return new Uint8Array(await subtle.digest("SHA-256
 
 function loadState(){ let s; try{ s=JSON.parse(fs.readFileSync(STATE,"utf8")); }catch(e){ s={}; }
   return Object.assign({id:null, contacts:[], rat:{}, seen:{}, handle:null, allowFrom:[]}, s); }
-function saveState(s){ fs.writeFileSync(STATE, JSON.stringify(s)); }
+// 🚨 ATOMIC write. The old plain writeFileSync left the state file as 3788
+// bytes of NULs after an unclean shutdown mid-write, which zeroed the identity
+// (private keys gone, unrecoverable). Write a temp then rename (atomic on the
+// same filesystem) so a crash leaves either the old file or the new one, never
+// a half/zeroed one. Also keep a .bak of the last good state.
+function saveState(s){
+  const json = JSON.stringify(s);
+  const tmp = STATE + ".tmp";
+  fs.writeFileSync(tmp, json);
+  try { if (fs.existsSync(STATE)) fs.copyFileSync(STATE, STATE + ".bak"); } catch(e){}
+  fs.renameSync(tmp, STATE);
+}
 
 // The poll loop and a reply run as separate processes but share the per-contact
 // ratchet, so a concurrent read-modify-write would corrupt it. Serialise with a
