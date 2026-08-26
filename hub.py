@@ -1124,6 +1124,14 @@ class Handler(BaseHTTPRequestHandler):
             # inline string execution. The policy stays meaningful.
             f"'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval' "
             f"'nonce-{self._nonce}'; "
+            # 🚨 worker-src 'self' blob: OR MAPLIBRE CANNOT RENDER THE BASEMAP.
+            # MapLibre GL runs its tile decoder in a Web Worker it creates from a
+            # blob: URL. Without an explicit worker-src that falls back to
+            # default-src 'self', which forbids blob:, so the worker is blocked -
+            # the style loads on the main thread but no tile is ever processed and
+            # the map is a silent blank. (The camera model's wasm is covered by
+            # 'wasm-unsafe-eval' above; this is the map's equivalent.)
+            "worker-src 'self' blob:; "
             "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
             "form-action 'self'")
 
