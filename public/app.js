@@ -219,9 +219,13 @@ addEventListener('error', (e) => {
 // ⚠️ Vector basemap is OPT-IN (`?vec=1`) while the MapLibre<->Leaflet bridge is
 // being brought up - it currently loads the style but stalls before rendering,
 // so the DEFAULT stays the proven Carto raster proxy to keep the live map intact.
+// ⚠️ RASTER is the default again: the self-hosted vector basemap renders a blank
+// map (MapLibre's tile worker returns 0 features here despite valid tiles + CSP
+// worker-src blob:) - being debugged. `?vec=1` opts into the dark-gray vector
+// map. Raster keeps the map visible for everyone meanwhile.
 if (new URLSearchParams(location.search).has('vec')) {
   L.maplibreGL({
-    style: '/basemap/style.json?v=1',
+    style: '/basemap/style.json?v=5',
     attribution: '&copy; OpenStreetMap contributors &middot; SparrowMap',
   }).addTo(map);
 } else {
@@ -553,9 +557,26 @@ function renderList() {
     return;
   }
 
-  $('#list').innerHTML = rows.slice(0, 300).map((s) => `
+  // 🚨 SKIP the rebuild when the visible rows and selection are unchanged.
+  // renderList runs on every ~4s poll; rebuilding innerHTML recreated every
+  // <img class="thumb">, so each poll re-fetched EVERY snapshot - a constant
+  // thumbnail-reload loop (visible flicker + network spam). The signature
+  // covers everything the markup depends on (id, snapshot, class, plate,
+  // selection); relative times refresh on the next real change, which is a fine
+  // trade for not reloading the whole list four times a minute.
+  const shown = rows.slice(0, 300);
+  // NOTE: relative time (ago) is deliberately NOT in the signature - including it
+  // would rebuild (and reload every thumbnail) every time a "2m" ticked to "3m".
+  // Times refresh whenever the row set, class, snapshot or selection changes.
+  const sig = shown.map((s) => s.id + ':' + (s.snap || '') + ':' + s.vclass
+    + ':' + (s.plate_text || '')).join(',') + '|' + state.selected;
+  if (sig === renderList._sig) return;
+  renderList._sig = sig;
+
+  $('#list').innerHTML = shown.map((s) => `
     <li data-id="${s.id}" class="${s.id === state.selected ? 'sel' : ''}">
       <i class="sw" style="background:${COLOR[s.vclass] || COLOR.unknown}"></i>
+      ${s.snap ? `<img class="thumb" loading="lazy" src="/snap/${encodeURIComponent(s.snap)}" alt="">` : ''}
       <div class="who">
         <b class="${isPublic(s) ? '' : 'priv'}" style="${isPublic(s)
           ? 'color:' + (COLOR[s.vclass] || COLOR.unknown) : ''}">${

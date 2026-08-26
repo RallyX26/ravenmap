@@ -14,7 +14,8 @@
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
 <link rel="stylesheet" href="/vendor/maplibre-gl.css">
-<link rel="stylesheet" href="/static/style.css?v=115">
+<!-- From-scratch Sparrow-Send-language shell (replaces style.css entirely). -->
+<link rel="stylesheet" href="/static/shell.css?v=13">
 </head>
 <body>
 
@@ -27,7 +28,14 @@
     </div>
   </div>
 
+  <span class="live" id="live"><i></i><span id="livemsg">connecting</span><span id="livecount" class="livecount"></span></span>
   <div class="stats" id="stats"></div>
+  <div class="grow"></div>
+  <!-- One menu button on the right collapses What's new / Sign in / bug report
+       (all injected into .swbar by sitenav.js) into a dropdown, so the header
+       never stacks onto a second row on a phone. Wired at the foot of body. -->
+  <button type="button" class="hmenu" id="hmenu" aria-label="Menu"
+          aria-haspopup="true" aria-expanded="false">&#9776;</button>
 
   <!-- 🚨 THE SEARCH BOX IS A POPUP NOW, AND THE HEADER GOT ITS ROOM BACK.
        A full-width text input lived permanently in the header, and on a phone
@@ -39,7 +47,7 @@
        existing handler, the results list and the submit path all still bind to
        the same #plateform and #plateq, so this moved the furniture without
        touching the machinery. -->
-  <button type="button" class="platebtn" id="plateopen">🔍 Search plates</button>
+  <!-- Search plates moved into the panel, where "road quiet" used to sit. -->
 
   <!-- What's new: a small header button so people discover features (RF beta,
        contribute, ESP32) they would otherwise never find. A dot shows until it
@@ -50,6 +58,7 @@
   <div class="pmodal" id="newsmodal" hidden>
     <div class="pmodal-bg" id="newsclose"></div>
     <div class="pmodal-card" role="dialog" aria-modal="true" aria-label="What's new">
+      <button type="button" class="pmodal-x" id="newsx" aria-label="Close">&#10005;</button>
       <div class="newshead">&#10024; What&#39;s new</div>
       <a class="newsitem" href="/send">
         <b>Sparrow Send: private messaging <span class="newsbeta">NEW</span></b>
@@ -118,10 +127,8 @@
     </div>
   </div>
 
-  <nav>
-    <a href="/app" class="addcam">Add a camera</a>
-    <span class="live" id="live"><i></i><span id="livemsg">connecting</span><span id="livecount" class="livecount"></span></span>
-  </nav>
+  <!-- Add-a-camera removed from the header; live moved up next to the brand. -->
+  <nav></nav>
 </header>
 
 <div id="policybar" class="policybar" style="display:none"></div>
@@ -281,6 +288,7 @@
 </div>
 
     <div class="trafficbar">
+      <button type="button" class="platebtn" id="plateopen">🔍 Search plates</button>
       <span id="traffic">road quiet</span>
     </div>
 
@@ -323,7 +331,7 @@
 <script src="/static/transparency.js?v=20"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
 <script src="/static/sitenav.js?v=37"></script>
-<script src="/static/app.js?v=125"></script>
+<script src="/static/app.js?v=128"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->
 <script src="/static/updates.js?v=2"></script>
@@ -365,15 +373,39 @@ if ('serviceWorker' in navigator) {
   function hide() { modal.hidden = true; }
   open.addEventListener('click', show);
   bg.addEventListener('click', hide);
+  var xb = document.getElementById('newsx'); if (xb) xb.addEventListener('click', hide);
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hide(); });
-  // Auto-open on the first visit that has not seen THIS news version yet (and
-  // via the landing page's /?news=1 deep link). show() marks it seen, so it
-  // opens once per news version, never on every load - a returning visitor who
-  // already dismissed it is not nagged again. The short delay lets the map paint
-  // first so the panel animates in over a drawn map, not a blank one.
-  var auto = unseen;
+  // 🚨 NO auto-open on first join (his call): it popped over the map before
+  // anyone asked for it, and on a phone it filled the screen. The unseen "new"
+  // dot on the button is enough of a nudge. Only the landing page's explicit
+  // /?news=1 deep link still opens it.
+  var auto = false;
   try { if (/[?&]news=1(&|$)/.test(location.search)) auto = true; } catch (e) {}
   if (auto) setTimeout(show, 500);
+})();
+</script>
+<!-- Header ☰ menu: reveal .swbar (What's new / Sign in / gear / bug, all adopted
+     into .swbar by sitenav.js) as a dropdown so the header never stacks on a
+     phone. .swbar is queried at click time because sitenav builds it post-load. -->
+<script>
+(function () {
+  var btn = document.getElementById('hmenu');
+  if (!btn) return;
+  function bar() { return document.querySelector('.swbar'); }
+  function close() { var b = bar(); if (b) b.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); }
+  btn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    var b = bar(); if (!b) return;
+    var open = b.classList.toggle('open');
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  // click outside closes; a tap on a menu item closes too
+  document.addEventListener('click', function (e) {
+    var b = bar(); if (!b || !b.classList.contains('open')) return;
+    if (b.contains(e.target)) { if (e.target.closest('a,button')) setTimeout(close, 0); }
+    else if (e.target !== btn) close();
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
 })();
 </script>
 </body>
