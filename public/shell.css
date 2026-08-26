@@ -387,4 +387,11 @@ nav.sitenav .on,nav.sitenav a.on{color:var(--accent)!important;
      disclaimer on the What's-new sheet - is not hidden behind it. */
   .pmodal-card{max-width:none;border-radius:22px 22px 0 0;max-height:80vh;
     padding-bottom:calc(16px + var(--barh) + env(safe-area-inset-bottom))}
+  /* 🚨 the plate SEARCH is a TOP sheet, not a bottom one: a bottom sheet opens
+     the input exactly where the keyboard appears and hides it (he had to scroll
+     to see what he was typing). Anchored just under the header instead, so the
+     input stays above the keyboard. */
+  #platemodal{align-items:flex-start!important;padding:calc(var(--headh) + 8px) 10px 0!important}
+  #platemodal .pmodal-card{border-radius:16px!important;max-height:none;
+    padding-bottom:16px!important}
 }
