@@ -68,8 +68,17 @@
     padding:12px;display:none;max-height:min(70vh,560px);overflow:auto}
   .panel.open{display:block;animation:pop .14s ease}
   @keyframes pop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
-  .panel h4{margin:4px 2px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+  .panel h4{margin:4px 2px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);display:flex;align-items:center;gap:8px}
   .panel .sub{color:var(--muted);font-size:12px;margin:2px}
+  /* collapsible help: explanations hide behind a small "?" so the panel reads
+     clean and compact; tap the "?" to reveal that section's help. */
+  .panel .sub.hint{display:none;margin:2px 2px 8px;padding:8px 10px;border-radius:9px;
+    background:rgba(255,255,255,.03);border:1px solid var(--line)}
+  .panel .sub.hint.show{display:block;animation:rvpop .12s ease}
+  .qbtn{margin-left:auto;flex:none;width:18px;height:18px;border-radius:50%;
+    border:1px solid var(--line2);background:rgba(255,255,255,.04);color:var(--muted);
+    font:700 11px system-ui;line-height:1;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .qbtn:hover,.qbtn.on{color:var(--accent);border-color:rgba(43,134,224,.45);background:rgba(43,134,224,.12)}
   label{display:block;font-size:12px;color:var(--muted);margin:9px 2px 4px}
   input,textarea{width:100%;background:rgba(0,0,0,.28);border:1px solid var(--line);border-radius:10px;
     color:var(--ink);padding:10px 11px;font:inherit;
@@ -114,7 +123,17 @@
   .chat{flex:1;display:flex;flex-direction:column;min-height:0}
   .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted);text-align:center;padding:30px}
   /* favorites bar: top 3 contacts as floating avatars, black glass, under header */
-  .favbar{display:none;gap:20px;justify-content:center;align-items:center;padding:7px 10px;background:transparent}
+  .favbar{display:none;gap:20px;justify-content:center;align-items:center;padding:2px 10px 8px;background:transparent}
+  /* your own identity in the header: @handle + fingerprint, tap for QR */
+  .meid{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;
+    padding:5px 16px;border-radius:13px;-webkit-tap-highlight-color:transparent;transition:background .12s}
+  .meid:hover{background:rgba(255,255,255,.04)} .meid:active{transform:scale(.98)}
+  .mehandle{font-weight:750;color:var(--accent);font-size:15px;letter-spacing:.2px}
+  .mefp{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--muted);letter-spacing:1.5px}
+  /* the tappable "You are @name" row in the contacts panel */
+  #myhandle{cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  #myhandle::after{content:"✎";font-size:12px;color:var(--muted)}
+  #myhandle:hover{filter:brightness(1.15)}
   .fav{display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;width:62px}
   .fav .fav-av{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;
     font-weight:700;font-size:15px;color:#bcd6f5;background:rgba(10,14,20,0.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
@@ -221,7 +240,14 @@
         <button class="iconbtn" id="soundBtn" title="Sound &amp; app">🔔</button>
         <button class="iconbtn badge" id="contactsBtn" title="Contacts">☰<span class="dot" id="cdot"></span></button>
       </div>
-      <div class="favbar" id="favbar"></div>
+      <!-- Your identity, front and centre: @handle + fingerprint. Tap either for
+           the QR popup. (This replaced the top-3 favourite contacts.) -->
+      <div class="favbar" id="favbar">
+        <div class="meid" id="meid" title="Your address — tap to show the QR">
+          <div class="mehandle" id="meHandle">setting up…</div>
+          <div class="mefp" id="meFp">···· ····</div>
+        </div>
+      </div>
     </div>
 
     <!-- sound / settings popover -->
@@ -238,20 +264,37 @@
       <div class="sub" id="installNote">Add to your home screen from the browser menu to install.</div>
     </div>
 
-    <!-- contacts dropdown -->
+    <!-- ☰ menu: CONTACTS ONLY (add someone + your contacts). No account stuff. -->
     <div class="panel" id="contactsPanel">
-      <h4>Your handle</h4>
-      <div class="myhandle" id="myhandle" style="display:none"></div>
-      <div class="sub">Share <b>@yourname</b>, it's the easiest way for people to add you.</div>
+      <h4>Add someone</h4>
+      <input id="peerAddr" placeholder="their @handle or full address" autocomplete="off" autocapitalize="none" spellcheck="false">
+      <input id="peerName" placeholder="Contact name" autocomplete="off" style="margin-top:7px">
       <div class="row" style="margin-top:8px">
-        <input id="handleIn" placeholder="claim a name" maxlength="20" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
-        <button class="btn ghost" id="claimBtn" style="margin-top:0;flex:none;width:auto;white-space:nowrap">Claim</button>
+        <button class="btn" id="addBtn" style="margin-top:0">Add</button>
+        <button class="btn ghost" id="scanBtn" style="margin-top:0;flex:none;width:auto">📷 Scan</button>
+      </div>
+      <div class="status" id="addstatus"></div>
+      <h4 style="margin-top:16px">Contacts</h4>
+      <div id="contacts"><div class="sub">No one yet.</div></div>
+    </div>
+
+    <!-- ACCOUNT popup — opened by tapping YOUR NAME on the home screen. Everything
+         about YOU lives here: name (top), fingerprint, QR/address, move-to-device.
+         None of it is in the ☰ contacts menu any more. -->
+    <div class="panel" id="accountPanel">
+      <!-- set / edit your name, at the very top -->
+      <h4>Your name</h4>
+      <div class="sub">A short @name lets people add you with a word instead of a long address.</div>
+      <div class="row" style="margin-top:10px">
+        <span style="align-self:center;color:var(--accent);font-weight:700">@</span>
+        <input id="handleIn" placeholder="yourname" maxlength="20" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" style="margin-top:0">
+        <button class="btn" id="claimBtn" style="margin-top:0;flex:none;width:auto">Save</button>
       </div>
       <div class="status" id="handleStatus"></div>
 
-      <h4 style="margin-top:16px">Fingerprint, check it matches your contact</h4>
+      <h4 style="margin-top:16px">Fingerprint</h4>
       <div class="myfp" id="myfp" title="A short fingerprint of your identity. Read it to a contact to confirm you have the right person. It changes if you reset.">···· ····</div>
-      <div class="sub">Read this to a contact (in person / another app) to confirm you're really you. A handle doesn't prove identity, this does.</div>
+      <div class="sub">Read this to a contact (in person / another app) to confirm you're really you &mdash; a handle doesn't prove identity, this does.</div>
 
       <h4 style="margin-top:16px">Full address &amp; QR</h4>
       <div class="sub">If someone can't use your @handle, share this instead.</div>
@@ -288,17 +331,6 @@
         <button class="btn" id="imGo">Sign in on this device</button>
         <div class="status" id="imStatus"></div>
       </div>
-
-      <h4 style="margin-top:16px">Add someone</h4>
-      <input id="peerAddr" placeholder="their @handle or full address" autocomplete="off" autocapitalize="none" spellcheck="false">
-      <input id="peerName" placeholder="Contact name" autocomplete="off" style="margin-top:7px">
-      <div class="row" style="margin-top:8px">
-        <button class="btn" id="addBtn" style="margin-top:0">Add</button>
-        <button class="btn ghost" id="scanBtn" style="margin-top:0;flex:none;width:auto">📷 Scan</button>
-      </div>
-      <div class="status" id="addstatus"></div>
-      <h4 style="margin-top:16px">Contacts</h4>
-      <div id="contacts"><div class="sub">No one yet.</div></div>
     </div>
 
     <!-- main area: empty state OR chat -->
@@ -444,8 +476,10 @@
     return j.address||null;
   }
   function showMyHandle(){
-    var el=$('#myhandle'), h=null; try{ h=LS.getItem('sparrow.send.handle'); }catch(e){}
-    if(h){ el.textContent='You are @'+h; el.style.display='block'; } else { el.style.display='none'; }
+    var h=null; try{ h=LS.getItem('sparrow.send.handle'); }catch(e){}
+    // The only place the name shows now is the home header (tap it for account).
+    var mh=$('#meHandle'); if(mh) mh.textContent = h ? ('@'+h) : 'tap to set a name';
+    var i=$('#handleIn'); if(i && document.activeElement!==i) i.value = h || '';
   }
   // Give up our handle (best-effort) so the name is free again - e.g. right
   // before a Reset ID, while we still hold the key to sign the release.
@@ -661,19 +695,14 @@
     var y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return 'Yesterday';
     return d.toLocaleDateString([], {month:'numeric',day:'numeric'}); }
   // Favorites: the 3 most-recent contacts as floating avatar buttons.
+  // The header now shows YOUR OWN identity (@handle + fingerprint), not the top
+  // three contacts. Keep the function name so every call site still works.
   function renderFavorites(){
     var box=$('#favbar'); if(!box) return;
-    var rows=getContacts().map(function(ct){ var h=getHist(ct.mb); return {ct:ct, ts:h.length?h[h.length-1].ts:0}; })
-      .sort(function(a,b){ return b.ts-a.ts; }).slice(0,3);
-    box.innerHTML='';
-    rows.forEach(function(r){
-      var ct=r.ct, el=document.createElement('div'); el.className='fav';
-      var av=document.createElement('div'); av.className='fav-av'; av.textContent=initials(ct.name); el.appendChild(av);
-      var nm=document.createElement('div'); nm.className='fav-nm'; nm.textContent=ct.name||('#'+ct.mb.slice(0,4)); el.appendChild(nm);
-      el.onclick=function(){ openChat(ct); };
-      box.appendChild(el);
-    });
-    box.style.display = rows.length ? 'flex' : 'none';
+    box.style.display='flex';
+    var h=null; try{ h=LS.getItem('sparrow.send.handle'); }catch(e){}
+    var mh=$('#meHandle'); if(mh) mh.textContent = h ? ('@'+h) : 'tap to set a name';
+    var mf=$('#meFp'); if(mf && window.ID && ID.mailbox) mf.textContent = fp(ID.mailbox);
   }
   // Home view: an iMessage-style conversation list, newest first, with previews.
   function renderConvList(){
@@ -861,10 +890,44 @@
   };
   $('#claimBtn').onclick=async function(){
     var v=$('#handleIn').value; if(!v.trim()){ $('#handleStatus').textContent='Pick a short name.'; return; }
-    $('#handleStatus').textContent='Claiming… (a few seconds of proof-of-work)';
-    try{ var h=await claimHandle(v); $('#handleIn').value=''; $('#handleStatus').textContent='✓ Claimed. People can add you as @'+h+'.'; showMyHandle(); }
-    catch(e){ $('#handleStatus').textContent=e.message||'Could not claim that handle.'; }
+    var cur=null; try{ cur=LS.getItem('sparrow.send.handle'); }catch(e){}
+    // "Are you sure?" — changing releases the old name, so confirm first.
+    var msg = cur ? ('Change your name to @'+normHandle(v)+'?\n\nYour old @'+cur+' is released and anyone can then take it.')
+                  : ('Claim @'+normHandle(v)+' as your name?');
+    if(!confirm(msg)) return;
+    $('#handleStatus').textContent='Saving… (a few seconds of proof-of-work)';
+    try{ var h=await claimHandle(v);
+         $('#handleStatus').textContent='✓ Saved. People can add you as @'+h+'.';
+         showMyHandle(); renderFavorites(); }
+    catch(e){ $('#handleStatus').textContent=e.message||'Could not save that name.'; }
   };
+  // Tap YOUR NAME on the home header -> the account popup (name, fingerprint,
+  // QR/address, move-to-device). This is the ONLY route to account settings now;
+  // the ☰ menu is contacts-only.
+  function openAccount(){
+    var cur=null; try{ cur=LS.getItem('sparrow.send.handle'); }catch(e){}
+    var i=$('#handleIn'); if(i) i.value=cur||''; $('#handleStatus').textContent='';
+    if(window.ID){ $('#myqr').src='/api/send/qr?d='+encodeURIComponent(ID.address); $('#myaddr').textContent=ID.address; }
+    toggle($('#accountPanel'));
+  }
+  var _meid=$('#meid'); if(_meid) _meid.onclick=function(e){ e.stopPropagation(); openAccount(); };
+  // Compact the panels: hide each section's explanation behind a small "?".
+  // A section's help = the .sub paragraphs that follow its <h4> up to the next.
+  (function(){
+    ['#accountPanel','#contactsPanel','#soundPanel'].forEach(function(sel){
+      var p=$(sel); if(!p) return;
+      p.querySelectorAll('h4').forEach(function(h){
+        var subs=[], n=h.nextElementSibling;
+        while(n && n.tagName!=='H4'){ if(n.classList && n.classList.contains('sub')) subs.push(n); n=n.nextElementSibling; }
+        if(!subs.length) return;
+        subs.forEach(function(s){ s.classList.add('hint'); });
+        var b=document.createElement('button'); b.type='button'; b.className='qbtn'; b.textContent='?'; b.title='What is this?';
+        b.onclick=function(e){ e.stopPropagation(); var open=!subs[0].classList.contains('show');
+          subs.forEach(function(s){ s.classList.toggle('show', open); }); b.classList.toggle('on', open); };
+        h.appendChild(b);
+      });
+    });
+  })();
   $('#copyBtn').onclick=function(){ if(navigator.clipboard) navigator.clipboard.writeText(ID.address); };
   $('#resetIdBtn').onclick=async function(){ if(!confirm('Delete this identity and all messages? People will need your new address, and your @handle (if any) is released.')) return; await releaseHandle(); try{Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);});}catch(e){} location.reload(); };
   $('#logoutBtn').onclick=function(){
@@ -1072,7 +1135,9 @@
     await loadID();
     $('#myaddr').textContent=ID.address;
     $('#myfp').textContent=fp(ID.mailbox);
+    $('#meFp').textContent=fp(ID.mailbox);
     showMyHandle();
+    renderFavorites();   // fill the header identity (@handle + fingerprint)
     try{ if(LS.getItem('sparrow.send.push')==='1') $('#notifBtn').textContent='🔔 Notifications on'; }catch(e){}
     $('#myqr').src='/api/send/qr?d='+encodeURIComponent(ID.address);
     try{ $('#vol').value=LS.getItem('sparrow.send.vol')||'60'; }catch(e){}
