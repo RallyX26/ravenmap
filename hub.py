@@ -254,6 +254,11 @@ def _live_points(kind, box=None):
 
 TILE_UPSTREAM = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
 TILE_SUBDOMAINS = "abcd"
+# When Carto rate-limits our single proxy IP it returns an "API KEY REQUIRED"
+# placeholder PNG with HTTP 200. It is one fixed image, so we recognise it by
+# hash and NEVER cache it - caching pinned "API KEY REQUIRED" across the map for
+# the 7-day max-age. Add new hashes here if Carto changes the placeholder.
+TILE_PLACEHOLDER_MD5 = {"0434b598b6a4b3bf56bbc8c295046381"}
 TILE_MAX_ZOOM = 20
 # Tiles are ~5-15 KB. 20k of them is a few hundred MB and covers a town at
 # every zoom a viewer will use.
@@ -1239,6 +1244,13 @@ class Handler(BaseHTTPRequestHandler):
             # the 404 path would shrink the pool to nothing one failed tile at
             # a time - a slow strangle that looks like a network problem.
             _TILE_FETCH.release()
+
+        # Never cache (or serve with a long TTL) Carto's "API KEY REQUIRED"
+        # placeholder - drop it as a short-lived 404 so Leaflet leaves the square
+        # blank and retries, and the real tile lands once Carto stops throttling.
+        import hashlib
+        if hashlib.md5(raw).hexdigest() in TILE_PLACEHOLDER_MD5:
+            return self._send(404, b"", "text/plain", {"Cache-Control": "no-store"})
 
         try:
             cached.parent.mkdir(parents=True, exist_ok=True)
