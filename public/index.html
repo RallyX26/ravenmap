@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="/vendor/leaflet.css">
 <link rel="stylesheet" href="/vendor/maplibre-gl.css">
 <!-- From-scratch Sparrow-Send-language shell (replaces style.css entirely). -->
-<link rel="stylesheet" href="/static/shell.css?v=14">
+<link rel="stylesheet" href="/static/shell.css?v=15">
 </head>
 <body>
 
@@ -133,6 +133,8 @@
 
 <div id="policybar" class="policybar" style="display:none"></div>
 <div id="plateresults" class="plateresults" style="display:none"></div>
+<!-- Scrim behind the centered sighting-detail popup; clicking it closes (app.js). -->
+<div id="detailbg" class="detailbg" hidden></div>
 
 <main>
   <div id="map"></div>
@@ -331,7 +333,7 @@
 <script src="/static/transparency.js?v=20"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
 <script src="/static/sitenav.js?v=37"></script>
-<script src="/static/app.js?v=128"></script>
+<script src="/static/app.js?v=129"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->
 <script src="/static/updates.js?v=2"></script>
@@ -388,6 +390,14 @@ if ('serviceWorker' in navigator) {
      into .swbar by sitenav.js) as a dropdown so the header never stacks on a
      phone. .swbar is queried at click time because sitenav builds it post-load. -->
 <script>
+// The sighting-detail popup must not live inside .panel (which has a
+// backdrop-filter, i.e. a containing block that would trap a position:fixed
+// modal inside the sidebar). Reparent it to <body> so it centres on the screen.
+// Bound by id in app.js, so moving the node is safe.
+(function () {
+  var d = document.getElementById('detail');
+  if (d && d.parentNode !== document.body) document.body.appendChild(d);
+})();
 (function () {
   var btn = document.getElementById('hmenu');
   if (!btn) return;

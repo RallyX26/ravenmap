@@ -568,12 +568,17 @@ function renderList() {
   // NOTE: relative time (ago) is deliberately NOT in the signature - including it
   // would rebuild (and reload every thumbnail) every time a "2m" ticked to "3m".
   // Times refresh whenever the row set, class, snapshot or selection changes.
+  // selection is NOT in the signature - moving the highlight (highlightSelected)
+  // must not trigger a rebuild, or every tap would reset the list scroll.
   const sig = shown.map((s) => s.id + ':' + (s.snap || '') + ':' + s.vclass
-    + ':' + (s.plate_text || '')).join(',') + '|' + state.selected;
+    + ':' + (s.plate_text || '')).join(',');
   if (sig === renderList._sig) return;
   renderList._sig = sig;
 
-  $('#list').innerHTML = shown.map((s) => `
+  // preserve scroll across a rebuild so a new sighting doesn't jump you to the top
+  const _list = $('#list');
+  const _scroll = _list.scrollTop;
+  _list.innerHTML = shown.map((s) => `
     <li data-id="${s.id}" class="${s.id === state.selected ? 'sel' : ''}">
       <i class="sw" style="background:${COLOR[s.vclass] || COLOR.unknown}"></i>
       ${s.snap ? `<img class="thumb" loading="lazy" src="/snap/${encodeURIComponent(s.snap)}" alt="">` : ''}
@@ -585,6 +590,7 @@ function renderList() {
       </div>
       <div class="when">${ago(s.ts)}</div>
     </li>`).join('');
+  _list.scrollTop = _scroll;
 }
 
 $('#list').addEventListener('click', (e) => {
@@ -592,17 +598,34 @@ $('#list').addEventListener('click', (e) => {
   if (li) select(Number(li.dataset.id));
 });
 
+// 🚨 Move the selection highlight WITHOUT rebuilding the list. renderList sets
+// #list.innerHTML, which resets the scroll to the top - so selecting a sighting
+// far down the list (then closing it) used to throw you back to the top and you
+// lost your place. Toggling the .sel class in place leaves the scroll untouched.
+function highlightSelected() {
+  const list = $('#list');
+  if (!list) return;
+  list.querySelectorAll('li.sel').forEach((li) => li.classList.remove('sel'));
+  if (state.selected != null) {
+    const li = list.querySelector(`li[data-id="${state.selected}"]`);
+    if (li) li.classList.add('sel');
+  }
+}
+
 function closeDetail() {
   state.selected = null;
   $('#detail').classList.add('hidden');
+  const bg = $('#detailbg'); if (bg) bg.hidden = true;
   // A trail drawn from the detail panel belongs to the detail panel; leaving
   // it on the map after closing leaves a line nobody can explain or remove.
   if (state.trackHash) {
     state.trackHash = null;
     state.trailLayer.clearLayers();
   }
-  renderList();
+  highlightSelected();
 }
+// Tapping the scrim behind the popup closes it, same as Back.
+document.getElementById('detailbg')?.addEventListener('click', closeDetail);
 
 // Escape gets you out of anything.
 addEventListener('keydown', (e) => {
@@ -830,7 +853,11 @@ async function select(id) {
 
   const m = state.markers.get(id);
   if (m) { m.bringToFront(); map.panTo([s.lat, s.lon]); }
-  renderList();
+  // The detail is a centered popup over a scrim now (not inline in the sidebar),
+  // so the list keeps its scroll and its place. Show the scrim, move the
+  // highlight without rebuilding the list.
+  const bg = $('#detailbg'); if (bg) bg.hidden = false;
+  highlightSelected();
 }
 
 /* ---------------------------------------------------------------- trail -- */
