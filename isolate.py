@@ -54,9 +54,12 @@ import cv2
 import numpy as np
 
 # Flat, obviously artificial, and dark enough that the vehicle reads first.
-# Not black: black looks like an exposure failure, and a viewer should be able
-# to tell that something was deliberately removed.
-BACKDROP = (26, 30, 38)          # BGR
+# Not black (that reads as an exposure failure) and not the old warm brown
+# ((26,30,38)BGR == (38,30,26)RGB) which baked into every crop as an ugly stain.
+# Matched to the detail-card background (#0d1420) so the removed area vanishes
+# into the card where the photo is shown. Kept in sync with
+# isolate_pil.BACKDROP_RGB (13,20,32).
+BACKDROP = (32, 20, 13)          # BGR  == RGB (13, 20, 32)
 
 # Vehicle classes in COCO. A person standing on a pavement is NOT kept - the
 # whole point is that only the vehicle survives.
