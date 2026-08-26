@@ -14,8 +14,7 @@
 <meta name="theme-color" content="#0B0E13">
 <link rel="stylesheet" href="/vendor/leaflet.css">
 <link rel="stylesheet" href="/vendor/maplibre-gl.css">
-<!-- From-scratch Sparrow-Send-language shell (replaces style.css entirely). -->
-<link rel="stylesheet" href="/static/shell.css?v=2">
+<link rel="stylesheet" href="/static/style.css?v=115">
 </head>
 <body>
 
@@ -28,9 +27,7 @@
     </div>
   </div>
 
-  <span class="live" id="live"><i></i><span id="livemsg">connecting</span><span id="livecount" class="livecount"></span></span>
   <div class="stats" id="stats"></div>
-  <div class="grow"></div>
 
   <!-- 🚨 THE SEARCH BOX IS A POPUP NOW, AND THE HEADER GOT ITS ROOM BACK.
        A full-width text input lived permanently in the header, and on a phone
@@ -42,7 +39,7 @@
        existing handler, the results list and the submit path all still bind to
        the same #plateform and #plateq, so this moved the furniture without
        touching the machinery. -->
-  <!-- Search plates moved into the panel, where "road quiet" used to sit. -->
+  <button type="button" class="platebtn" id="plateopen">🔍 Search plates</button>
 
   <!-- What's new: a small header button so people discover features (RF beta,
        contribute, ESP32) they would otherwise never find. A dot shows until it
@@ -121,8 +118,10 @@
     </div>
   </div>
 
-  <!-- Add-a-camera removed from the header; live moved up next to the brand. -->
-  <nav></nav>
+  <nav>
+    <a href="/app" class="addcam">Add a camera</a>
+    <span class="live" id="live"><i></i><span id="livemsg">connecting</span><span id="livecount" class="livecount"></span></span>
+  </nav>
 </header>
 
 <div id="policybar" class="policybar" style="display:none"></div>
@@ -282,7 +281,6 @@
 </div>
 
     <div class="trafficbar">
-      <button type="button" class="platebtn" id="plateopen">🔍 Search plates</button>
       <span id="traffic">road quiet</span>
     </div>
 
@@ -325,7 +323,7 @@
 <script src="/static/transparency.js?v=20"></script>
 <script>window.SPARROW_NAV_PANES = true;</script>
 <script src="/static/sitenav.js?v=37"></script>
-<script src="/static/app.js?v=127"></script>
+<script src="/static/app.js?v=125"></script>
 <!-- What changed, once, only to the people it applies to. Most entries are
      audience:'owner', so a visitor reading the map is never interrupted. -->
 <script src="/static/updates.js?v=2"></script>
