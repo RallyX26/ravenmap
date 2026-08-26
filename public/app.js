@@ -216,15 +216,18 @@ addEventListener('error', (e) => {
  * (see the tile-cache note). The viewer's IP and the streets they look at still
  * never leave our origin. `?raster=1` falls back to the old Carto proxy as an
  * escape hatch if the vector map ever misbehaves on a device. */
-if (new URLSearchParams(location.search).has('raster')) {
-  L.tileLayer('/api/tile/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors &copy; CARTO &middot; SparrowMap',
-    maxZoom: 20,
-  }).addTo(map);
-} else {
+// ⚠️ Vector basemap is OPT-IN (`?vec=1`) while the MapLibre<->Leaflet bridge is
+// being brought up - it currently loads the style but stalls before rendering,
+// so the DEFAULT stays the proven Carto raster proxy to keep the live map intact.
+if (new URLSearchParams(location.search).has('vec')) {
   L.maplibreGL({
     style: '/basemap/style.json?v=1',
     attribution: '&copy; OpenStreetMap contributors &middot; SparrowMap',
+  }).addTo(map);
+} else {
+  L.tileLayer('/api/tile/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO &middot; SparrowMap',
+    maxZoom: 20,
   }).addTo(map);
 }
 
