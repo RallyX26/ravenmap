@@ -224,7 +224,11 @@ addEventListener('error', (e) => {
 // fine. A single resize() on the GL map (once Leaflet is ready) makes it
 // recompute the viewport and load every tile. Confirmed live: a stray window
 // 'resize' rendered the whole planet instantly. Kick it a few times to be safe.
-if (!new URLSearchParams(location.search).has('raster')) {
+// ⚠️ REVERTED TO RASTER DEFAULT: the resize kick renders the vector map
+// intermittently (once, after a stray resize) but NOT reliably on a fresh load -
+// still blank for everyone as a default. Back to the proven Carto raster;
+// `?vec=1` opts into the vector map (with the kick) while it is debugged.
+if (new URLSearchParams(location.search).has('vec')) {
   const glLayer = L.maplibreGL({
     style: '/basemap/style.json?v=5',
     attribution: '&copy; OpenStreetMap contributors &middot; SparrowMap',
