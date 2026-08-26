@@ -377,7 +377,7 @@ function drawSighting(s) {
   if (!passes(s)) { state.markers.delete(s.id); return; }
 
   const m = L.circleMarker([s.lat, s.lon], pingStyle(s));
-  m.on('click', () => select(s.id));
+  m.on('click', () => snapTo(s.id));
   m.addTo(state.pingLayer);
   state.markers.set(s.id, m);
 }
@@ -589,13 +589,19 @@ function renderList() {
         <span>${esc(s.color || '')} ${esc(s.body || '')} · ${esc(s.node_id)}</span>
       </div>
       <div class="when">${ago(s.ts)}</div>
+      <button class="li-detail" data-detail="${s.id}" aria-label="Open full details"
+        title="Open full details">&#10530;</button>
     </li>`).join('');
   _list.scrollTop = _scroll;
 }
 
 $('#list').addEventListener('click', (e) => {
   const li = e.target.closest('li');
-  if (li) select(Number(li.dataset.id));
+  if (!li || li.classList.contains('note')) return;
+  const id = Number(li.dataset.id);
+  // the ⤢ button opens the full card; tapping the row just snaps the map + bubble
+  if (e.target.closest('[data-detail]')) openDetail(id);
+  else snapTo(id);
 });
 
 // 🚨 Move the selection highlight WITHOUT rebuilding the list. renderList sets
@@ -753,7 +759,46 @@ function openLightbox(s) {
   document.body.appendChild(ov);
 }
 
-async function select(id) {
+// 🚨 Clicking a sighting row (or a map dot) SNAPS the map to it and drops a
+// thumbnail bubble on the map - it does NOT open the big card. The bubble, or
+// the row's ⤢ button, opens the full detail (openDetail). Two levels of intent:
+// "show me where" vs "tell me everything".
+function snapTo(id) {
+  const s = state.sightings.get(id);
+  if (!s) { openDetail(id); return; }   // not cached - just open the card
+  state.selected = id;
+  highlightSelected();
+  const m = state.markers.get(id);
+  if (m) m.bringToFront();
+  map.setView([s.lat, s.lon], Math.max(map.getZoom(), 14), { animate: true });
+  showBubble(s);
+}
+
+function showBubble(s) {
+  const cap = esc(isPublic(s) && !s.plate_text ? label_for(s.vclass) : label(s));
+  // The thumbnail is ZOOMED (see .bubble .bub-img in shell.css) so the navy
+  // masked border the isolator paints around the vehicle is cropped out - the
+  // bubble shows the vehicle, not the frame.
+  const img = s.snap
+    ? `<span class="bub-img"><img src="/snap/${encodeURIComponent(s.snap)}" alt=""></span>`
+    : '';
+  const html = `<div class="bubble" data-detail="${s.id}" role="button" tabindex="0"
+      title="Open full details">${img}<span class="bub-cap">${cap}<em>tap for details</em></span></div>`;
+  const p = L.popup({ className: 'sight-bubble', closeButton: true, maxWidth: 240,
+                      autoPanPadding: [24, 24], offset: [0, -4] })
+    .setLatLng([s.lat, s.lon]).setContent(html).openOn(map);
+  const el = p.getElement && p.getElement();
+  const b = el && el.querySelector('.bubble[data-detail]');
+  if (b) {
+    const open = () => openDetail(Number(b.dataset.detail));
+    b.addEventListener('click', open);
+    b.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); }
+    });
+  }
+}
+
+async function openDetail(id) {
   state.selected = id;
   const s = state.sightings.get(id) || await (await fetch(`/api/sighting/${id}`)).json();
   state.sightings.set(id, s);
@@ -881,7 +926,7 @@ async function showTrail(hash) {
     L.circleMarker([r.lat, r.lon], {
       radius: i === rows.length - 1 ? 6 : 3.5, color: col, fillColor: col,
       fillOpacity: 0.9, weight: 1,
-    }).on('click', () => select(r.id)).addTo(state.trailLayer);
+    }).on('click', () => openDetail(r.id)).addTo(state.trailLayer);
   });
   map.fitBounds(L.latLngBounds(pts).pad(0.25));
 
