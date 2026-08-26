@@ -820,9 +820,28 @@ def _call_box(payload: dict, path: str = "/api/node/label") -> Optional[dict]:
         return None
     hub, nid, tok = creds
     import urllib.request
+    body = {**payload, "node_id": nid}
+    # 🚨 SIGN THE CLAIM, NOT JUST THE CONNECTION.
+    # The hub demands an ed25519 signature from any node that has REGISTERED a
+    # public key (hub.py _ingest -> "signature did not verify", HTTP 401), and
+    # this camera has one. run_live signs its sightings exactly this way; the
+    # label/confirm path never did - so from the moment node signing was turned
+    # on, every government vehicle confirmed at the camera 401'd and reached
+    # NEITHER the map NOR the review pen, and the only trace was a print on a
+    # stdout nobody was watching. Sign over the SAME body that is sent (node_id
+    # in, sig out - sign_event excludes it). A node with no key returns None and
+    # the unsigned post is accepted exactly as before. Never fatal: a signing
+    # failure loses a signature, never the attempt.
+    try:
+        import node_key
+        sig = node_key.sign(Path(__file__).resolve().parent, nid, body)
+        if sig:
+            body["sig"] = sig
+    except Exception as exc:                                   # noqa: BLE001
+        print(f"[labelbank] could not sign {path}: {exc}")
     req = urllib.request.Request(
         f"{hub}{path}", method="POST",
-        data=json.dumps({**payload, "node_id": nid}).encode(),
+        data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json",
                  "User-Agent": NODE_UA,
                  "Authorization": f"Bearer {tok}"})
