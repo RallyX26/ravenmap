@@ -235,15 +235,24 @@ main{position:fixed;inset:var(--headh) 0 var(--barh) 0;z-index:1;display:flex}
 
 /* ---------------- phone-first (Send patterns) --------------------------- */
 @media(max-width:820px){
-  :root{--headh:52px}
+  /* THE PAGE SCROLLS on a phone: header sticky at top, bottom nav fixed, and the
+     map is a fixed-height block with the panel (controls + sightings) flowing
+     BELOW it - so you can scroll down to reach the View/Layers controls and the
+     list. (Before, main was position:fixed and the map ate the whole viewport,
+     trapping the controls off-screen.) */
+  html,body{height:auto;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch}
   .brand b{font-size:14px}
-  .stats{display:none}
-  nav .addcam span,.livecount{display:none}
-  main{position:fixed;inset:var(--headh) 0 var(--barh) 0;display:block}
-  #map{height:56vh}
-  .panel{position:absolute;left:0;right:0;top:56vh;bottom:0;width:auto;height:auto;
-    border-left:0;border-top:1px solid var(--line)}
-  .legend{display:none}
+  .stats,.grow,.legend{display:none}
+  /* header: natural height, WRAPS instead of overlapping; actions sit on row 2 */
+  .bar{position:sticky;height:auto;min-height:50px;padding:6px 10px;gap:6px 8px;
+    flex-wrap:wrap!important;overflow:visible}
+  .swbar{order:5;flex-wrap:wrap;justify-content:flex-end}
+  .swbug{height:32px!important;padding:5px 9px!important}
+  main{position:static;inset:auto;display:block;height:auto;
+    padding-bottom:calc(var(--barh) + env(safe-area-inset-bottom))}
+  #map{height:52vh;min-height:300px}
+  .panel{position:static;width:auto;height:auto;border-left:0;border-top:1px solid var(--line)}
+  .list{overflow:visible;height:auto;max-height:none}
   /* controls open as bottom sheets */
   .filters,.layers{position:fixed;left:0;right:0;bottom:0;top:auto;border-radius:16px 16px 0 0;
     max-width:none;max-height:70vh;overflow:auto;padding:12px 12px calc(12px + env(safe-area-inset-bottom))}
