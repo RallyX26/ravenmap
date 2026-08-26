@@ -1435,6 +1435,13 @@ function redactPlateBand(cv, geom) {
       var hits=decode(o[Object.keys(o)[0]]);
       var now=performance.now();
       for(var j=0;j<hits.length;j++){var h=hits[j];
+        /* 🚨 DASHBOARD ROI. The phone sees its own dash/hood as a band across the
+         * very bottom of the frame, and the model will call a shape down there a
+         * vehicle. A car AHEAD is seen through the windshield and sits higher, so
+         * a box that lies ENTIRELY in the bottom third is the dashboard, not a
+         * vehicle. Conservative on purpose (only the whole-box-low case) so a low
+         * close car keeps its box top well above the line and is not dropped. */
+        if(h.box[1] > v.videoHeight*0.66) continue;
         /* 🚨 MATCH THE BEST TRACK, AND PREDICT WHERE IT WENT.
          * This took the FIRST track over IoU 0.3, so with several vehicles in
          * frame a car could be absorbed by whichever track happened to sit

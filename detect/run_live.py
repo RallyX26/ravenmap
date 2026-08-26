@@ -48,7 +48,7 @@ from core import DATA, NODE_UA, ROOT  # noqa: E402
 from detect import bank, visual    # noqa: E402
 from detect.grabber import FrameGrabber   # noqa: E402
 from detect.pipeline import (MIN_TRACK_FRAMES, TRACK_TIMEOUT_FRAMES,  # noqa: E402
-                             PlateReader, VehiclePass, VehicleTracker)
+                             PlateReader, VehiclePass, VehicleTracker, frame_quality)
 from detect import priority   # noqa: E402
 
 EVAL = DATA / "eval" / "live"
@@ -335,13 +335,20 @@ def main() -> None:
                 vp.reads.append(pr)
             if reads:
                 top = max(reads, key=lambda r: r.conf * (r.area ** 0.5))
-                score = top.conf * (top.area ** 0.5)
-                if score > vp.best_score:
-                    vp.best_score, vp.best_frame = score, frame.copy()
-                    vp.best_vehicle_box, vp.best_plate_box = vbox, top.box
-                    # Keep EVERY box from this frame. See VehiclePass - the
-                    # winner is often the livery rather than the plate.
-                    vp.best_plate_boxes = [r.box for r in reads]
+                # Pick the published frame on VEHICLE FRAMING (whole car, big,
+                # centred, sharp), with plate readability only as a tie-breaker.
+                # The old rule saved the crispest PLATE even with the car half
+                # out of frame. Only plate-detected frames are candidates, so the
+                # published crop is still always redactable (best_plate_boxes).
+                pbonus = min(top.conf * (top.area ** 0.5), 25.0)
+                if frame_quality(vbox, fw, fh) * 100 + pbonus > vp.best_score - 8:
+                    score = frame_quality(vbox, fw, fh, frame) * 100 + pbonus
+                    if score > vp.best_score:
+                        vp.best_score, vp.best_frame = score, frame.copy()
+                        vp.best_vehicle_box, vp.best_plate_box = vbox, top.box
+                        # Keep EVERY box from this frame. See VehiclePass - the
+                        # winner is often the livery rather than the plate.
+                        vp.best_plate_boxes = [r.box for r in reads]
 
         expired = [t for t, f in last_seen.items()
                    if idx - f > TRACK_TIMEOUT_FRAMES]
