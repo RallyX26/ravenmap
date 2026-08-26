@@ -925,6 +925,25 @@
 
   /* ---------- chirp sounds + notifications ---------- */
   var actx=null, _reverb=null, _wet=null;
+  // iOS suspends the AudioContext when the screen locks or the app backgrounds,
+  // and can drop it into an 'interrupted' state that resume() will NOT recover -
+  // that is why the sounds died until you closed and reopened. Rebuild the
+  // context in that case (the reverb is bound to the old one, so drop it too).
+  function getCtx(){
+    try{
+      if(!actx || actx.state==='closed'){ actx=new (window.AudioContext||window.webkitAudioContext)(); _reverb=null; }
+      if(actx.state!=='running'){
+        actx.resume();
+        if(actx.state!=='running' && actx.state!=='suspended'){   // iOS 'interrupted': rebuild
+          try{ actx.close(); }catch(e){} actx=new (window.AudioContext||window.webkitAudioContext)(); _reverb=null; actx.resume();
+        }
+      }
+      return actx;
+    }catch(e){ return null; }
+  }
+  // Nudge the context back on any tap and when the app returns to the foreground.
+  document.addEventListener('pointerdown', function(){ if(actx && actx.state!=='running') getCtx(); }, {passive:true});
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden && actx && actx.state!=='running') getCtx(); });
   function ensureReverb(){
     if(_reverb) return; var len=Math.floor(actx.sampleRate*0.9), buf=actx.createBuffer(2,len,actx.sampleRate);
     for(var ch=0;ch<2;ch++){ var d=buf.getChannelData(ch); for(var i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.2); }
@@ -933,7 +952,7 @@
   function vol(){ try{ if($('#mute').checked) return 0; return (parseInt(LS.getItem('sparrow.send.vol')||'60',10)/100); }catch(e){ return .6; } }
   function chirp(sent){
     var v=vol(); if(v<=0) return;
-    try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==='suspended')actx.resume();
+    try{ actx=getCtx(); if(!actx) return;
       var t0=actx.currentTime, notes= sent ? [[2600,3200,0.05]] : [[3200,5200,0.06],[3000,4800,0.05],[3400,5600,0.05]];
       var t=t0;
       notes.forEach(function(n,i){
@@ -959,7 +978,7 @@
   }
   function blip(kind){
     var v=vol(); if(v<=0) return;
-    try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==='suspended')actx.resume();
+    try{ actx=getCtx(); if(!actx) return;
       ensureReverb(); var t=actx.currentTime;
       if(kind==='key'){ _bell(_penta[(Math.random()*_penta.length)|0], 0.55*v, 0.5, t); }
       else {
