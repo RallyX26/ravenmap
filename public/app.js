@@ -2725,6 +2725,14 @@ setInterval(ageTraffic, 1000);    // the live traffic view
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !modal.hidden) closeModal();
     });
+    // Dismissing the keyboard (Done / tap away) closes the search. The short
+    // delay lets a tap on Search or a result register first - if focus then
+    // landed inside the dialog we keep it open; only a genuine keyboard-away closes.
+    if (input) input.addEventListener('blur', () => {
+      setTimeout(() => {
+        if (!modal.hidden && !modal.contains(document.activeElement)) closeModal();
+      }, 200);
+    });
     /* Picking a result means "take me there", so the dialog gets out of the
      * way. Bound on the results list rather than inside the click handler
      * below, so a result added by any future code path still closes it. */
