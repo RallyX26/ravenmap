@@ -183,6 +183,13 @@
   }
 
   function show(label, onClick) {
+    // 🚨 The floating "add to home screen" prompt only belongs on the camera
+    // SETUP page (/app), where installing is the point. On the map, status, and
+    // the other viewing pages it was just a nag covering content, so it is
+    // suppressed there (his call). The app is still installable via the browser
+    // menu everywhere.
+    var p = location.pathname;
+    if (p !== "/app" && p !== "/aim" && p !== "/key") return;
     style();
     hide();
     wrap = document.createElement("div");

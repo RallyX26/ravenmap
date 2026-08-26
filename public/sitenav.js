@@ -224,18 +224,23 @@
     ".swbugclose{width:100%;margin-top:8px;padding:11px;border-radius:10px;",
     "  background:#1b2432;border:1px solid #2b3a4f;color:#c7d2dc;",
     "  font:600 14px system-ui;cursor:pointer}",
+    /* Matches the map shell's bar (dark glass, one blue accent, even width on a
+       wide screen, horizontal scroll on a phone) so every page's bottom bar
+       looks the same, not the old teal/red one. */
     "nav.sitenav{position:fixed;left:0;right:0;bottom:0;z-index:1200;display:flex;",
-    "  background:#0d1219;border-top:1px solid #25303f;",
+    "  background:rgba(7,10,16,.9);-webkit-backdrop-filter:blur(18px) saturate(1.4);",
+    "  backdrop-filter:blur(18px) saturate(1.4);border-top:1px solid rgba(120,170,235,.14);",
     "  overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}",
     "nav.sitenav::-webkit-scrollbar{display:none}",
-    "nav.sitenav a,nav.sitenav button{flex:1 0 auto;min-width:62px;white-space:nowrap;",
-    "  background:none;border:0;color:#8a97a8;cursor:pointer;text-decoration:none;",
+    "nav.sitenav a,nav.sitenav button{flex:1 1 0;min-width:0;white-space:nowrap;",
+    "  background:none;border:0;color:#8ea2b8;cursor:pointer;text-decoration:none;",
     "  text-align:center;padding:10px 4px calc(10px + env(safe-area-inset-bottom));",
     "  font:600 10.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;",
     "  letter-spacing:.09em;text-transform:uppercase;border-top:2px solid transparent;",
     "  -webkit-tap-highlight-color:transparent}",
-    "nav.sitenav a{color:#5fb3a1}",
-    "nav.sitenav .on,nav.sitenav a.on{color:#e8eef6;border-top-color:#ff3b47;background:#111621}",
+    "@media(max-width:820px){nav.sitenav a,nav.sitenav button{flex:0 0 auto;min-width:64px}}",
+    "nav.sitenav a{color:#8ea2b8}",
+    "nav.sitenav .on,nav.sitenav a.on{color:#2b86e0;border-top-color:#2b86e0;background:rgba(43,134,224,.10)}",
     "nav.sitenav .ic{display:block;margin-bottom:3px;line-height:0}",
     "nav.sitenav .ic svg{width:19px;height:19px;display:inline-block;vertical-align:middle}"
   ].join("\n");
