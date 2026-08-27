@@ -41,12 +41,29 @@ function loadState(){ let s; try{ s=JSON.parse(fs.readFileSync(STATE,"utf8")); }
 // (private keys gone, unrecoverable). Write a temp then rename (atomic on the
 // same filesystem) so a crash leaves either the old file or the new one, never
 // a half/zeroed one. Also keep a .bak of the last good state.
+// Sleep synchronously (saveState runs in sync paths, so no await).
+function sleepSync(ms){ try{ Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,ms); }catch(e){ const t=Date.now(); while(Date.now()-t<ms){} } }
 function saveState(s){
   const json = JSON.stringify(s);
   const tmp = STATE + ".tmp";
   fs.writeFileSync(tmp, json);
   try { if (fs.existsSync(STATE)) fs.copyFileSync(STATE, STATE + ".bak"); } catch(e){}
-  fs.renameSync(tmp, STATE);
+  // 🚨 WINDOWS: renameSync over an existing file throws EPERM/EBUSY/EACCES when the
+  // target is momentarily held open - by the .bak copy just above, an AV/indexer, or
+  // the Monitor's concurrent poll. The lock file serialises OUR processes, but not the
+  // OS, so the swap still loses races (a send burst racing a poll threw EPERM once). It
+  // is transient: retry briefly. The write itself never fails; only the atomic swap is
+  // contended, and .bak above is the recovery copy for the theoretical last-resort tear.
+  for (let i = 0; ; i++) {
+    try { fs.renameSync(tmp, STATE); return; }
+    catch (e) {
+      if ((e.code === "EPERM" || e.code === "EBUSY" || e.code === "EACCES") && i < 25) { sleepSync(40); continue; }
+      // Last resort after ~1s of contention: overwrite in place so the ratchet advance
+      // is not lost. Non-atomic, but .bak holds the last good state if this ever tears.
+      try { fs.writeFileSync(STATE, json); try{ fs.unlinkSync(tmp); }catch(_){ } return; }
+      catch (_) { throw e; }
+    }
+  }
 }
 
 // The poll loop and a reply run as separate processes but share the per-contact
