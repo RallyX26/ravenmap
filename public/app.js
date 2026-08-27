@@ -224,19 +224,28 @@ addEventListener('error', (e) => {
 // bridge builds its map. Paired with one resize() once Leaflet has sized the
 // container (a rapid burst of resizes made it WORSE, so just one, late).
 if (new URLSearchParams(location.search).has('vec')) {
-  try { if (maplibregl.prewarm) maplibregl.prewarm(); } catch (e) {}
   const glLayer = L.maplibreGL({
     style: '/basemap/style.json?v=5',
     attribution: '&copy; OpenStreetMap contributors &middot; SparrowMap',
   }).addTo(map);
-  const kick = () => {
+  // 🚨 THE ACTUAL BRIDGE BUG: leaflet-maplibre-gl's _resize only re-sizes the
+  // container DIV and jumpTo()s - it NEVER calls _glMap.resize(). So when #map is
+  // laid out a beat after the GL map is built (flex column / first paint), the
+  // container was 0 at build time and MapLibre's internal size stays 0 - it never
+  // requests a tile (the session-long "blank map"). Re-size the container AND the
+  // GL map whenever #map actually has a size. A ResizeObserver fires on observe
+  // and on every change, so it renders the moment the container is real, and
+  // re-syncs on rotate / panel toggles too.
+  const syncSize = () => {
     try {
-      const gm = (glLayer.getMaplibreMap && glLayer.getMaplibreMap()) || glLayer._glMap;
-      if (gm && gm.resize) gm.resize();
-    } catch (e) { /* window resize below is the fallback */ }
-    window.dispatchEvent(new Event('resize'));
+      if (glLayer._resizeContainer) glLayer._resizeContainer();
+      const g = (glLayer.getMaplibreMap && glLayer.getMaplibreMap()) || glLayer._glMap;
+      if (g && g.resize) g.resize();
+    } catch (e) { /* never let a basemap hiccup take the whole map down */ }
   };
-  map.whenReady(() => setTimeout(kick, 500));
+  const mapEl = document.getElementById('map');
+  if (window.ResizeObserver && mapEl) new ResizeObserver(syncSize).observe(mapEl);
+  map.whenReady(syncSize);
 } else {
   L.tileLayer('/api/tile/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors &copy; CARTO &middot; SparrowMap',
