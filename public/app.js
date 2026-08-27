@@ -2097,6 +2097,31 @@ _showcams.onchange = (e) => {
   count();
 })();
 
+/* 🚨 On a phone, reparent the OPEN View/Layers sheet to <body>. Nested under the
+ * fixed, z-indexed <main>, the fixed sheet was painting UNDER the map on some
+ * phones (a GPU-composited map layer can beat a nested z-index). As a direct
+ * child of <body> it sits in the root stacking context, unambiguously on top.
+ * Moved back to its home parent on close (desktop keeps it in place - it is
+ * absolutely positioned against its button there). Handlers bind by id and use
+ * .contains(), both of which survive the move. */
+(function () {
+  const isPhone = () => window.matchMedia('(max-width:820px)').matches;
+  ['filters', 'layers'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const home = el.parentNode;
+    const sync = () => {
+      const shown = !el.hasAttribute('hidden');
+      if (isPhone() && shown) {
+        if (el.parentNode !== document.body) document.body.appendChild(el);
+      } else if (el.parentNode !== home) {
+        home.appendChild(el);
+      }
+    };
+    new MutationObserver(sync).observe(el, { attributes: true, attributeFilter: ['hidden'] });
+  });
+})();
+
 /* 🚨 "A POSSIBLE PATROL CAR HERE IS WAITING ON A PERSON."
  *
  * Unreviewed police-classed sightings, drawn as a slow pulse over a ~5 km cell.
