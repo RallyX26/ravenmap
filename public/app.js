@@ -286,11 +286,25 @@ if (!new URLSearchParams(location.search).has('raster')) {
     }).addTo(map);
 
     // The bridge builds its maplibregl.Map synchronously inside addTo(), so the
-    // handle is available now - attach the "first frame drawn" listener that ends
-    // the pump. idle is the ceiling (whole first frame on screen); the 8s hardStop
-    // is the backstop if idle never comes (e.g. a tab that stays hidden).
+    // handle is available now. Latch a ONE-SHOT "the basemap came up" flag off the
+    // first load/idle - and end the pump there. 'load' and 'idle' each fire once the
+    // first full frame is on screen; whichever comes first latches basemapUp. The 8s
+    // hardStop is the backstop if neither fires (e.g. a tab that stays hidden).
+    // ⚠️ Do NOT use isStyleLoaded() for this - it is false during ANY tile load,
+    // including a normal zoom, so sampling it later would wrongly declare failure.
     const glMap = (glLayer.getMaplibreMap && glLayer.getMaplibreMap()) || glLayer._glMap;
-    if (glMap) glMap.once('idle', () => { clearTimeout(hardStop); stopPump(); });
+    // basemapUp latches TRUE the instant MapLibre's style DEFINITION has loaded - the
+    // moment the rAF gate we are fighting clears and the vector map is going to render.
+    // It never un-latches, so a later zoom (which reloads tiles and makes
+    // isStyleLoaded() briefly false) can never make the watchdog think we failed, and a
+    // slow phone still streaming tiles is not mistaken for a failure either.
+    let basemapUp = false;
+    const endPump = () => { clearTimeout(hardStop); stopPump(); };
+    if (glMap) {
+      glMap.on('styledata', () => { if (glMap.style && glMap.style._loaded) basemapUp = true; });
+      glMap.once('load', endPump);
+      glMap.once('idle', endPump);
+    }
 
     // 🚨 THE BRIDGE'S resize GAP: leaflet-maplibre-gl's _resize only re-sizes the
     // container DIV and jumpTo()s - it NEVER calls _glMap.resize(). So a container
@@ -310,16 +324,17 @@ if (!new URLSearchParams(location.search).has('raster')) {
     map.whenReady(syncSize);
 
     // 🛡️ WATCHDOG: keeping the map visible outranks the vector upgrade. If the
-    // vector style still has not loaded after 7s (some environment the pump did not
-    // foresee), drop it and fall back to the Carto raster proxy - never blank.
+    // basemap NEVER came up (basemapUp still false after 8s - some environment the
+    // pump did not foresee), drop it and fall back to the Carto raster proxy so it is
+    // never blank. Keyed off the latched basemapUp flag, NOT isStyleLoaded(), so a
+    // user zooming (which reloads tiles) can never trip it once the map is working.
     setTimeout(() => {
+      if (basemapUp) return;
       try {
-        if (!glMap || !glMap.isStyleLoaded()) {
-          if (glLayer && map.hasLayer(glLayer)) map.removeLayer(glLayer);
-          addRasterBasemap();
-        }
+        if (glLayer && map.hasLayer(glLayer)) map.removeLayer(glLayer);
+        addRasterBasemap();
       } catch (e) { try { addRasterBasemap(); } catch (_) { /* give up quietly */ } }
-    }, 7000);
+    }, 8000);
   } catch (e) {
     // Anything at all goes wrong standing up the vector map -> raster, immediately.
     addRasterBasemap();
