@@ -614,7 +614,13 @@
      * So the sign-in half stays everywhere and the shortcut half stops
      * competing with the map. Same element, one condition, no second copy. */
     var onMap = (here === "/");
-    if (has && onMap) return;
+    // 🚨 STILL MAKE THE TOOL COLUMN even when we skip the link. This early return
+    // used to happen BEFORE toolCol(), so a camera owner on the map got no
+    // .swtools - and placeTools() bails without one, so .swbar was never built:
+    // the ☰ dropdown did nothing and What's new / the bug button were stranded in
+    // the header. The map still has tools to collapse (What's new, report a bug),
+    // it just does not need the "My camera" pill the bottom bar already offers.
+    if (has && onMap) { toolCol(); return; }
 
     var a = document.createElement("a");
     a.className = "swtoplink";
