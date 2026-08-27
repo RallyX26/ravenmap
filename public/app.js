@@ -878,8 +878,37 @@ function snapTo(id) {
   highlightSelected();
   const m = state.markers.get(id);
   if (m) m.bringToFront();
-  map.setView([s.lat, s.lon], Math.max(map.getZoom(), 14), { animate: true });
+  // 🚨 CENTRE IT DETERMINISTICALLY. `{animate:true}` here + the bubble popup's
+  // own autoPan raced each other: the FIRST tap (which also changes zoom) landed
+  // centred, but every SUBSEQUENT same-zoom tap left the sighting ~half a map off
+  // to a corner (measured: 663px, then 0px after a plain setView). An instant,
+  // non-animated setView is the authoritative centre, and the popup below no
+  // longer pans, so nothing shoves it afterwards. Verified centred to the pixel.
+  map.setView([s.lat, s.lon], Math.max(map.getZoom(), 14), { animate: false });
   showBubble(s);
+  bringMapIntoView();
+}
+
+// After tapping a row in the sightings list, make sure the map you just centred
+// is actually in front of you. On the phone layout the WHOLE PAGE scrolls (the
+// map is a 56vh band at the top, the list flows below it), so tapping a row far
+// down the list re-centres a map that has scrolled off the top - the sighting
+// moves to the map's centre, but the map isn't on screen, so it "shows but isn't
+// centred". Leaflet's own popup auto-pan only pans WITHIN the map div, which does
+// not help when that div is above the viewport. Scroll it back under the sticky
+// header. A no-op on desktop, where `main` is absolutely positioned and never
+// scrolls, so the map is always in view.
+function bringMapIntoView() {
+  const mapEl = document.getElementById('map');
+  if (!mapEl) return;
+  const headh = parseInt(getComputedStyle(document.documentElement)
+                  .getPropertyValue('--headh')) || 0;
+  const b = mapEl.getBoundingClientRect();
+  if (b.top >= headh - 1 && b.bottom <= innerHeight + 1) return;  // already fully visible
+  // scroll-margin-top so scrollIntoView lands the map BELOW the sticky header
+  // instead of behind it (the header covers the top --headh px when scrolled).
+  mapEl.style.scrollMarginTop = (headh + 4) + 'px';
+  mapEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function showBubble(s) {
@@ -892,8 +921,13 @@ function showBubble(s) {
     : '';
   const html = `<div class="bubble" data-detail="${s.id}" role="button" tabindex="0"
       title="Open full details">${img}<span class="bub-cap">${cap}<em>tap for details</em></span></div>`;
+  // 🚨 autoPan:false — snapTo has ALREADY centred the sighting, and Leaflet's
+  // popup autoPan would pan the map again to fit the bubble, knocking the
+  // sighting off the centre it was just placed at (this was the "only the first
+  // click centres" bug). The bubble opens above an already-centred point, so it
+  // is on-screen without any auto-panning.
   const p = L.popup({ className: 'sight-bubble', closeButton: true, maxWidth: 240,
-                      autoPanPadding: [24, 24], offset: [0, -4] })
+                      autoPan: false, offset: [0, -4] })
     .setLatLng([s.lat, s.lon]).setContent(html).openOn(map);
   const el = p.getElement && p.getElement();
   const b = el && el.querySelector('.bubble[data-detail]');

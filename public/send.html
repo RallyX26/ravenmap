@@ -382,6 +382,7 @@
 
 <script src="/static/sparrowsend-ratchet.js?v=1"></script>
 <script src="/static/sparrowsend-pow.js?v=1"></script>
+<script src="/static/sparrowsend-air.js?v=1"></script>
 <script>
 (function(){
   "use strict";
@@ -608,11 +609,79 @@
     // across postEnv retries - the ts window is minutes, retries are seconds.
     var pow=await SparrowPow.stamp(ct.mb, envStr, SparrowPow.POW_BITS);
     await postEnv(ct.mb, envStr, mid, pow);
+    // Also mirror TEXT onto the mesh air for a contact recently heard there, so
+    // an off-grid reply reaches them. Photos stay mailbox-only (air is text-sized).
+    if(obj && obj.t!=='img' && airRecent(ct.mb)) { try{ await airSend(ct, envStr); }catch(e){} }
   }
   // Duplicate guard on the receiving side: never process the same mid twice
   // (would double-display AND desync the ratchet). Bounded per contact.
   function seenMid(mb,id){ try{ return JSON.parse(LS.getItem('sparrow.send.seen.'+mb)||'[]').indexOf(id)>=0; }catch(e){ return false; } }
   function markMid(mb,id){ try{ var k='sparrow.send.seen.'+mb, a=JSON.parse(LS.getItem(k)||'[]'); if(a.indexOf(id)<0){ a.push(id); if(a.length>500)a=a.slice(-500); LS.setItem(k,JSON.stringify(a)); } }catch(e){} }
+
+  /* ---------- the MESH air: an unlinkable, cross-transport delivery lane ----------
+   * Alongside the mailbox, a message can ride the tag-routed AIR (air_relay on the
+   * hub, the internet twin of the LoRa gateway). A frame is routed by a rotating
+   * ROUTING TAG derived from the pairwise secret two identities share, so the hub
+   * never learns the recipient - which also means it works with an off-grid LoRa
+   * peer who reaches you through a bridge. The air frame is the SAME sealed
+   * envelope the mailbox carries, so ingest() handles it unchanged and its mid
+   * de-dupe collapses a message that arrives both ways.
+   *
+   * The mailbox stays the reliable default (14-day offline, photos). The air is
+   * ADDITIVE: you always LISTEN on it (one batched poll a cycle, cost-free for
+   * pure-internet chats), and you also SEND a text over it only to a contact you
+   * have recently HEARD from on the air - i.e. someone demonstrably on the mesh -
+   * so an off-grid reply gets through without every chat paying double work.
+   * Honest cost: within an hour the hub can see two anonymous tags share traffic;
+   * it never sees who, and the tag rotates hourly so nothing links across time. */
+  var AIR = (typeof SparrowAir !== 'undefined') ? SparrowAir : null;
+  function getAirCur(){ try{ return JSON.parse(LS.getItem('sparrow.send.aircur')||'{}'); }catch(e){ return {}; } }
+  function setAirCur(m){ try{ LS.setItem('sparrow.send.aircur', JSON.stringify(m)); }catch(e){} }
+  function getAirSeen(){ try{ return JSON.parse(LS.getItem('sparrow.send.airseen')||'{}'); }catch(e){ return {}; } }
+  function markAirSeen(mb){ try{ var m=getAirSeen(); m[mb]=Date.now(); LS.setItem('sparrow.send.airseen', JSON.stringify(m)); }catch(e){} }
+  function airRecent(mb){ var m=getAirSeen(); return !!(m[mb] && (Date.now()-m[mb] < 7*86400*1000)); }
+  // Mirror one already-sealed envelope onto the air under the contact's send-tag.
+  // Best-effort: the mailbox has already delivered, so a failure here is silent.
+  async function airSend(ct, envStr){
+    if(!AIR||!ct||!ct.eRaw) return;
+    try{
+      var tag=await AIR.sendTag(ID.dh.privateKey, ct.eRaw, AIR.epochNow());
+      var frame=R.b64(enc.encode(envStr));
+      var pow=await SparrowPow.stamp(tag, frame, SparrowPow.POW_BITS);
+      function body(p){ return JSON.stringify({tag:tag, frame:frame, pt:p.ts, pn:p.nonce}); }
+      var res=await fetch('/api/air/put',{method:'POST',headers:{'Content-Type':'application/json'},body:body(pow)});
+      if(res.status===400){ var j=await res.json().catch(function(){return{};}); if(j.need_bits){ pow=await SparrowPow.stamp(tag, frame, j.need_bits);
+        await fetch('/api/air/put',{method:'POST',headers:{'Content-Type':'application/json'},body:body(pow)}); } }
+    }catch(e){}
+  }
+  // LISTEN on the air for every contact's recv-tag (this epoch + last), in ONE
+  // batched request, and ingest anything heard. Returns {any, incoming} so the
+  // caller refreshes the UI once for the mailbox and air together.
+  async function airPoll(){
+    if(!AIR||!ID) return {any:false, incoming:null};
+    try{
+      var contacts=getContacts(); if(!contacts.length) return {any:false, incoming:null};
+      var ep=AIR.epochNow(), cur=getAirCur(), tags=[];
+      for(var i=0;i<contacts.length;i++){ var ct=contacts[i]; if(!ct.eRaw) continue;
+        for(var d=0; d<2; d++){
+          var t=await AIR.recvTag(ID.dh.privateKey, ct.eRaw, ID.ePubRaw, ep-d);
+          tags.push({tag:t, since:(cur[t]||0)}); } }
+      var any=false, incoming=null, next={};
+      for(var c=0;c<tags.length;c+=64){
+        var chunk=tags.slice(c,c+64);
+        var res=await (await fetch('/api/air/get',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({tags:chunk})})).json();
+        var results=res.results||{};
+        for(var tg in results){ var r=results[tg]; next[tg]=r.seq;
+          for(var k=0;k<r.m.length;k++){ var envStr; try{ envStr=dec.decode(R.ub64(r.m[k].b)); }catch(e){ continue; }
+            var got=await ingest(envStr); if(got){ any=true; incoming=got; markAirSeen(got.mb); } } }
+      }
+      // Cursors rotate away with the epoch: keep only tags polled this cycle.
+      var merged={}; for(var i2=0;i2<tags.length;i2++){ var k2=tags[i2].tag; merged[k2]=(next[k2]!=null?next[k2]:(cur[k2]||0)); }
+      setAirCur(merged);
+      return {any:any, incoming:incoming};
+    }catch(e){ return {any:false, incoming:null}; }
+  }
   var _polling=false;
   async function poll(){
     if(_polling||!ID) return;   // one poll at a time - concurrent gets would race the read-then-delete
@@ -625,6 +694,9 @@
         body:JSON.stringify({mb:ID.mailbox,pk:b64u(ID.sPubRaw),ch:c.challenge,sig:b64u(sig)})})).json();
       var got=res.msgs||[], any=false, incoming=null;
       for(var i=0;i<got.length;i++){ var r=await ingest(got[i]); if(r){ any=true; incoming=r; } }
+      // Listen on the mesh air too (known contacts' recv-tags), and refresh once.
+      var air=await airPoll();
+      if(air.any){ any=true; incoming=air.incoming||incoming; }
       if(any){ if(cur){ drawMsgs(); markRead(cur.mb); renderContacts(); } else { showHome(); } notifyIncoming(incoming); }
     }catch(e){ /* offline; retry next tick */ }
     finally{ _polling=false; }

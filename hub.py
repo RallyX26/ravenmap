@@ -38,6 +38,7 @@ import review_api
 import review_auth
 import send_relay
 import send_push
+import air_relay
 import snapshot
 from core import CONFIG, DATA, PUBLIC, SNAPS, is_operator_addr, now
 
@@ -666,6 +667,13 @@ RATE = {"/api/enroll": (600, 3600), "/api/sightings": (900, 3600),
         "/api/send/release": (120, 3600),
         "/api/send/handle": (3000, 3600),
         "/api/send/subscribe": (300, 3600),
+        # The tag-routed air relay (air_relay): the internet twin of the LoRa
+        # gateway, so any user of the encrypted messenger can reach any other by
+        # a rotating routing tag without the hub ever naming a recipient. Puts
+        # carry proof-of-work like a mailbox send; gets poll a cursor, so both
+        # sides poll steadily - roomy like the mailbox routes.
+        "/api/air/put": (3000, 3600),
+        "/api/air/get": (6000, 3600),
         # Local ADS-B receivers pushing aircraft they see. A busy sky is a lot of
         # aircraft per push but one push every few seconds, so this is roomy.
         "/api/aircraft/ingest": (1800, 3600),
@@ -4005,6 +4013,66 @@ class Handler(BaseHTTPRequestHandler):
                     str(b.get("mb") or ""), str(b.get("pk") or ""),
                     str(b.get("ch") or ""), str(b.get("sig") or ""))
                 return self._json({"msgs": msgs})
+
+            if p == "/api/air/put":
+                # Drop one sealed frame onto the air under a ROUTING TAG. The hub
+                # never learns the recipient - the tag is an HMAC over a pairwise
+                # secret only the two parties share, and it rotates each epoch.
+                # No account (like a mailbox send), so a hashcash stamp gates the
+                # flood; the required difficulty rises with how full the tag
+                # already is. See air_relay for the trust model.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "a lot of messages right now - retry shortly")
+                b = self._body()
+                tag, frame = str(b.get("tag") or ""), str(b.get("frame") or "")
+                if not air_relay.valid_tag(tag):
+                    return self._err(400, "bad routing tag")
+                need = air_relay.required_bits(tag)
+                if not send_relay.pow_ok(tag, frame, b.get("pt"), b.get("pn"), bits=need):
+                    return self._json({"error": "proof-of-work too low - resend",
+                                       "need_bits": need}, 400)
+                s = air_relay.put(tag, frame)
+                if s is None:
+                    return self._err(400, "could not accept that frame "
+                                          "(malformed, too large, or air full)")
+                return self._json({"ok": True, "seq": s})
+
+            if p == "/api/air/get":
+                # Poll the air for frames routed to a tag. A POST (not a GET query)
+                # so the tag never lands in an access or proxy log - the whole
+                # point is to leave no lasting record of who is reachable. No
+                # ownership proof: only the two parties can compute the tag, so it
+                # IS the capability. Non-destructive cursor read (since -> head).
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "slow down")
+                b = self._body()
+                # Batch form: a client polls ALL its contacts' recv-tags in ONE
+                # request. Per-contact polling would multiply requests by the
+                # address book and blow the rate limit; one batched poll per
+                # cycle keeps a client at roughly the same request rate as the
+                # mailbox path no matter how many contacts it has. Capped so the
+                # batch itself cannot be turned into an amplification lever.
+                tags = b.get("tags")
+                if isinstance(tags, list):
+                    out = {}
+                    for entry in tags[:64]:
+                        try:
+                            t = str(entry.get("tag") or "")
+                            since = entry.get("since") or 0
+                        except AttributeError:
+                            t = str(entry or "")
+                            since = 0
+                        if not air_relay.valid_tag(t):
+                            continue
+                        head, frames = air_relay.get(t, since)
+                        if frames or head:
+                            out[t] = {"seq": head, "m": frames}
+                    return self._json({"results": out})
+                tag = str(b.get("tag") or "")
+                if not air_relay.valid_tag(tag):
+                    return self._err(400, "bad routing tag")
+                head, frames = air_relay.get(tag, b.get("since") or 0)
+                return self._json({"seq": head, "m": frames})
 
             if p == "/api/aircraft/ingest":
                 # A LOCAL ADS-B receiver (dump1090 on a Pi) pushing the aircraft it
