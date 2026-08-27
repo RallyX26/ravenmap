@@ -216,38 +216,27 @@ addEventListener('error', (e) => {
  * (see the tile-cache note). The viewer's IP and the streets they look at still
  * never leave our origin. `?raster=1` falls back to the old Carto proxy as an
  * escape hatch if the vector map ever misbehaves on a device. */
-// ✅ Vector basemap is the DEFAULT now. `?raster=1` falls back to the Carto proxy.
-// 🚨 THE FIX AFTER A LONG HUNT: the map rendered "blank / 0 features" because
-// L.maplibreGL creates the MapLibre map BEFORE Leaflet has given the container
-// its final size, so MapLibre computes an empty viewport and never requests a
-// single tile. It is NOT a worker/CSP/tile problem - the tiles and style are
-// fine. A single resize() on the GL map (once Leaflet is ready) makes it
-// recompute the viewport and load every tile. Confirmed live: a stray window
-// 'resize' rendered the whole planet instantly. Kick it a few times to be safe.
-// ⚠️ REVERTED TO RASTER DEFAULT: the resize kick renders the vector map
-// intermittently (once, after a stray resize) but NOT reliably on a fresh load -
-// still blank for everyone as a default. Back to the proven Carto raster;
-// `?vec=1` opts into the vector map (with the kick) while it is debugged.
+// 🗺️ Self-hosted VECTOR basemap. `?raster=1` is the escape hatch to Carto.
+// 🚨 THE REAL FIX (worker-pool race): the map rendered blank because MapLibre's
+// tile WORKER never came up for the first map the page creates - the tell was
+// that creating a SECOND maplibregl.Map made the stuck bridge map render. The
+// cure is maplibregl.prewarm(), which stands the worker pool up BEFORE the
+// bridge builds its map. Paired with one resize() once Leaflet has sized the
+// container (a rapid burst of resizes made it WORSE, so just one, late).
 if (new URLSearchParams(location.search).has('vec')) {
+  try { if (maplibregl.prewarm) maplibregl.prewarm(); } catch (e) {}
   const glLayer = L.maplibreGL({
     style: '/basemap/style.json?v=5',
     attribution: '&copy; OpenStreetMap contributors &middot; SparrowMap',
   }).addTo(map);
   const kick = () => {
-    // both: resize the GL map directly AND fire a window resize (the latter is
-    // the exact nudge that was confirmed to render the whole basemap live).
     try {
       const gm = (glLayer.getMaplibreMap && glLayer.getMaplibreMap()) || glLayer._glMap;
       if (gm && gm.resize) gm.resize();
-    } catch (e) { /* ignore - the window resize below is the real kick */ }
+    } catch (e) { /* window resize below is the fallback */ }
     window.dispatchEvent(new Event('resize'));
   };
-  // Kick a handful of times over the first ~2s: the GL map has to exist AND the
-  // Leaflet container has to have its final size before the resize takes, and on
-  // a slow phone that can lag a beat behind whenReady.
-  map.whenReady(kick);
-  let _n = 0;
-  const _iv = setInterval(() => { kick(); if (++_n >= 6) clearInterval(_iv); }, 320);
+  map.whenReady(() => setTimeout(kick, 500));
 } else {
   L.tileLayer('/api/tile/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors &copy; CARTO &middot; SparrowMap',
