@@ -216,47 +216,116 @@ addEventListener('error', (e) => {
  * (see the tile-cache note). The viewer's IP and the streets they look at still
  * never leave our origin. `?raster=1` falls back to the old Carto proxy as an
  * escape hatch if the vector map ever misbehaves on a device. */
-// 🗺️ Self-hosted VECTOR basemap. `?raster=1` is the escape hatch to Carto.
-// 🚨 THE REAL FIX (worker-pool race): the map rendered blank because MapLibre's
-// tile WORKER never came up for the first map the page creates - the tell was
-// that creating a SECOND maplibregl.Map made the stuck bridge map render. The
-// cure is maplibregl.prewarm(), which stands the worker pool up BEFORE the
-// bridge builds its map. Paired with one resize() once Leaflet has sized the
-// container (a rapid burst of resizes made it WORSE, so just one, late).
-if (new URLSearchParams(location.search).has('vec')) {
-  const glLayer = L.maplibreGL({
-    style: '/basemap/style.json?v=5',
-    attribution: '&copy; OpenStreetMap contributors &middot; SparrowMap',
-  }).addTo(map);
-  // 🚨 THE ACTUAL BRIDGE BUG: leaflet-maplibre-gl's _resize only re-sizes the
-  // container DIV and jumpTo()s - it NEVER calls _glMap.resize(). So when #map is
-  // laid out a beat after the GL map is built (flex column / first paint), the
-  // container was 0 at build time and MapLibre's internal size stays 0 - it never
-  // requests a tile (the session-long "blank map"). Re-size the container AND the
-  // GL map whenever #map actually has a size. A ResizeObserver fires on observe
-  // and on every change, so it renders the moment the container is real, and
-  // re-syncs on rotate / panel toggles too.
-  const syncSize = () => {
-    try {
-      if (glLayer._resizeContainer) glLayer._resizeContainer();
-      const g = (glLayer.getMaplibreMap && glLayer.getMaplibreMap()) || glLayer._glMap;
-      if (g && g.resize) g.resize();
-    } catch (e) { /* never let a basemap hiccup take the whole map down */ }
+// 🗺️ Self-hosted VECTOR basemap is now the DEFAULT. `?raster=1` is the escape
+// hatch to the old Carto proxy.
+//
+// 🚨 THE BLANK-BASEMAP ROOT CAUSE (finally found, 2026-08-27, and it was NEITHER
+// the worker NOR the resize the old notes chased): MapLibre gates its ENTIRE
+// initial style load behind ONE requestAnimationFrame -
+//   Style.loadJSON -> browser.frameAsync -> requestAnimationFrame -> _load(style)
+// A map built while the tab is NOT PAINTING - a backgrounded PWA/standalone
+// launch, a link opened in a background tab, the split second before first paint -
+// never receives that frame. So the style never loads: no sources are created, no
+// tile is ever requested, and CRUCIALLY no error and no event fire. It is silent,
+// and non-deterministic (any later repaint/resize delivers the missing frame and
+// rescues it - which is exactly why it "rendered the whole planet once"). Every
+// past console diagnosis that "proved" a bare direct maplibregl.Map fails too was
+// itself run in an occluded automation tab where rAF is paused - same trap.
+// PROVEN: shimming requestAnimationFrame to a timer renders the whole planet in
+// that same hidden tab, styleLoaded true, 15 tiles, zero errors.
+//
+// THE CURE: guarantee that one frame fires. startFramePump() wraps rAF so each
+// callback ALSO gets a short timer fallback (de-duped, so a healthy foreground
+// frame is untouched - native rAF wins the race and the timer is a no-op). It is
+// active ONLY from just before the map is built until its first frame is drawn,
+// then it restores the native rAF so the render loop keeps real vsync timing.
+// A watchdog falls back to raster if the vector map ever fails to load, because
+// keeping the map VISIBLE outranks the vector upgrade - it is never left blank.
+
+function startFramePump() {
+  const rAF = window.requestAnimationFrame.bind(window);
+  const cAF = window.cancelAnimationFrame.bind(window);
+  let active = true;
+  window.requestAnimationFrame = function (cb) {
+    let fired = false;
+    const once = (t) => { if (fired) return; fired = true; try { cb(t); } catch (e) { /* keep the loop alive */ } };
+    const r = rAF(once);
+    // 60ms ~ one very slow frame; only ever matters when the native frame is
+    // starved (hidden tab / no paint). When rAF is healthy `once` de-dupes it away.
+    const s = setTimeout(() => once(performance.now()), 60);
+    return { __pump: 1, r, s };
   };
-  const mapEl = document.getElementById('map');
-  if (window.ResizeObserver && mapEl) new ResizeObserver(syncSize).observe(mapEl);
-  map.whenReady(syncSize);
-  // ⚠️ NOTE for the next attempt: the source (explicit `tiles`, maxzoom 15) and
-  // the whole style stay stuck with isStyleLoaded()===false / source.loaded()
-  // ===false and NO error - even in a bare direct maplibregl.Map, so it is NOT
-  // the Leaflet bridge and NOT the resize. It rendered ONCE with identical code
-  // (non-deterministic). Next: try a TileJSON `url` source instead of explicit
-  // `tiles`, and/or a different maplibre-gl build, before wiring it as default.
-} else {
+  window.cancelAnimationFrame = function (h) {
+    if (h && h.__pump) { cAF(h.r); clearTimeout(h.s); } else { cAF(h); }
+  };
+  return function stop() {
+    if (!active) return;
+    active = false;
+    window.requestAnimationFrame = rAF;
+    window.cancelAnimationFrame = cAF;
+  };
+}
+
+function addRasterBasemap() {
   L.tileLayer('/api/tile/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors &copy; CARTO &middot; SparrowMap',
     maxZoom: 20,
   }).addTo(map);
+}
+
+if (!new URLSearchParams(location.search).has('raster')) {
+  try {
+    // Pump frames across map construction so the rAF-gated style load always runs.
+    const stopPump = startFramePump();
+    // Never hold the global rAF override longer than a few seconds, whatever happens.
+    const hardStop = setTimeout(stopPump, 8000);
+
+    const glLayer = L.maplibreGL({
+      style: '/basemap/style.json?v=5',
+      attribution: '&copy; OpenStreetMap contributors &middot; SparrowMap',
+    }).addTo(map);
+
+    // The bridge builds its maplibregl.Map synchronously inside addTo(), so the
+    // handle is available now - attach the "first frame drawn" listener that ends
+    // the pump. idle is the ceiling (whole first frame on screen); the 8s hardStop
+    // is the backstop if idle never comes (e.g. a tab that stays hidden).
+    const glMap = (glLayer.getMaplibreMap && glLayer.getMaplibreMap()) || glLayer._glMap;
+    if (glMap) glMap.once('idle', () => { clearTimeout(hardStop); stopPump(); });
+
+    // 🚨 THE BRIDGE'S resize GAP: leaflet-maplibre-gl's _resize only re-sizes the
+    // container DIV and jumpTo()s - it NEVER calls _glMap.resize(). So a container
+    // that lays out a beat after the GL map is built (flex column / first paint)
+    // leaves MapLibre's internal size stale. Re-size the container AND the GL map
+    // whenever #map actually has a size; a ResizeObserver re-syncs on first layout,
+    // rotate and panel toggles too.
+    const syncSize = () => {
+      try {
+        if (glLayer._resizeContainer) glLayer._resizeContainer();
+        const g = (glLayer.getMaplibreMap && glLayer.getMaplibreMap()) || glLayer._glMap;
+        if (g && g.resize) g.resize();
+      } catch (e) { /* never let a basemap hiccup take the whole map down */ }
+    };
+    const mapEl = document.getElementById('map');
+    if (window.ResizeObserver && mapEl) new ResizeObserver(syncSize).observe(mapEl);
+    map.whenReady(syncSize);
+
+    // 🛡️ WATCHDOG: keeping the map visible outranks the vector upgrade. If the
+    // vector style still has not loaded after 7s (some environment the pump did not
+    // foresee), drop it and fall back to the Carto raster proxy - never blank.
+    setTimeout(() => {
+      try {
+        if (!glMap || !glMap.isStyleLoaded()) {
+          if (glLayer && map.hasLayer(glLayer)) map.removeLayer(glLayer);
+          addRasterBasemap();
+        }
+      } catch (e) { try { addRasterBasemap(); } catch (_) { /* give up quietly */ } }
+    }, 7000);
+  } catch (e) {
+    // Anything at all goes wrong standing up the vector map -> raster, immediately.
+    addRasterBasemap();
+  }
+} else {
+  addRasterBasemap();
 }
 
 state.camLayer.addTo(map);
