@@ -609,9 +609,14 @@
     // across postEnv retries - the ts window is minutes, retries are seconds.
     var pow=await SparrowPow.stamp(ct.mb, envStr, SparrowPow.POW_BITS);
     await postEnv(ct.mb, envStr, mid, pow);
-    // Also mirror TEXT onto the mesh air for a contact recently heard there, so
-    // an off-grid reply reaches them. Photos stay mailbox-only (air is text-sized).
-    if(obj && obj.t!=='img' && airRecent(ct.mb)) { try{ await airSend(ct, envStr); }catch(e){} }
+    // Also mirror TEXT onto the air for a contact recently heard there, so an
+    // off-grid reply reaches them. Two lanes: the contact's pairwise send-tag
+    // (internet peer) and/or the shared LoRa mesh lane (off-grid peer via the
+    // bridge). Photos stay mailbox-only (the air is text-sized).
+    if(obj && obj.t!=='img'){
+      if(airRecent(ct.mb))  { try{ await airSend(ct, envStr); }catch(e){} }
+      if(meshRecent(ct.mb)) { try{ await airPut(MESH_TAG, envStr); }catch(e){} }
+    }
   }
   // Duplicate guard on the receiving side: never process the same mid twice
   // (would double-display AND desync the ratchet). Bounded per contact.
@@ -635,37 +640,49 @@
    * Honest cost: within an hour the hub can see two anonymous tags share traffic;
    * it never sees who, and the tag rotates hourly so nothing links across time. */
   var AIR = (typeof SparrowAir !== 'undefined') ? SparrowAir : null;
+  // The shared LoRa MESH lane: a fixed hub tag the off-grid bridge mirrors the
+  // radio air onto (sha256("sparrow-lora-mesh-v1")[:16]). A contact reachable
+  // only over LoRa has no internet mailbox and no pairwise tag we can poll, so we
+  // also listen on this one lane and trial-route by the envelope's own `from`.
+  // MUST match MESH_TAG in tools/hub_air_link.py.
+  var MESH_TAG = '46405a125e36f24591546321b6ec0ec3';
   function getAirCur(){ try{ return JSON.parse(LS.getItem('sparrow.send.aircur')||'{}'); }catch(e){ return {}; } }
   function setAirCur(m){ try{ LS.setItem('sparrow.send.aircur', JSON.stringify(m)); }catch(e){} }
   function getAirSeen(){ try{ return JSON.parse(LS.getItem('sparrow.send.airseen')||'{}'); }catch(e){ return {}; } }
   function markAirSeen(mb){ try{ var m=getAirSeen(); m[mb]=Date.now(); LS.setItem('sparrow.send.airseen', JSON.stringify(m)); }catch(e){} }
   function airRecent(mb){ var m=getAirSeen(); return !!(m[mb] && (Date.now()-m[mb] < 7*86400*1000)); }
-  // Mirror one already-sealed envelope onto the air under the contact's send-tag.
-  // Best-effort: the mailbox has already delivered, so a failure here is silent.
-  async function airSend(ct, envStr){
-    if(!AIR||!ct||!ct.eRaw) return;
-    try{
-      var tag=await AIR.sendTag(ID.dh.privateKey, ct.eRaw, AIR.epochNow());
-      var frame=R.b64(enc.encode(envStr));
-      var pow=await SparrowPow.stamp(tag, frame, SparrowPow.POW_BITS);
-      function body(p){ return JSON.stringify({tag:tag, frame:frame, pt:p.ts, pn:p.nonce}); }
-      var res=await fetch('/api/air/put',{method:'POST',headers:{'Content-Type':'application/json'},body:body(pow)});
-      if(res.status===400){ var j=await res.json().catch(function(){return{};}); if(j.need_bits){ pow=await SparrowPow.stamp(tag, frame, j.need_bits);
-        await fetch('/api/air/put',{method:'POST',headers:{'Content-Type':'application/json'},body:body(pow)}); } }
-    }catch(e){}
+  // A contact last HEARD over the LoRa mesh lane (so a reply should ride it too).
+  function getMeshSeen(){ try{ return JSON.parse(LS.getItem('sparrow.send.meshseen')||'{}'); }catch(e){ return {}; } }
+  function markMeshSeen(mb){ try{ var m=getMeshSeen(); m[mb]=Date.now(); LS.setItem('sparrow.send.meshseen', JSON.stringify(m)); }catch(e){} }
+  function meshRecent(mb){ var m=getMeshSeen(); return !!(m[mb] && (Date.now()-m[mb] < 7*86400*1000)); }
+  // PUT one already-sealed envelope onto the air under a tag, restamping PoW if
+  // the hub asks. Best-effort: the mailbox has already delivered, so a failure
+  // here is silent.
+  async function airPut(tag, envStr){
+    var frame=R.b64(enc.encode(envStr));
+    var pow=await SparrowPow.stamp(tag, frame, SparrowPow.POW_BITS);
+    function body(p){ return JSON.stringify({tag:tag, frame:frame, pt:p.ts, pn:p.nonce}); }
+    var res=await fetch('/api/air/put',{method:'POST',headers:{'Content-Type':'application/json'},body:body(pow)});
+    if(res.status===400){ var j=await res.json().catch(function(){return{};}); if(j.need_bits){ pow=await SparrowPow.stamp(tag, frame, j.need_bits);
+      await fetch('/api/air/put',{method:'POST',headers:{'Content-Type':'application/json'},body:body(pow)}); } }
   }
+  async function airSend(ct, envStr){ if(!AIR||!ct||!ct.eRaw) return;
+    try{ await airPut(await AIR.sendTag(ID.dh.privateKey, ct.eRaw, AIR.epochNow()), envStr); }catch(e){} }
   // LISTEN on the air for every contact's recv-tag (this epoch + last), in ONE
   // batched request, and ingest anything heard. Returns {any, incoming} so the
   // caller refreshes the UI once for the mailbox and air together.
   async function airPoll(){
     if(!AIR||!ID) return {any:false, incoming:null};
     try{
-      var contacts=getContacts(); if(!contacts.length) return {any:false, incoming:null};
+      var contacts=getContacts();
       var ep=AIR.epochNow(), cur=getAirCur(), tags=[];
       for(var i=0;i<contacts.length;i++){ var ct=contacts[i]; if(!ct.eRaw) continue;
         for(var d=0; d<2; d++){
           var t=await AIR.recvTag(ID.dh.privateKey, ct.eRaw, ID.ePubRaw, ep-d);
           tags.push({tag:t, since:(cur[t]||0)}); } }
+      // The shared LoRa mesh lane - always listen, even with no contacts, so an
+      // off-grid peer we already know can reach us through the bridge.
+      tags.push({tag:MESH_TAG, since:(cur[MESH_TAG]||0)});
       var any=false, incoming=null, next={};
       for(var c=0;c<tags.length;c+=64){
         var chunk=tags.slice(c,c+64);
@@ -674,7 +691,8 @@
         var results=res.results||{};
         for(var tg in results){ var r=results[tg]; next[tg]=r.seq;
           for(var k=0;k<r.m.length;k++){ var envStr; try{ envStr=dec.decode(R.ub64(r.m[k].b)); }catch(e){ continue; }
-            var got=await ingest(envStr); if(got){ any=true; incoming=got; markAirSeen(got.mb); } } }
+            var got=await ingest(envStr); if(got){ any=true; incoming=got;
+              if(tg===MESH_TAG) markMeshSeen(got.mb); else markAirSeen(got.mb); } } }
       }
       // Cursors rotate away with the epoch: keep only tags polled this cycle.
       var merged={}; for(var i2=0;i2<tags.length;i2++){ var k2=tags[i2].tag; merged[k2]=(next[k2]!=null?next[k2]:(cur[k2]||0)); }
