@@ -246,6 +246,18 @@ if (new URLSearchParams(location.search).has('vec')) {
   const mapEl = document.getElementById('map');
   if (window.ResizeObserver && mapEl) new ResizeObserver(syncSize).observe(mapEl);
   map.whenReady(syncSize);
+  // TEMP DEBUG (remove after diagnosis): surface the GL map's own events/errors.
+  try {
+    const _g = (glLayer.getMaplibreMap && glLayer.getMaplibreMap()) || glLayer._glMap;
+    window.__glLayer = glLayer; window.__gl = _g;
+    if (_g) {
+      _g.on('error', (e) => console.log('SPVEC error:', (e && e.error && e.error.message) || e));
+      _g.on('load', () => console.log('SPVEC load; styleLoaded=' + _g.isStyleLoaded()));
+      _g.on('styledata', () => console.log('SPVEC styledata; styleLoaded=' + _g.isStyleLoaded() + ' size=' + _g.transform.width + 'x' + _g.transform.height));
+      _g.on('dataloading', (e) => console.log('SPVEC dataloading ' + (e.sourceId || e.dataType)));
+      _g.on('sourcedata', (e) => console.log('SPVEC sourcedata ' + e.sourceId + ' loaded=' + e.isSourceLoaded + (e.tile ? ' TILE' : '')));
+    }
+  } catch (e) { console.log('SPVEC hook err', e); }
 } else {
   L.tileLayer('/api/tile/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors &copy; CARTO &middot; SparrowMap',
