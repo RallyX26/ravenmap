@@ -690,9 +690,10 @@
           body:JSON.stringify({tags:chunk})})).json();
         var results=res.results||{};
         for(var tg in results){ var r=results[tg]; next[tg]=r.seq;
+          var isMesh=(tg===MESH_TAG);
           for(var k=0;k<r.m.length;k++){ var envStr; try{ envStr=dec.decode(R.ub64(r.m[k].b)); }catch(e){ continue; }
-            var got=await ingest(envStr); if(got){ any=true; incoming=got;
-              if(tg===MESH_TAG) markMeshSeen(got.mb); else markAirSeen(got.mb); } } }
+            var got=await ingest(envStr, isMesh); if(got){ any=true; incoming=got;
+              if(isMesh) markMeshSeen(got.mb); else markAirSeen(got.mb); } } }
       }
       // Cursors rotate away with the epoch: keep only tags polled this cycle.
       var merged={}; for(var i2=0;i2<tags.length;i2++){ var k2=tags[i2].tag; merged[k2]=(next[k2]!=null?next[k2]:(cur[k2]||0)); }
@@ -719,13 +720,20 @@
     }catch(e){ /* offline; retry next tick */ }
     finally{ _polling=false; }
   }
-  async function ingest(envStr){
+  async function ingest(envStr, trial){
     var env; try{env=JSON.parse(envStr);}catch(e){return null}
     if(!env.from||!env.r) return null;
     var from; try{from=decodeAddress(env.from);}catch(e){return null}
     var mb=await mailboxOf(from.sRaw);
-    if(env.mid){ if(seenMid(mb,env.mid)) return null; markMid(mb,env.mid); }   // drop a duplicate before it touches the ratchet
     var contacts=getContacts(), ct=contacts.filter(function(x){return x.mb===mb;})[0];
+    // 🚨 TRIAL frames come off the SHARED mesh lane, where you hear EVERYONE's
+    // sealed broadcast and only the ones for you decrypt. So a trial frame from
+    // someone who is NOT a contact is dropped in silence - never auto-add a
+    // stranger from a broadcast, and never surface a decrypt failure (most frames
+    // simply are not yours). Only mailbox / pairwise-tag frames are addressed to
+    // you and may auto-add or report a genuine failure.
+    if(trial && !ct) return null;
+    if(env.mid){ if(seenMid(mb,env.mid)) return null; markMid(mb,env.mid); }   // drop a duplicate before it touches the ratchet
     if(!ct){
       // Bound auto-added strangers. Anyone who has your address can drop mail
       // from throwaway identities; without a cap that grows the contact list
@@ -742,14 +750,20 @@
       contacts.push(ct); setContacts(contacts); }
     var st=getRat(mb);
     if(!st){ st=await R.initReceiver(ID.dhIdentity, R.b64(from.eRaw)); }
+    // On the mesh a frame from this contact may actually be addressed to someone
+    // else (it is a broadcast), so decrypt against a CLONE and only commit the
+    // advanced ratchet if it verifies - a failed trial must never desync the
+    // real session. R.decrypt mutates before it authenticates, hence the clone.
+    var attempt = trial ? JSON.parse(JSON.stringify(st)) : st;
     var text=null;
-    try{ var pt=await R.decrypt(st, env.r); setRat(mb, st);
+    try{ var pt=await R.decrypt(attempt, env.r); setRat(mb, attempt);
       var obj=JSON.parse(dec.decode(pt));
       var stored=obj;                                    // move a photo's bytes into IDB, keep an id in history
       if(obj&&obj.t==='img'&&typeof obj.d==='string'&&/^data:image\//.test(obj.d)){ stored=await storeImg(obj.d); if(obj.re) stored.re=obj.re; }
       pushHist(mb,{dir:'in',o:stored,ts:Date.now()});
       text=obj.t==='img'?'📷 photo':(obj.x||'');
     }catch(e){
+      if(trial) return null;   // a broadcast frame that simply is not ours - silent
       // Undecryptable (rare: simultaneous first-contact, or a reset on their side).
       pushHist(mb,{dir:'sys',o:{t:'text',x:'A message could not be decrypted. If this keeps happening, both of you tap “Reset secure session”.'},ts:Date.now()});
     }
