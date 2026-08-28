@@ -1,82 +1,89 @@
-/* End-to-end proof of the LoRa MESH lane against the LIVE hub, no radio needed.
+/* End-to-end proof of the LoRa MESH lane in its REAL (binary) format, live hub.
  *
- * Two identities that are each other's contacts. "LoRaUser" (off-grid) seals a
- * message and puts it on the shared MESH tag; "NetUser" (internet Send) polls the
- * SAME tag, routes by the envelope's `from`, and decrypts - exactly what
- * send.html's airPoll + ingest do. Then the reverse. Proves an off-grid message
- * reaches an internet Send contact and back, through the hub, sealed throughout.
+ * A "board" peer (off-grid, LoRa-style) seals a compact binary frame and puts it
+ * on the shared MESH tag; an "internet" peer pulls the SAME tag, trial-decrypts
+ * the frame against its contacts (frameToMsg + ratchet, on a clone), and reads
+ * the text - exactly what send.html's meshRecvFrame does. Then the reverse, plus
+ * a read-receipt (K_ACK) and a stranger frame that must NOT match anyone.
  *
  * Run: node tools/test_mesh.js [https://map.sparrowmap.com]
  */
 "use strict";
 const path = require("path");
 const R = require(path.join(__dirname, "..", "public", "sparrowsend-ratchet.js"));
+const L = require(path.join(__dirname, "..", "public", "sparrowsend-lora.js"));
 const Pow = require(path.join(__dirname, "..", "public", "sparrowsend-pow.js"));
 const enc = new TextEncoder(), dec = new TextDecoder();
 const BASE = process.argv[2] || "https://map.sparrowmap.com";
-const MESH_TAG = "46405a125e36f24591546321b6ec0ec3";   // must match send.html + hub_air_link
+const MESH_TAG = "46405a125e36f24591546321b6ec0ec3";
 let pass = 0, fail = 0;
 const ok = (n, c) => (c ? (pass++, console.log("  ok  " + n)) : (fail++, console.log("FAIL  " + n)));
 
-function b64u(u8){ return Buffer.from(u8).toString("base64").replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
 async function post(route, body){
   const r = await fetch(BASE + route, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) });
   let j={}; try{ j = await r.json(); }catch(e){}
   return { status:r.status, j };
 }
-async function identity(){
-  const s = await crypto.subtle.generateKey({name:"ECDSA",namedCurve:"P-256"}, true, ["sign","verify"]);
-  const g = await R.genDH();
-  const sRaw = new Uint8Array(await crypto.subtle.exportKey("raw", s.publicKey));
-  const eRaw = R.ub64(g.pub);
-  const address = b64u(new TextEncoder().encode(JSON.stringify({ s:b64u(sRaw), e:b64u(eRaw) })));
-  const mailbox = [...new Uint8Array(await crypto.subtle.digest("SHA-256", sRaw))].map(b=>(b+256).toString(16).slice(1)).join("").slice(0,32);
-  return { dhIdentity:{ priv:g.priv, pub:g.pub }, ePub:g.pub, address, mailbox };
-}
-// Put a sealed envelope on the MESH lane (what a bridged LoRa frame becomes).
-async function meshPut(fromId, toId, mid, text){
-  const rs = await R.initSender(fromId.dhIdentity, toId.ePub);
-  const msg = await R.encrypt(rs, enc.encode(JSON.stringify({ x: text })));
-  const envStr = JSON.stringify({ from: fromId.address, mid, r: msg });
-  const frame = Buffer.from(envStr, "utf8").toString("base64");
+async function id(){ const g = await R.genDH(); return { dh:{priv:g.priv,pub:g.pub}, pub:g.pub }; }
+
+// board-style: seal a plaintext into a binary frame and put it on the mesh.
+async function meshPut(state, kind, mid, body){
+  const msg = await R.encrypt(state, L.packPlain(kind, mid, body));
+  const frame = L.b64(L.msgToFrame(msg));
   const st = await Pow.stamp(MESH_TAG, frame, Pow.POW_BITS);
-  const put = await post("/api/air/put", { tag: MESH_TAG, frame, pt: st.ts, pn: st.nonce });
-  return put.status === 200;
+  return (await post("/api/air/put", { tag: MESH_TAG, frame, pt: st.ts, pn: st.nonce })).status === 200;
 }
-// Poll the MESH lane and decrypt any envelope from a known contact (ingest-style).
-async function meshRecv(meId, fromId, wantMid){
+// internet-style: pull the mesh, trial-decrypt each frame against [contactState].
+async function meshRecv(states){
   const g = await post("/api/air/get", { tag: MESH_TAG, since: 0 });
+  const out = [];
   for (const m of (g.j.m || [])){
-    let env; try{ env = JSON.parse(Buffer.from(m.b, "base64").toString("utf8")); }catch(e){ continue; }
-    if (!env.from || env.mid !== wantMid) continue;      // route by mid for this test
-    const rr = await R.initReceiver(meId.dhIdentity, fromId.ePub);
-    try{ const pt = await R.decrypt(rr, env.r); return JSON.parse(dec.decode(pt)).x; }catch(e){}
+    let bytes; try{ bytes = L.ub64(m.b); }catch(e){ continue; }
+    const msg = L.frameToMsg(bytes); if(!msg) continue;
+    for (const s of states){
+      const clone = JSON.parse(JSON.stringify(s.st));
+      try{ const pt = await R.decrypt(clone, msg); s.st = clone;
+        const p = L.parsePlain(pt); out.push({ who:s.who, kind:p.kind, mid:L.midHex(p.mid), text: dec.decode(p.body) }); break; }catch(e){}
+    }
   }
-  return null;
+  return out;
 }
 
 (async () => {
-  const lora = await identity();   // off-grid phone user
-  const net  = await identity();   // internet Send user
-  const mid1 = b64u(crypto.getRandomValues(new Uint8Array(9)));
-  const mid2 = b64u(crypto.getRandomValues(new Uint8Array(9)));
+  const board = await id(), net = await id(), stranger = await id();
+  // established session (they are contacts): board<->net
+  const bToNet = await R.initSender(board.dh, net.pub);
+  const netFromB = { who:"net", st: await R.initReceiver(net.dh, board.pub) };
+  const netToB = await R.initSender(net.dh, board.pub);
+  const bFromNet = { who:"board", st: await R.initReceiver(board.dh, net.pub) };
 
-  // off-grid -> internet
-  ok("LoRa user's sealed frame accepted on the mesh lane",
-     await meshPut(lora, net, mid1, "reached you from off-grid over LoRa"));
-  ok("internet Send user receives + decrypts it off the mesh lane",
-     (await meshRecv(net, lora, mid1)) === "reached you from off-grid over LoRa");
+  const m1 = new Uint8Array([9,9,0,1]);
+  ok("board seals a text frame onto the mesh", await meshPut(bToNet, L.K_TEXT, m1, enc.encode("off-grid, but I reached you")));
 
-  // internet -> off-grid (the reply the bridge carries back to the radio)
-  ok("internet reply accepted on the mesh lane",
-     await meshPut(net, lora, mid2, "got it - replying over the bridge"));
-  ok("off-grid user receives + decrypts the reply",
-     (await meshRecv(lora, net, mid2)) === "got it - replying over the bridge");
+  const got = await meshRecv([ netFromB, { who:"stranger", st: await R.initReceiver(stranger.dh, board.pub) } ]);
+  const t1 = got.find(x => x.who==="net" && x.mid===L.midHex(m1));
+  ok("internet peer trial-decrypts it (and the stranger does NOT)",
+     !!t1 && t1.text==="off-grid, but I reached you" && !got.some(x=>x.who==="stranger"));
 
-  // a stranger with the public tag sees only ciphertext (cannot read it)
+  // reverse: internet replies over the mesh; board reads it
+  const m2 = new Uint8Array([9,9,0,2]);
+  ok("internet reply sealed onto the mesh", await meshPut(netToB, L.K_TEXT, m2, enc.encode("got you, replying over the bridge")));
+  const back = await meshRecv([ bFromNet ]);
+  const t2 = back.find(x => x.mid===L.midHex(m2));
+  ok("board reads the reply", !!t2 && t2.text==="got you, replying over the bridge");
+
+  // a read receipt (K_ACK) carries the acked mid
+  const m3 = new Uint8Array([9,9,0,3]);
+  const ackBody = new Uint8Array(5); ackBody.set(m1,0); ackBody[4]=0;
+  ok("an ACK frame goes on the mesh", await meshPut(netToB, L.K_ACK, m3, ackBody));
+  const acks = await meshRecv([ bFromNet ]);
+  const a1 = acks.find(x => x.mid===L.midHex(m3));
+  ok("ACK is delivered as a K_ACK", !!a1 && a1.kind===L.K_ACK);
+
+  // no plaintext ever appears on the shared lane
   const g = await post("/api/air/get", { tag: MESH_TAG, since: 0 });
-  const leaked = (g.j.m || []).some(m => Buffer.from(m.b, "base64").toString("utf8").includes("off-grid over LoRa"));
-  ok("plaintext never appears on the shared lane", !leaked);
+  ok("plaintext never on the shared lane",
+     !(g.j.m||[]).some(m => { try{ return dec.decode(L.ub64(m.b)).includes("reached you"); }catch(e){ return false; } }));
 
   console.log("\n%d passed, %d failed", pass, fail);
   process.exit(fail ? 1 : 0);

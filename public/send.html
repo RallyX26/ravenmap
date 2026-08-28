@@ -383,6 +383,7 @@
 <script src="/static/sparrowsend-ratchet.js?v=1"></script>
 <script src="/static/sparrowsend-pow.js?v=1"></script>
 <script src="/static/sparrowsend-air.js?v=1"></script>
+<script src="/static/sparrowsend-lora.js?v=1"></script>
 <script>
 (function(){
   "use strict";
@@ -614,8 +615,8 @@
     // (internet peer) and/or the shared LoRa mesh lane (off-grid peer via the
     // bridge). Photos stay mailbox-only (the air is text-sized).
     if(obj && obj.t!=='img'){
-      if(airRecent(ct.mb))  { try{ await airSend(ct, envStr); }catch(e){} }
-      if(meshRecent(ct.mb)) { try{ await airPut(MESH_TAG, envStr); }catch(e){} }
+      if(airRecent(ct.mb))  { try{ await airSend(ct, envStr); }catch(e){} }               // internet peer, pairwise tag
+      if(meshRecent(ct.mb)) { try{ await meshSendText(ct, obj.x||''); }catch(e){} }         // off-grid peer, LoRa frame
     }
   }
   // Duplicate guard on the receiving side: never process the same mid twice
@@ -655,19 +656,72 @@
   function getMeshSeen(){ try{ return JSON.parse(LS.getItem('sparrow.send.meshseen')||'{}'); }catch(e){ return {}; } }
   function markMeshSeen(mb){ try{ var m=getMeshSeen(); m[mb]=Date.now(); LS.setItem('sparrow.send.meshseen', JSON.stringify(m)); }catch(e){} }
   function meshRecent(mb){ var m=getMeshSeen(); return !!(m[mb] && (Date.now()-m[mb] < 7*86400*1000)); }
-  // PUT one already-sealed envelope onto the air under a tag, restamping PoW if
-  // the hub asks. Best-effort: the mailbox has already delivered, so a failure
-  // here is silent.
-  async function airPut(tag, envStr){
-    var frame=R.b64(enc.encode(envStr));
+  // PUT one already-base64 frame onto the air under a tag, restamping PoW if the
+  // hub asks. Best-effort: the mailbox has already delivered, so failure is silent.
+  async function airPutFrame(tag, frame){
     var pow=await SparrowPow.stamp(tag, frame, SparrowPow.POW_BITS);
     function body(p){ return JSON.stringify({tag:tag, frame:frame, pt:p.ts, pn:p.nonce}); }
     var res=await fetch('/api/air/put',{method:'POST',headers:{'Content-Type':'application/json'},body:body(pow)});
     if(res.status===400){ var j=await res.json().catch(function(){return{};}); if(j.need_bits){ pow=await SparrowPow.stamp(tag, frame, j.need_bits);
       await fetch('/api/air/put',{method:'POST',headers:{'Content-Type':'application/json'},body:body(pow)}); } }
   }
+  async function airPut(tag, envStr){ return airPutFrame(tag, R.b64(enc.encode(envStr))); }
   async function airSend(ct, envStr){ if(!AIR||!ct||!ct.eRaw) return;
     try{ await airPut(await AIR.sendTag(ID.dh.privateKey, ct.eRaw, AIR.epochNow()), envStr); }catch(e){} }
+
+  /* ---------- the LoRa MESH lane speaks the board's compact BINARY format ----------
+   * A LoRa packet is <=250 B, too small for the {from,mid,r} JSON envelope, so on
+   * the mesh we use the SAME binary frame the off-grid board app uses and BOTH ends
+   * trial-decrypt it against their contacts. This is how a message from someone on
+   * a LoRa board (running their Sparrow Send account via a login key) reaches an
+   * internet contact and back. sparrowsend-lora.js keeps the bytes identical. */
+  var LORA = (typeof SparrowLora !== 'undefined') ? SparrowLora : null;
+  function ctPubStd(ct){ return R.b64(ub64u(ct.eRaw)); }   // contact ECDH pub, std base64 for the ratchet
+  // Trial-decrypt a base64 binary frame off the mesh against every contact; on a
+  // hit, decrypt on a CLONE so a not-for-us frame can never desync the session.
+  async function meshRecvFrame(frameB64){
+    if(!LORA) return null;
+    var bytes; try{ bytes=R.ub64(frameB64); }catch(e){ return null; }
+    var msg=LORA.frameToMsg(bytes); if(!msg) return null;
+    var contacts=getContacts();
+    for(var i=0;i<contacts.length;i++){
+      var ct=contacts[i]; if(!ct.eRaw) continue;
+      var st=getRat(ct.mb); if(!st){ try{ st=await R.initReceiver(ID.dhIdentity, ctPubStd(ct)); }catch(e){ continue; } }
+      var clone=JSON.parse(JSON.stringify(st)), pt;
+      try{ pt=await R.decrypt(clone, msg); }catch(e){ continue; }   // not ours - try the next contact
+      setRat(ct.mb, clone); markMeshSeen(ct.mb);
+      var p=LORA.parsePlain(pt), midk='L'+LORA.midHex(p.mid);
+      if(p.kind===LORA.K_ACK){
+        var ackh='L'+LORA.midHex(p.body.subarray(0,4)); markDelivered(ct.mb, ackh); return {mb:ct.mb};
+      }
+      if(p.kind!==LORA.K_TEXT) return {mb:ct.mb};
+      if(seenMid(ct.mb,midk)) return {mb:ct.mb};   // already saw this exact frame
+      markMid(ct.mb,midk);
+      var text=dec.decode(p.body);
+      pushHist(ct.mb,{dir:'in',o:{t:'text',x:text},ts:Date.now()});
+      try{ await meshSendAck(ct, p.mid); }catch(e){}     // let their board show ✓✓
+      return {mb:ct.mb, name:(ct.name||('Someone ('+ct.mb.slice(0,6)+'…)')), text:text};
+    }
+    return null;
+  }
+  // Seal a text as a binary LoRa frame and put it on the mesh (fits one packet).
+  async function meshSendText(ct, text, midHexOut){
+    if(!LORA||!ct||!ct.eRaw) return;
+    var body=enc.encode(text); if(body.length>150) return;   // one radio packet; longer stays mailbox-only
+    var st=getRat(ct.mb); if(!st){ st=await R.initSender(ID.dhIdentity, ctPubStd(ct)); }
+    var mid=crypto.getRandomValues(new Uint8Array(4));
+    var msg=await R.encrypt(st, LORA.packPlain(LORA.K_TEXT, mid, body)); setRat(ct.mb, st);
+    if(midHexOut) midHexOut.v='L'+LORA.midHex(mid);
+    await airPutFrame(MESH_TAG, R.b64(LORA.msgToFrame(msg)));
+  }
+  async function meshSendAck(ct, ackedMid4){
+    var st=getRat(ct.mb); if(!st) return;
+    var ackBody=new Uint8Array(5); ackBody.set(ackedMid4,0); ackBody[4]=0;   // no radio RSSI on this side
+    var msg=await R.encrypt(st, LORA.packPlain(LORA.K_ACK, crypto.getRandomValues(new Uint8Array(4)), ackBody)); setRat(ct.mb, st);
+    await airPutFrame(MESH_TAG, R.b64(LORA.msgToFrame(msg)));
+  }
+  // Mark an outgoing mesh message delivered (✓✓) when its ACK comes back.
+  function markDelivered(mb, midk){ try{ var h=getHist(mb); for(var i=h.length-1;i>=0;i--){ if(h[i].midk===midk){ h[i].delivered=true; LS.setItem(hKey(mb),JSON.stringify(h)); break; } } }catch(e){} }
   // LISTEN on the air for every contact's recv-tag (this epoch + last), in ONE
   // batched request, and ingest anything heard. Returns {any, incoming} so the
   // caller refreshes the UI once for the mailbox and air together.
@@ -691,9 +745,15 @@
         var results=res.results||{};
         for(var tg in results){ var r=results[tg]; next[tg]=r.seq;
           var isMesh=(tg===MESH_TAG);
-          for(var k=0;k<r.m.length;k++){ var envStr; try{ envStr=dec.decode(R.ub64(r.m[k].b)); }catch(e){ continue; }
-            var got=await ingest(envStr, isMesh); if(got){ any=true; incoming=got;
-              if(isMesh) markMeshSeen(got.mb); else markAirSeen(got.mb); } } }
+          for(var k=0;k<r.m.length;k++){
+            if(isMesh){
+              // The mesh lane carries the compact BINARY LoRa frame - trial-decrypt it.
+              var mgot=await meshRecvFrame(r.m[k].b);
+              if(mgot && mgot.text!=null){ any=true; incoming=mgot; }
+            } else {
+              var envStr; try{ envStr=dec.decode(R.ub64(r.m[k].b)); }catch(e){ continue; }
+              var got=await ingest(envStr, false); if(got){ any=true; incoming=got; markAirSeen(got.mb); }
+            } } }
       }
       // Cursors rotate away with the epoch: keep only tags polled this cycle.
       var merged={}; for(var i2=0;i2<tags.length;i2++){ var k2=tags[i2].tag; merged[k2]=(next[k2]!=null?next[k2]:(cur[k2]||0)); }
