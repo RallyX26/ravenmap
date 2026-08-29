@@ -249,7 +249,7 @@ def is_operator_addr(addr: str) -> bool:
     """May a caller from this address use the operator-only routes?
 
     🚨 THIS WAS IPv4-ONLY AND IT SILENTLY BROKE BOTH OPERATOR PAGES.
-    `sparrow-box` resolves to an IPv6 unique-local address
+    `example-host` resolves to an IPv6 unique-local address
     (fd00:2e67:...), so reaching the labelling or review pages by HOSTNAME -
     which is how every link in the Pages hub is written, and the only way the
     phone can reach them - produced 403 "local only". The labelling buttons did
