@@ -41,6 +41,15 @@ import send_relay  # reuse the hardened, tested proof-of-work
 TAG_RE = re.compile(r"^[0-9a-f]{32}\Z")
 AIR_MSG_MAX = 8192          # one frame; a ratchet text envelope, never a photo
 RETAIN_S = 6 * 3600         # a frame stays pullable for six hours, then vanishes
+# The LoRa MESH lane is the MAILBOX for off-grid devices: a pager can be off for
+# days and its owner's contacts open the app on their own schedule. Six hours
+# silently ate every pager->web message whose recipient did not open Send the
+# same evening ("my messages aren't reaching anyone that isn't using a lora").
+# That lane keeps frames for 7 DAYS - the same patience as a mailbox, and the
+# same window meshRecent() uses client-side. Pairwise tags stay at 6h: they are
+# live-conversation lanes between two online clients.
+MESH_RETAIN_S = 7 * 86400
+MESH_TAGS = {"46405a125e36f24591546321b6ec0ec3"}   # sha256("sparrow-lora-mesh-v1")[:16]; must match send.html + hub_air_link.py
 TAG_MAX = 100               # frames held per tag before the oldest is dropped
 GLOBAL_MAX = 50000          # frames across all tags (RAM ceiling)
 POW_STEP = send_relay.POW_STEP
@@ -70,8 +79,8 @@ def required_bits(tag: str) -> int:
 
 def _prune_locked(now: float) -> None:
     global _total
-    cut = now - RETAIN_S
     for tag in list(_tags.keys()):
+        cut = now - (MESH_RETAIN_S if tag in MESH_TAGS else RETAIN_S)
         q = _tags[tag]
         while q and q[0]["t"] < cut:
             q.pop(0)
