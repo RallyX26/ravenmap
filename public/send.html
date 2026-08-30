@@ -383,7 +383,7 @@
 <script src="/static/sparrowsend-ratchet.js?v=1"></script>
 <script src="/static/sparrowsend-pow.js?v=1"></script>
 <script src="/static/sparrowsend-air.js?v=1"></script>
-<script src="/static/sparrowsend-lora.js?v=1"></script>
+<script src="/static/sparrowsend-lora.js?v=2"></script>
 <script>
 (function(){
   "use strict";
@@ -616,7 +616,10 @@
     // bridge). Photos stay mailbox-only (the air is text-sized).
     if(obj && obj.t!=='img'){
       if(airRecent(ct.mb))  { try{ await airSend(ct, envStr); }catch(e){} }               // internet peer, pairwise tag
-      if(meshRecent(ct.mb)) { try{ await meshSendText(ct, obj.x||''); }catch(e){} }         // off-grid peer, LoRa frame
+      if(meshRecent(ct.mb)) {                                                              // off-grid peer, LoRa frame
+        if(obj.t==='rekey'){ try{ await meshSendRekey(ct); }catch(e){} }                   // a marker, not a text: send K_REKEY
+        else { try{ await meshSendText(ct, obj.x||''); }catch(e){} }
+      }
     }
   }
   // Duplicate guard on the receiving side: never process the same mid twice
@@ -677,6 +680,66 @@
    * internet contact and back. sparrowsend-lora.js keeps the bytes identical. */
   var LORA = (typeof SparrowLora !== 'undefined') ? SparrowLora : null;
   function ctPubStd(ct){ return R.b64(ub64u(ct.eRaw)); }   // contact ECDH pub, std base64 for the ratchet
+
+  /* ---------- auto-rekey: self-heal a desynced session, no manual tap ----------
+   * A contact's web app and off-grid page are two devices on ONE identity, so the
+   * ratchet can fork and decrypt starts failing. The X3DH-lite root is derived from
+   * the two long-term identity keys ALONE (symmetric, no handshake), so either side
+   * can spin up a fresh session from stored keys at any time - the heal primitive.
+   *  - ADOPT (safe on ANY lane): on a miss from a known contact, a fresh initReceiver
+   *    reads ONLY a frame that contact produced with a matching fresh initSender - the
+   *    AEAD tag authenticates the identity-derived root, so an outsider can never
+   *    trigger it. Safe even on the broadcast mesh.
+   *  - INITIATE (addressed lanes only): if adoption fails too, the peer is behind;
+   *    start our own fresh session + send a sealed REKEY marker, rate-limited so it
+   *    can never loop. Never initiate on a broadcast lane (a miss there is usually
+   *    just 'not for us'). The manual Reset stays as the final fallback. */
+  var REKEY_MIN_MS = 30000;
+  function rekeyOk(mb){ try{ var k='sparrow.send.rekey.'+mb, t=+(LS.getItem(k)||0);
+    if(Date.now()-t < REKEY_MIN_MS) return false; LS.setItem(k, ''+Date.now()); return true; }catch(e){ return true; } }
+  // Resend our most recent outgoing TEXT (last 5 min) so the message that triggered
+  // the heal isn't lost; the receiver's mid de-dupe drops it if they already had it.
+  async function resendLast(ct){ try{ var h=getHist(ct.mb);
+    for(var i=h.length-1;i>=0;i--){ var m=h[i];
+      if(m.dir==='out' && (Date.now()-m.ts)>=300000) return;      // nothing recent enough to resend
+      if(m.dir==='out' && m.o && m.o.t==='text'){ await sendTo(ct, m.o); return; } } }catch(e){} }
+  // Addressed-lane heal: ADOPT their re-key if we can, else INITIATE our own.
+  // Returns {text} if adoption decrypted real content, {rekey:true}/{initiated:true}
+  // if it healed silently, or null if it could do nothing (keep the escape hatch).
+  async function autoHealAddressed(ct, rmsg){
+    if(!ct || !ct.eRaw) return null;
+    try{ var fresh=await R.initReceiver(ID.dhIdentity, ctPubStd(ct));
+      var pt=await R.decrypt(fresh, rmsg); setRat(ct.mb, fresh);         // ADOPT: they re-keyed
+      var obj=JSON.parse(dec.decode(pt));
+      if(obj && obj.t==='rekey'){ try{ await resendLast(ct); }catch(e){} return {rekey:true}; }
+      var stored=obj;
+      if(obj&&obj.t==='img'&&typeof obj.d==='string'&&/^data:image\//.test(obj.d)){ stored=await storeImg(obj.d); if(obj.re) stored.re=obj.re; }
+      pushHist(ct.mb,{dir:'in',o:stored,ts:Date.now()});
+      return {text:(obj.t==='img'?'📷 photo':(obj.x||''))};
+    }catch(e){}
+    if(!rekeyOk(ct.mb)) return null;                                     // rate-limited: fall back to the soft message
+    try{                                                                 // INITIATE a fresh session
+      var st=await R.initSender(ID.dhIdentity, ctPubStd(ct));
+      var msg=await R.encrypt(st, enc.encode(JSON.stringify({t:'rekey'})));
+      var mid=b64u(crypto.getRandomValues(new Uint8Array(12)));
+      var envStr=JSON.stringify({from:ID.address, mid:mid, r:msg});
+      var pow=await SparrowPow.stamp(ct.mb, envStr, SparrowPow.POW_BITS);
+      await postEnv(ct.mb, envStr, mid, pow);                            // throws if it can't send
+      setRat(ct.mb, st);                                                 // commit the fresh session ONLY once the marker is on its way
+      if(airRecent(ct.mb))  { try{ await airSend(ct, envStr); }catch(e){} }
+      if(meshRecent(ct.mb)) { try{ await meshSendRekey(ct); }catch(e){} }
+      try{ await resendLast(ct); }catch(e){}
+      return {initiated:true};
+    }catch(e){ return null; }
+  }
+  // Seal a REKEY marker as a binary LoRa frame (the mesh twin of {t:'rekey'}).
+  async function meshSendRekey(ct){
+    if(!LORA||!ct||!ct.eRaw) return;
+    var st=getRat(ct.mb); if(!st){ st=await R.initSender(ID.dhIdentity, ctPubStd(ct)); }
+    var msg=await R.encrypt(st, LORA.packPlain(LORA.K_REKEY, crypto.getRandomValues(new Uint8Array(4)), new Uint8Array(0))); setRat(ct.mb, st);
+    await airPutFrame(MESH_TAG, R.b64(LORA.msgToFrame(msg)));
+  }
+
   // Trial-decrypt a base64 binary frame off the mesh against every contact; on a
   // hit, decrypt on a CLONE so a not-for-us frame can never desync the session.
   async function meshRecvFrame(frameB64){
@@ -691,6 +754,7 @@
       try{ pt=await R.decrypt(clone, msg); }catch(e){ continue; }   // not ours - try the next contact
       setRat(ct.mb, clone); markMeshSeen(ct.mb);
       var p=LORA.parsePlain(pt), midk='L'+LORA.midHex(p.mid);
+      if(p.kind===LORA.K_REKEY){ try{ await resendLast(ct); }catch(e){} return {mb:ct.mb}; }  // they re-keyed; adopt + resend, never display
       if(p.kind===LORA.K_ACK){
         var ackh='L'+LORA.midHex(p.body.subarray(0,4)); markDelivered(ct.mb, ackh); return {mb:ct.mb};
       }
@@ -701,6 +765,24 @@
       pushHist(ct.mb,{dir:'in',o:{t:'text',x:text},ts:Date.now()});
       try{ await meshSendAck(ct, p.mid); }catch(e){}     // let their board show ✓✓
       return {mb:ct.mb, name:(ct.name||('Someone ('+ct.mb.slice(0,6)+'…)')), text:text};
+    }
+    // No live session read it. Before giving up, see if a known contact RE-KEYED: a
+    // fresh initReceiver from their identity keys reads the first message of their new
+    // session and NOTHING a stranger could forge - so ADOPT is safe on this broadcast.
+    for(var j=0;j<contacts.length;j++){
+      var c2=contacts[j]; if(!c2.eRaw) continue;
+      var fresh; try{ fresh=await R.initReceiver(ID.dhIdentity, ctPubStd(c2)); }catch(e){ continue; }
+      var fpt; try{ fpt=await R.decrypt(fresh, msg); }catch(e){ continue; }   // not a fresh session from them
+      setRat(c2.mb, fresh); markMeshSeen(c2.mb);
+      var q=LORA.parsePlain(fpt);
+      if(q.kind===LORA.K_REKEY){ try{ await resendLast(c2); }catch(e){} return {mb:c2.mb}; }
+      if(q.kind===LORA.K_ACK){ var ah='L'+LORA.midHex(q.body.subarray(0,4)); markDelivered(c2.mb, ah); return {mb:c2.mb}; }
+      if(q.kind!==LORA.K_TEXT) return {mb:c2.mb};
+      var mk='L'+LORA.midHex(q.mid); if(seenMid(c2.mb,mk)) return {mb:c2.mb}; markMid(c2.mb,mk);
+      var t2=dec.decode(q.body);
+      pushHist(c2.mb,{dir:'in',o:{t:'text',x:t2},ts:Date.now()});
+      try{ await meshSendAck(c2, q.mid); }catch(e){}
+      return {mb:c2.mb, name:(c2.name||('Someone ('+c2.mb.slice(0,6)+'…)')), text:t2};
     }
     return null;
   }
@@ -818,14 +900,20 @@
     var text=null;
     try{ var pt=await R.decrypt(attempt, env.r); setRat(mb, attempt);
       var obj=JSON.parse(dec.decode(pt));
+      if(obj && obj.t==='rekey'){ try{ await resendLast(ct); }catch(e){} return {mb:mb, name:(ct.name||''), text:null}; }  // control marker, never shown
       var stored=obj;                                    // move a photo's bytes into IDB, keep an id in history
       if(obj&&obj.t==='img'&&typeof obj.d==='string'&&/^data:image\//.test(obj.d)){ stored=await storeImg(obj.d); if(obj.re) stored.re=obj.re; }
       pushHist(mb,{dir:'in',o:stored,ts:Date.now()});
       text=obj.t==='img'?'📷 photo':(obj.x||'');
     }catch(e){
       if(trial) return null;   // a broadcast frame that simply is not ours - silent
-      // Undecryptable (rare: simultaneous first-contact, or a reset on their side).
-      pushHist(mb,{dir:'sys',o:{t:'text',x:'A message could not be decrypted. If this keeps happening, both of you tap “Reset secure session”.'},ts:Date.now()});
+      // Addressed frame from a known contact that won't decrypt = a real desync.
+      // Self-heal it (ADOPT their re-key, else INITIATE ours) instead of alerting.
+      var healed=await autoHealAddressed(ct, env.r);
+      if(healed && healed.text!=null){ text=healed.text; }             // adoption decrypted real content
+      else if(!healed){                                                // rate-limited / not healable: keep the escape hatch
+        pushHist(mb,{dir:'sys',o:{t:'text',x:'A message could not be decrypted. Reconnecting the secure session automatically… if it keeps happening, tap “Reset secure session”.'},ts:Date.now()});
+      }
     }
     return {mb:mb, name:(ct.name||('Someone ('+mb.slice(0,6)+'…)')), text:text};
   }

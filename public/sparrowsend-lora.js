@@ -13,7 +13,7 @@
 (function (root) {
   "use strict";
   var MAGIC = 0x53, VER = 1, T_MSG = 1, HDR = 4, MAX_FRAME = 250;
-  var K_TEXT = 1, K_ACK = 2;
+  var K_TEXT = 1, K_ACK = 2, K_REKEY = 3;   // 3 = "I started a fresh session, adopt it and resend"
 
   function b64(u8){ var s=""; for(var i=0;i<u8.length;i++) s+=String.fromCharCode(u8[i]);
     return (typeof btoa!=="undefined"?btoa(s):Buffer.from(s,"binary").toString("base64")); }
@@ -49,7 +49,7 @@
   function midHex(mid4){ var s=""; for(var i=0;i<4;i++) s+=(mid4[i]+256).toString(16).slice(1); return s; }
 
   var API = { MAGIC:MAGIC, VER:VER, T_MSG:T_MSG, HDR:HDR, MAX_FRAME:MAX_FRAME,
-    K_TEXT:K_TEXT, K_ACK:K_ACK, b64:b64, ub64:ub64,
+    K_TEXT:K_TEXT, K_ACK:K_ACK, K_REKEY:K_REKEY, b64:b64, ub64:ub64,
     msgToFrame:msgToFrame, frameToMsg:frameToMsg, packPlain:packPlain,
     parsePlain:parsePlain, midHex:midHex };
   if (typeof module !== "undefined" && module.exports) module.exports = API;

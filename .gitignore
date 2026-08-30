@@ -151,3 +151,5 @@ scratch/
 # Downloaded IEEE OUI registry (~240k lines) used by the local RF scanner;
 # regenerable data, and the map box does not run the scanner - keep it out of git.
 rf/oui.txt
+tools/.claude_mesh_rat.json
+tools/.claude_mesh_rat.json.lock
