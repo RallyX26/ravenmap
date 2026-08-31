@@ -618,7 +618,7 @@
       if(airRecent(ct.mb))  { try{ await airSend(ct, envStr); }catch(e){} }               // internet peer, pairwise tag
       if(meshRecent(ct.mb)) {                                                              // off-grid peer, LoRa frame
         if(obj.t==='rekey'){ try{ await meshSendRekey(ct); }catch(e){} }                   // a marker, not a text: send K_REKEY
-        else { try{ await meshSendText(ct, obj.x||''); }catch(e){} }
+        else { try{ await meshSendText(ct, obj.x||'', null, mid); }catch(e){} }   // reuse the mailbox mid so both lanes de-dupe as one
       }
     }
   }
@@ -626,6 +626,25 @@
   // (would double-display AND desync the ratchet). Bounded per contact.
   function seenMid(mb,id){ try{ return JSON.parse(LS.getItem('sparrow.send.seen.'+mb)||'[]').indexOf(id)>=0; }catch(e){ return false; } }
   function markMid(mb,id){ try{ var k='sparrow.send.seen.'+mb, a=JSON.parse(LS.getItem(k)||'[]'); if(a.indexOf(id)<0){ a.push(id); if(a.length>500)a=a.slice(-500); LS.setItem(k,JSON.stringify(a)); } }catch(e){} }
+  // ONE message can reach you on BOTH the mailbox (keyed by the 12-byte env.mid)
+  // AND the mesh LoRa lane (keyed by its own 4-byte frame mid) - two ids in two
+  // namespaces, so without this it shows twice. The mesh sender reuses the FIRST
+  // 4 BYTES of the mailbox mid as its frame mid (see meshSendText), so both lanes
+  // derive the SAME shared key here and either one collapses the other's copy.
+  function meshDupKey(midB64){ try{ return LORA ? ('X'+LORA.midHex(ub64u(midB64).subarray(0,4))) : null; }catch(e){ return null; } }
+  // Fallback collapse for the transition window, when the SENDER is still on an
+  // old build and stamps its mesh frame with a random mid (so meshDupKey can't
+  // link the two copies). Every mesh TEXT is, by construction, the twin of a
+  // mailbox send from the same sendTo(), so if the identical (contact, text)
+  // already showed on the OTHER lane within a short window it IS that twin -
+  // suppress the second. Same-lane repeats are NOT touched (a real "ok"/"ok"
+  // stays two), and whichever copy lands first is the one shown, so nothing is
+  // ever lost. Session-only; a reload clears it.
+  var _shown={};
+  function crossLaneShown(mb,text,lane){ try{ var a=_shown[mb]; if(!a) return false; var now=Date.now();
+    _shown[mb]=a=a.filter(function(e){return now-e.ts<360000;});
+    return a.some(function(e){return e.l!==lane && e.t===text;}); }catch(e){ return false; } }
+  function noteShown(mb,text,lane){ try{ var a=_shown[mb]||(_shown[mb]=[]); a.push({t:text,l:lane,ts:Date.now()}); if(a.length>40)_shown[mb]=a.slice(-40); }catch(e){} }
 
   /* ---------- the MESH air: an unlinkable, cross-transport delivery lane ----------
    * Alongside the mailbox, a message can ride the tag-routed AIR (air_relay on the
@@ -759,11 +778,14 @@
         var ackh='L'+LORA.midHex(p.body.subarray(0,4)); markDelivered(ct.mb, ackh); return {mb:ct.mb};
       }
       if(p.kind!==LORA.K_TEXT) return {mb:ct.mb};
-      if(seenMid(ct.mb,midk)) return {mb:ct.mb};   // already saw this exact frame
-      markMid(ct.mb,midk);
+      var xk='X'+LORA.midHex(p.mid);
+      if(seenMid(ct.mb,midk)||seenMid(ct.mb,xk)) return {mb:ct.mb};   // saw this frame, or its mailbox twin
+      markMid(ct.mb,midk); markMid(ct.mb,xk);
       var text=dec.decode(p.body);
+      try{ await meshSendAck(ct, p.mid); }catch(e){}     // let their board show ✓✓ (ack even if we suppress a twin)
+      if(crossLaneShown(ct.mb,text,'mesh')) return {mb:ct.mb};   // its mailbox twin already showed
+      noteShown(ct.mb,text,'mesh');
       pushHist(ct.mb,{dir:'in',o:{t:'text',x:text},ts:Date.now()});
-      try{ await meshSendAck(ct, p.mid); }catch(e){}     // let their board show ✓✓
       return {mb:ct.mb, name:(ct.name||('Someone ('+ct.mb.slice(0,6)+'…)')), text:text};
     }
     // No live session read it. Before giving up, see if a known contact RE-KEYED: a
@@ -778,20 +800,24 @@
       if(q.kind===LORA.K_REKEY){ try{ await resendLast(c2); }catch(e){} return {mb:c2.mb}; }
       if(q.kind===LORA.K_ACK){ var ah='L'+LORA.midHex(q.body.subarray(0,4)); markDelivered(c2.mb, ah); return {mb:c2.mb}; }
       if(q.kind!==LORA.K_TEXT) return {mb:c2.mb};
-      var mk='L'+LORA.midHex(q.mid); if(seenMid(c2.mb,mk)) return {mb:c2.mb}; markMid(c2.mb,mk);
+      var mk='L'+LORA.midHex(q.mid), xk2='X'+LORA.midHex(q.mid); if(seenMid(c2.mb,mk)||seenMid(c2.mb,xk2)) return {mb:c2.mb}; markMid(c2.mb,mk); markMid(c2.mb,xk2);
       var t2=dec.decode(q.body);
-      pushHist(c2.mb,{dir:'in',o:{t:'text',x:t2},ts:Date.now()});
       try{ await meshSendAck(c2, q.mid); }catch(e){}
+      if(crossLaneShown(c2.mb,t2,'mesh')) return {mb:c2.mb};   // its mailbox twin already showed
+      noteShown(c2.mb,t2,'mesh');
+      pushHist(c2.mb,{dir:'in',o:{t:'text',x:t2},ts:Date.now()});
       return {mb:c2.mb, name:(c2.name||('Someone ('+c2.mb.slice(0,6)+'…)')), text:t2};
     }
     return null;
   }
   // Seal a text as a binary LoRa frame and put it on the mesh (fits one packet).
-  async function meshSendText(ct, text, midHexOut){
+  async function meshSendText(ct, text, midHexOut, linkMid){
     if(!LORA||!ct||!ct.eRaw) return;
     var body=enc.encode(text); if(body.length>150) return;   // one radio packet; longer stays mailbox-only
     var st=getRat(ct.mb); if(!st){ st=await R.initSender(ID.dhIdentity, ctPubStd(ct)); }
-    var mid=crypto.getRandomValues(new Uint8Array(4));
+    // Reuse the mailbox envelope's first 4 bytes as this frame's mid when given,
+    // so the receiver collapses the mailbox and mesh copies of one message.
+    var mid = linkMid ? ub64u(linkMid).subarray(0,4) : crypto.getRandomValues(new Uint8Array(4));
     var msg=await R.encrypt(st, LORA.packPlain(LORA.K_TEXT, mid, body)); setRat(ct.mb, st);
     if(midHexOut) midHexOut.v='L'+LORA.midHex(mid);
     await airPutFrame(MESH_TAG, R.b64(LORA.msgToFrame(msg)));
@@ -875,7 +901,9 @@
     // simply are not yours). Only mailbox / pairwise-tag frames are addressed to
     // you and may auto-add or report a genuine failure.
     if(trial && !ct) return null;
-    if(env.mid){ if(seenMid(mb,env.mid)) return null; markMid(mb,env.mid); }   // drop a duplicate before it touches the ratchet
+    if(env.mid){ var _xk=meshDupKey(env.mid);   // drop a duplicate before it touches the ratchet - mailbox mid OR its mesh twin
+      if(seenMid(mb,env.mid)||(_xk&&seenMid(mb,_xk))) return null;
+      markMid(mb,env.mid); if(_xk) markMid(mb,_xk); }
     if(!ct){
       // Bound auto-added strangers. Anyone who has your address can drop mail
       // from throwaway identities; without a cap that grows the contact list
@@ -903,7 +931,9 @@
       if(obj && obj.t==='rekey'){ try{ await resendLast(ct); }catch(e){} return {mb:mb, name:(ct.name||''), text:null}; }  // control marker, never shown
       var stored=obj;                                    // move a photo's bytes into IDB, keep an id in history
       if(obj&&obj.t==='img'&&typeof obj.d==='string'&&/^data:image\//.test(obj.d)){ stored=await storeImg(obj.d); if(obj.re) stored.re=obj.re; }
+      if(obj.t!=='img' && crossLaneShown(mb,(obj.x||''),'mb')) return {mb:mb, name:(ct.name||''), text:null};  // mesh twin already shown
       pushHist(mb,{dir:'in',o:stored,ts:Date.now()});
+      if(obj.t!=='img') noteShown(mb,(obj.x||''),'mb');
       text=obj.t==='img'?'📷 photo':(obj.x||'');
     }catch(e){
       if(trial) return null;   // a broadcast frame that simply is not ours - silent
