@@ -121,14 +121,32 @@ async function receiveLoop(watch){
         // fresh receiver decrypts (the AEAD tag authenticates the identity-derived
         // root), so ADOPTing it is safe even on this broadcast lane. This is the
         // receive half of auto-rekey; @claudebot only ADOPTs, never initiates.
+        // A contact is ONE identity on SEVERAL devices (pager, board phone page,
+        // web) and each device forks the ratchet. One slot per contact meant the
+        // last device heard LOCKED OUT the others - a phone-page message turned
+        // to gibberish minutes after a pager message. So: a PRIMARY session (the
+        // device heard most recently - replies go to it) plus a STABLE of up to
+        // 3 other live forks, all tried on receive. Whichever fork decrypts gets
+        // promoted to primary.
         let handled = false;
         for(const ct of contacts){
           if(!ct.eRaw) continue;
-          let rs = mesh.rat[ct.mb];
-          if(!rs){ try{ rs = await R.initReceiver(ID.dhIdentity, R.b64(ub64u(ct.eRaw))); }catch(e){ continue; } }
-          const clone = JSON.parse(JSON.stringify(rs));
-          let pt; try{ pt = await R.decrypt(clone, msg); }catch(e){ continue; }   // not from this contact
-          await handleMeshPlain(ID, mesh, ct, clone, pt); handled = true; break;
+          const stb = (mesh.stable && mesh.stable[ct.mb]) || [];
+          const cands = [];
+          if(mesh.rat[ct.mb]) cands.push({rs: mesh.rat[ct.mb], stbIdx: -1});
+          stb.forEach((rs,i)=>cands.push({rs, stbIdx: i}));
+          for(const c of cands){
+            const clone = JSON.parse(JSON.stringify(c.rs));
+            let pt; try{ pt = await R.decrypt(clone, msg); }catch(e){ continue; }   // not this fork
+            if(c.stbIdx >= 0){                        // a stable fork spoke: promote it
+              stb.splice(c.stbIdx, 1);
+              if(mesh.rat[ct.mb]) stb.unshift(mesh.rat[ct.mb]);
+              mesh.stable = mesh.stable || {}; mesh.stable[ct.mb] = stb.slice(0,3);
+              console.log("MESH " + ct.mb.slice(0,6) + ": another device spoke - promoting its session");
+            }
+            await handleMeshPlain(ID, mesh, ct, clone, pt); handled = true; break;
+          }
+          if(handled) break;
         }
         if(handled) continue;
         for(const ct of contacts){
@@ -137,6 +155,10 @@ async function receiveLoop(watch){
           const clone = JSON.parse(JSON.stringify(fresh));
           let pt; try{ pt = await R.decrypt(clone, msg); }catch(e){ continue; }   // not a fresh session from them
           console.log("MESH " + ct.mb.slice(0,6) + ": re-keyed, adopting fresh session");
+          // The outgoing primary is another device's still-live fork: keep it in
+          // the stable rather than orphaning it.
+          if(mesh.rat[ct.mb]){ mesh.stable = mesh.stable || {};
+            const s2 = mesh.stable[ct.mb] || []; s2.unshift(mesh.rat[ct.mb]); mesh.stable[ct.mb] = s2.slice(0,3); }
           await handleMeshPlain(ID, mesh, ct, clone, pt); break;
         }
       }
@@ -158,9 +180,21 @@ async function main(){
       const mesh = loadMesh();                 // fresh under the lock
       const ct = (st.contacts||[]).find(c => c.mb === mesh.last) || (st.contacts||[])[0];
       if(!ct){ console.log("no contact to reply to"); return; }
-      await sealSend(ID, mesh, ct, L.K_TEXT, globalThis.crypto.getRandomValues(new Uint8Array(4)), enc.encode(text));
+      // A sealed frame is 73B header + 5B plain-overhead + text + 16B tag against a
+      // 250B radio cap, so text over ~156 chars OVERFLOWS and dies silently - it
+      // happened twice in one night. Split long texts at word boundaries into
+      // frames of <=140 chars each, sent in order on the same chain.
+      const parts = [];
+      let rest = text;
+      while(rest.length > 140){
+        let cut = rest.lastIndexOf(" ", 140); if(cut < 100) cut = 140;
+        parts.push(rest.slice(0, cut)); rest = rest.slice(cut).replace(/^ /, "");
+      }
+      parts.push(rest);
+      for(const p of parts)
+        await sealSend(ID, mesh, ct, L.K_TEXT, globalThis.crypto.getRandomValues(new Uint8Array(4)), enc.encode(p));
       saveMesh(mesh);
-      console.log("sent to " + ct.mb.slice(0,6) + " over the mesh");
+      console.log("sent to " + ct.mb.slice(0,6) + " over the mesh" + (parts.length>1 ? " ("+parts.length+" frames)" : ""));
     } finally { unlock(); }
     return;
   }
