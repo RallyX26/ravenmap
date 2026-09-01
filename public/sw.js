@@ -18,7 +18,7 @@
  * JS fix quietly knocked every phone camera offline until it finished pulling
  * the model over mobile data. Version the code; never the thing that takes a
  * minute to fetch. */
-const CACHE = 'sparrow-app-v9';
+const CACHE = 'sparrow-app-v10';
 // Deliberately the LAST app cache name rather than a fresh one: devices already
 // hold the model under it, and renaming would throw away the very download this
 // split exists to protect. Bump ONLY when the vendored model itself changes.
@@ -30,7 +30,14 @@ const VENDOR_CACHE = 'sparrow-v6';
 // is happening now, unlike the sighting data below - so they are the one thing
 // here worth keeping for offline. Capped because a few minutes of panning can
 // pull thousands of them and this is a phone.
-const TILE_CACHE = 'sparrow-tiles-v1';
+// ⚠️ BUMPED v1 -> v2 (2026-08-26). Cache-first tiles meant the "API KEY
+// REQUIRED" placeholders Carto served during a rate-limit episode got pinned in
+// the service worker and re-served forever - a hard refresh clears HTTP cache
+// but NOT CacheStorage, so the box/CDN fix could not reach a phone that had
+// already cached them. The activate handler drops any tile cache whose name is
+// not this one, so bumping the version purges the poisoned tiles on next visit.
+// The box now 404s placeholders (res.ok false -> never cached), so v2 stays clean.
+const TILE_CACHE = 'sparrow-tiles-v2';
 const TILE_MAX = 400;
 
 const SHELL = [
@@ -74,8 +81,12 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
+      // Never delete Sparrow Send's caches (sparrowsend-*): CacheStorage is
+      // shared per-origin, and wiping its shell on every map update made the two
+      // service workers thrash each other's caches. Only drop OUR own old ones.
       .then((ks) => Promise.all(ks
-        .filter((k) => k !== CACHE && k !== VENDOR_CACHE && k !== TILE_CACHE)
+        .filter((k) => k !== CACHE && k !== VENDOR_CACHE && k !== TILE_CACHE
+                       && k.indexOf('sparrowsend-') !== 0)
         .map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
@@ -117,6 +128,13 @@ self.addEventListener('fetch', (e) => {
     );
     return;
   }
+
+  // 🚨 Self-hosted VECTOR basemap (planet.pmtiles): pass straight through, never
+  // touch it. The tiles are gzip; a service worker that re-serves them (its own
+  // fetch decompresses the body but keeps Content-Encoding: gzip) makes the
+  // browser decompress a second time, so MapLibre gets garbage and the map is
+  // blank. Same reason /api/ is passed through below.
+  if (url.pathname.startsWith('/basemap/')) return;
 
   // Map tiles: cache-first with a ceiling, so the map has a map under it when
   // there is no signal. Static imagery only - see TILE_CACHE.

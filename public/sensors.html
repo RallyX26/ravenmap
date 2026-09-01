@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sensors — build or buy — SparrowMap</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<meta name="theme-color" content="#0B0E13">
+<style>
+  :root{ --bg:#0B0E13; --panel:#121722; --panel2:#0f1420; --ink:#e7edf5;
+         --muted:#93a3b3; --line:#22303f; --accent:#2ee08a; --warn:#f59e0b;
+         --build:#3b82f6; --buy:#a855f7; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15.5px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:10px;padding:12px 16px;
+         border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
+  header a.back{color:var(--accent);text-decoration:none;font-weight:600}
+  header b{letter-spacing:.5px}
+  .tag{color:var(--muted);font-size:12px}
+  main{max-width:820px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:26px;margin:8px 0 6px}
+  h2{font-size:20px;margin:34px 0 10px;padding-top:10px;border-top:1px solid var(--line)}
+  h3{font-size:16px;margin:16px 0 6px}
+  .lede{color:var(--muted);font-size:16px;margin:0 0 10px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+  @media(max-width:640px){ .grid{grid-template-columns:1fr} }
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:15px 16px}
+  .card.build{border-left:3px solid var(--build)}
+  .card.buy{border-left:3px solid var(--buy)}
+  .card h4{margin:0 0 8px;font-size:14px;letter-spacing:.4px;text-transform:uppercase}
+  .card.build h4{color:var(--build)} .card.buy h4{color:var(--buy)}
+  ul{margin:8px 0;padding-left:20px} li{margin:4px 0}
+  .price{color:var(--accent);font-weight:600;white-space:nowrap}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;
+        border:1px solid var(--line);color:var(--muted);margin-left:6px;vertical-align:middle}
+  .pill.easy{color:#2ee08a;border-color:#1c5e42}
+  .pill.mid{color:var(--warn);border-color:#5e4a1c}
+  .pill.hard{color:#ef6b6b;border-color:#5e2222}
+  .box{background:var(--panel2);border:1px solid var(--line);border-radius:12px;
+       padding:14px 16px;margin:14px 0}
+  .box.warn{border-color:#5e4a1c}
+  .box b{color:var(--ink)}
+  code{background:#0a0f18;border:1px solid var(--line);border-radius:6px;
+       padding:1px 6px;font-size:13px}
+  a.plain{color:var(--accent)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{color:var(--muted);font-weight:600;background:var(--panel2)}
+  .kit{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px dashed var(--line)}
+  .kit:last-child{border-bottom:0}
+  .foot{color:var(--muted);font-size:12.5px;margin-top:30px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/">&larr; Map</a>
+  <b>🛠️ SENSORS</b>
+  <span class="tag">build or buy your own gear</span>
+  <a class="back" href="/setup" style="margin-left:auto">Setup guides &rarr;</a>
+</header>
+<main>
+  <h1>Feed the map with your own gear</h1>
+  <p class="lede">Every way to put something on SparrowMap from hardware you own —
+     planes, drones, police radio, speed radar, plate readers. Each one has a
+     <b style="color:var(--build)">build</b> route (cheap, DIY) and a
+     <b style="color:var(--buy)">buy</b> route (plug it in). Prices are ballpark,
+     US, mid‑2026.</p>
+  <div class="box"><b>Just want to buy and plug in?</b> Skip to the
+     <a class="plain" href="/buy">plug‑and‑play picks</a> — one recommended device
+     per job, no building. Everything can run <a class="plain" href="/buy#browser">in
+     a browser</a> except a couple of things (and the easy fixes are there too).</div>
+
+  <div class="box">
+    <b>The direction this is heading:</b> plug‑and‑play, wireless, usable
+    anywhere. A node gets its position from <b>GPS</b> (so no setup — it knows
+    where it is), talks over <b>LTE</b> (so no wires to a router), and can run on
+    <b>solar + battery</b> (so no wall power). Flash one image, power it on
+    anywhere, and it registers itself. Everything below is a step toward that kit.
+    Nodes already sign what they report, and moving one mints a new node — so a
+    portable sensor is a first‑class citizen, not a hack.
+  </div>
+
+  <h2>Start here — one kit tests almost everything <span class="pill easy">~$120 + add‑ons</span></h2>
+  <p class="muted">A single Raspberry Pi covers planes, police radio, and the
+     plate/camera reader. Add an ESP32 for drones. Radar is the one thing that
+     needs a real detector (its own section below).</p>
+  <div class="box">
+    <div class="kit"><span>Raspberry Pi 5 (4 GB) + case, PSU, SD card</span><span class="price">~$95</span></div>
+    <div class="kit"><span>RTL‑SDR Blog V4 dongle + antenna <span class="muted">(planes + police radio)</span></span><span class="price">~$40</span></div>
+    <div class="kit"><span>USB GPS receiver <span class="muted">(position anywhere)</span></span><span class="price">~$15</span></div>
+    <div class="kit"><span>ESP32‑S3 dev board <span class="muted">(drones, Wi‑Fi/BT sensing)</span></span><span class="price">~$10</span></div>
+    <div class="kit"><span>Pi Camera 3, or any cheap IP camera <span class="muted">(plate / housing reader)</span></span><span class="price">~$35</span></div>
+    <div class="kit"><span><i>Later:</i> 4G/LTE hat + 18650 battery + small solar panel <span class="muted">(untethered)</span></span><span class="price">~$70</span></div>
+  </div>
+
+  <!-- PLANES -->
+  <h2>✈️ Planes &amp; police aircraft <span class="pill easy">easiest — do this first</span></h2>
+  <p>Aircraft broadcast their position on <b>1090 MHz (ADS‑B)</b>, unencrypted by
+     design. You just receive it. Police helicopters and fixed‑wing show up here;
+     an <b>orbit</b> over one spot is the tell. SparrowMap already has an aircraft
+     layer — a local receiver makes it yours and real‑time.</p>
+  <div class="grid">
+    <div class="card build">
+      <h4>Build</h4>
+      <ul>
+        <li>RTL‑SDR + antenna on the Pi, run <code>dump1090</code> / PiAware.</li>
+        <li>Our feeder posts government/orbit aircraft to the hub.</li>
+      </ul>
+      <p class="muted">Cost on top of the base kit: <span class="price">$0</span>. Proven by thousands of PiAware sites.</p>
+    </div>
+    <div class="card buy">
+      <h4>Buy</h4>
+      <ul>
+        <li>FlightAware Pro Stick Plus + 1090 MHz antenna <span class="price">~$45</span>.</li>
+        <li>Or a ready FlightAware/ADSB kit <span class="price">~$100</span>.</li>
+      </ul>
+      <p class="muted">Legal — receive‑only. No transmitting.</p>
+    </div>
+  </div>
+
+  <!-- DRONES -->
+  <h2>🛸 Drones <span class="pill mid">cheap, but only compliant drones</span></h2>
+  <p>US law now makes most consumer drones broadcast <b>Remote ID</b> over Wi‑Fi
+     and Bluetooth — the drone's position <i>and the operator's</i>. An ESP32
+     hears it. Local/state police drones must broadcast; federal can fly dark, and
+     home‑built ones may not comply — so this is "drones that announced
+     themselves," not every drone.</p>
+  <div class="grid">
+    <div class="card build">
+      <h4>Build</h4>
+      <ul>
+        <li>ESP32‑S3 <span class="price">~$10</span> running open‑source OpenDroneID / WiFi‑RemoteID firmware.</li>
+        <li>Reads BLE + Wi‑Fi Remote ID; forwards to the hub.</li>
+      </ul>
+      <p class="muted">Same board the RF beta uses. No SDR needed.</p>
+    </div>
+    <div class="card buy">
+      <h4>Buy</h4>
+      <ul>
+        <li>Pre‑flashed Remote ID receiver / "drone scanner" board <span class="price">~$30–60</span>.</li>
+        <li>Phone apps (Drone Scanner, OpenDroneID) work too — no hardware.</li>
+      </ul>
+      <p class="muted">Detecting is legal. Jamming a drone is a federal crime.</p>
+    </div>
+  </div>
+
+  <!-- POLICE RADIO -->
+  <h2>📻 Police radio <span class="pill mid">partial — encryption varies</span></h2>
+  <p>An RTL‑SDR + <code>trunk‑recorder</code> can follow <b>P25</b> trunked police
+     radio where it is unencrypted. That tells you there is activity in an area
+     and what is being said — not a GPS pin. Many departments now encrypt, so
+     coverage is spotty. Check your county's encryption before investing time.</p>
+  <div class="grid">
+    <div class="card build">
+      <h4>Build</h4>
+      <ul>
+        <li>1–2 RTL‑SDR dongles on the Pi, <code>trunk‑recorder</code> + a talkgroup list.</li>
+        <li>Feed activity/alerts to the map's scanner layer.</li>
+      </ul>
+      <p class="muted">On top of the base kit: <span class="price">~$25</span> for a second dongle.</p>
+    </div>
+    <div class="card buy">
+      <h4>Buy</h4>
+      <ul>
+        <li>A handheld digital scanner (Uniden SDS100) <span class="price">~$550</span> — turnkey, but pricey.</li>
+        <li>Or link an existing Broadcastify feed (no hardware).</li>
+      </ul>
+      <p class="muted">Receiving public‑safety radio is legal to listen to in most states; using it while committing a crime is not.</p>
+    </div>
+  </div>
+
+  <!-- RADAR -->
+  <h2>📡 Radar &amp; speed traps <span class="pill mid">the real‑time red dot</span></h2>
+  <p>This is the new <a class="plain" href="/radar">radar screen</a> and map layer.
+     A police speed gun emits microwave radar; a detector hears it. <b>Ka band
+     (33–35 GHz) is essentially police‑only</b> — that is the clean signal.
+     <b>K band (24 GHz)</b> now fires on modern cars' blind‑spot radar, and
+     <b>X band</b> is mostly automatic doors, so those need corroboration.</p>
+  <div class="box warn">
+    <b>Honest limit:</b> one detector gives you band and strength, not
+    coordinates. The accurate dot on a road comes from the <b>strength peak</b> as
+    you drive past, a <b>directional</b> detector, or — best — <b>several drivers</b>
+    seeing the same source, whose detection circles overlap onto the real spot.
+    So the dot's confidence climbs with the network. And there is no cheap DIY
+    build for a 34 GHz front end — the $200 detector already <i>is</i> that part.
+  </div>
+  <div class="grid">
+    <div class="card build">
+      <h4>Build (the bridge)</h4>
+      <ul>
+        <li>You still buy a detector; you build the <b>data link</b>.</li>
+        <li><code>tools/radar_bridge.py</code> reads a Bluetooth detector's alerts + your GPS and posts them, authenticated by your node token.</li>
+      </ul>
+      <p class="muted">Cheap 24 GHz doppler modules (HB100, CDM324) do <b>not</b> work — they detect motion, not police radar.</p>
+    </div>
+    <div class="card buy">
+      <h4>Buy (the detector)</h4>
+      <ul>
+        <li>Uniden R7 / R8, or Escort/Radenso with Bluetooth out <span class="price">~$150–500</span>.</li>
+        <li>Bluetooth is what lets the bridge read alerts automatically.</li>
+      </ul>
+      <p class="muted">Radar <b>detectors</b> are legal in 48 states (not VA or DC, not on commercial vehicles / federal land). Radar <b>jammers</b> are illegal everywhere. We only detect.</p>
+    </div>
+  </div>
+  <p class="muted">No detector yet? Open <a class="plain" href="/radar">/radar</a> and
+     tap <b>Demo</b> to see the scope work.</p>
+
+  <!-- ALPR -->
+  <h2>📷 Plate readers (ALPR) <span class="pill mid">buyable and buildable</span></h2>
+  <p>This is what SparrowMap's own camera does: read <b>government / marked</b>
+     plates to map <i>them</i> — never civilians. You can buy a reader or build one
+     for the price of a Pi and a webcam.</p>
+  <div class="grid">
+    <div class="card build">
+      <h4>Build</h4>
+      <ul>
+        <li>Pi + camera + an open plate model (YOLO plate weights, CodeProject.AI, or PlateRecognizer's free tier) <span class="price">~$80–150</span>.</li>
+        <li>This is the SparrowMap node design — see <a class="plain" href="/app">Add a camera</a>.</li>
+      </ul>
+    </div>
+    <div class="card buy">
+      <h4>Buy</h4>
+      <ul>
+        <li>An LPR/ANPR IP camera (Reolink, Dahua, Hikvision) that reads plates onboard <span class="price">~$150–400</span>.</li>
+        <li>Point it at a road, feed it in via <a class="plain" href="/IPCamera">Add an IP camera</a>.</li>
+      </ul>
+      <p class="muted">Flock itself is subscription‑only and not sold to individuals.</p>
+    </div>
+  </div>
+
+  <!-- DASHCAMS -->
+  <h2>🚗 Dashcams &amp; your car's cameras <span class="pill mid">every car is already a dashcam</span></h2>
+  <p>The highest‑leverage version needs no new hardware: your <b>phone</b> in
+     drive mode already captures the road and runs the detector. Actual dashcams
+     vary a lot in whether software can reach their video.</p>
+  <table>
+    <tr><th>Option</th><th>Can we tap it?</th><th>How</th></tr>
+    <tr><td><b>Your phone</b> (drive mode)</td><td style="color:#2ee08a">Yes — best path</td><td>Already captures at speed; we can run detection on‑device and contribute automatically. No cost.</td></tr>
+    <tr><td><b>VIOFO</b> (A139, A229…)</td><td style="color:#2ee08a">Yes</td><td>Publishes an <b>RTSP</b> stream + HTTP API over its Wi‑Fi. A Pi on that Wi‑Fi can pull frames, detect, and post. ~$130–200.</td></tr>
+    <tr><td><b>Novatek / Ambarella</b> chip dashcams</td><td style="color:var(--warn)">Often</td><td>Many expose undocumented CGI endpoints (<code>cgi-bin/Config.cgi</code>, a feed on <code>:8192</code>) the community has mapped. Case by case.</td></tr>
+    <tr><td><b>WolfBox</b> and most no‑name cams</td><td style="color:#ef6b6b">No / unknown</td><td>Closed Wi‑Fi AP, no published RTSP or API. Joining it usually costs the phone its internet. Not worth buying to test.</td></tr>
+    <tr><td><b>Tesla / factory 360 cameras</b></td><td style="color:#ef6b6b">No live access</td><td>Locked by the maker. TeslaCam is a USB dump after the fact, no live API. Not usable in real time.</td></tr>
+  </table>
+  <div class="box warn">
+    <b>Why not just plug in any dashcam?</b> Browsers can't play RTSP, so it needs
+    a small board (a Pi on the cam's Wi‑Fi) doing "detect locally, post over its
+    own link." And pulling <i>recorded files</i> would put full video with plates
+    intact across the boundary — exactly what SparrowMap refuses to do. The clean
+    shape is always: detect on the device, ship a decision, not the footage.
+  </div>
+
+  <!-- THE NODE -->
+  <h2>🔌 The plug‑and‑play node <span class="pill easy">the destination</span></h2>
+  <p>Put the useful pieces on one board and you have a SparrowMap sensor you can
+     drop anywhere:</p>
+  <ul>
+    <li><b>Pi + camera</b> — reads marked/government plates and (soon) spots ALPR‑camera housings.</li>
+    <li><b>RTL‑SDR</b> — planes overhead and, where open, police radio.</li>
+    <li><b>ESP32</b> — drones that broadcast Remote ID.</li>
+    <li><b>GPS</b> — it knows where it is, so there's nothing to configure.</li>
+    <li><b>LTE + solar/battery</b> — no router, no wall power. Truly anywhere.</li>
+  </ul>
+  <p class="muted">The blocker for the fully automatic "spot a Flock camera while
+     driving and add it" step is a camera‑<b>housing</b> detector — that is the
+     next build. Until it's proven, drive‑bys confirm <i>known</i> cameras
+     automatically and only propose <i>new</i> ones to review.</p>
+
+  <div class="box">
+    <b>Ready to set one up?</b> Step‑by‑step guides for every option are on
+    <a class="plain" href="/setup">the setup page</a> — radar,
+    <a class="plain" href="/setup#planes">planes</a>,
+    <a class="plain" href="/setup#drones">drones</a>,
+    <a class="plain" href="/setup#radio">police radio</a> — and all guides live at
+    <a class="plain" href="/guides">/guides</a>.
+  </div>
+  <div class="box">
+    <b>Quick links.</b>
+    Radar → <a class="plain" href="/radar">/radar</a> + a Bluetooth detector.
+    Cameras → <a class="plain" href="/app">Add a camera</a> or
+    <a class="plain" href="/IPCamera">Add an IP camera</a>. Write your own →
+    <a class="plain" href="/contribute">/contribute</a>. RF gear on a phone/Pi/ESP32 →
+    <a class="plain" href="/rfbeta">/rfbeta</a>.
+  </div>
+
+  <p class="foot">Legality note, US: receiving ADS‑B, Remote ID, and public‑safety
+     radio is legal; transmitting on those bands or jamming is not. Radar
+     detectors are legal for passenger vehicles except in Virginia and DC, and are
+     barred on commercial vehicles and federal property. SparrowMap sensors only
+     receive, and only government/marked vehicles are ever published. Prices are
+     rough and change.</p>
+</main>
+</body>
+</html>

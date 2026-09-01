@@ -48,7 +48,7 @@ from core import DATA, NODE_UA, ROOT  # noqa: E402
 from detect import bank, visual    # noqa: E402
 from detect.grabber import FrameGrabber   # noqa: E402
 from detect.pipeline import (MIN_TRACK_FRAMES, TRACK_TIMEOUT_FRAMES,  # noqa: E402
-                             PlateReader, VehiclePass, VehicleTracker)
+                             PlateReader, VehiclePass, VehicleTracker, frame_quality)
 from detect import priority   # noqa: E402
 
 EVAL = DATA / "eval" / "live"
@@ -335,13 +335,20 @@ def main() -> None:
                 vp.reads.append(pr)
             if reads:
                 top = max(reads, key=lambda r: r.conf * (r.area ** 0.5))
-                score = top.conf * (top.area ** 0.5)
-                if score > vp.best_score:
-                    vp.best_score, vp.best_frame = score, frame.copy()
-                    vp.best_vehicle_box, vp.best_plate_box = vbox, top.box
-                    # Keep EVERY box from this frame. See VehiclePass - the
-                    # winner is often the livery rather than the plate.
-                    vp.best_plate_boxes = [r.box for r in reads]
+                # Pick the published frame on VEHICLE FRAMING (whole car, big,
+                # centred, sharp), with plate readability only as a tie-breaker.
+                # The old rule saved the crispest PLATE even with the car half
+                # out of frame. Only plate-detected frames are candidates, so the
+                # published crop is still always redactable (best_plate_boxes).
+                pbonus = min(top.conf * (top.area ** 0.5), 25.0)
+                if frame_quality(vbox, fw, fh) * 100 + pbonus > vp.best_score - 8:
+                    score = frame_quality(vbox, fw, fh, frame) * 100 + pbonus
+                    if score > vp.best_score:
+                        vp.best_score, vp.best_frame = score, frame.copy()
+                        vp.best_vehicle_box, vp.best_plate_box = vbox, top.box
+                        # Keep EVERY box from this frame. See VehiclePass - the
+                        # winner is often the livery rather than the plate.
+                        vp.best_plate_boxes = [r.box for r in reads]
 
         expired = [t for t, f in last_seen.items()
                    if idx - f > TRACK_TIMEOUT_FRAMES]
@@ -455,6 +462,88 @@ def main() -> None:
 
 
 POSTED = [0, 0]      # sent, failed
+
+# 🚨 FULL-RES ON CONFIRM (client side). The hub caps every upload at 200px so a
+# private plate cannot survive the trip. Once the hub PUBLISHES a government
+# vehicle it belongs in the public tier, where the plate is legible ON PURPOSE -
+# and by then the only copy the hub has is the 200px one. The camera that took
+# it is the only device that still holds the original, so the hub asks for it on
+# the heartbeat (`want_full`). This holds the full-resolution vehicle crop of
+# every posted sighting, keyed by id, and hands it back when asked. It is only
+# ever uploaded for a row the hub has ALREADY made public, so no plate is ever
+# sent for a private-tier vehicle - the 200px guarantee is untouched.
+FULLRES_HOLD: dict = {}
+_FULLRES_LOCK = threading.Lock()
+FULLRES_TTL_S = 3600.0        # match db.FULLRES_WINDOW_S; drop what the hub can no longer ask for
+FULLRES_MAX = 300
+FULLRES_EDGE = 900            # long-edge cap of the good crop
+
+
+def _hold_fullres(sid, frame, vbox) -> None:
+    """Keep the full-resolution vehicle crop of a just-posted sighting."""
+    if not sid or frame is None or not vbox:
+        return
+    try:
+        x0, y0, x1, y1 = (int(v) for v in vbox)
+        h, w = frame.shape[:2]
+        x0, y0 = max(0, x0), max(0, y0)
+        x1, y1 = min(w, x1), min(h, y1)
+        if x1 <= x0 or y1 <= y0:
+            return
+        crop = frame[y0:y1, x0:x1]
+        ch, cw = crop.shape[:2]
+        scale = min(1.0, FULLRES_EDGE / float(max(ch, cw)))   # never upscale
+        if scale < 1.0:
+            crop = cv2.resize(crop, (max(1, int(cw * scale)), max(1, int(ch * scale))),
+                              interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 88])
+        if not ok:
+            return
+        now = time.time()
+        with _FULLRES_LOCK:
+            FULLRES_HOLD[int(sid)] = (buf.tobytes(), now)
+            for k in [k for k, (_, t) in list(FULLRES_HOLD.items())
+                      if now - t > FULLRES_TTL_S]:
+                FULLRES_HOLD.pop(k, None)
+            if len(FULLRES_HOLD) > FULLRES_MAX:
+                stale = sorted(FULLRES_HOLD, key=lambda k: FULLRES_HOLD[k][1])
+                for k in stale[:len(FULLRES_HOLD) - FULLRES_MAX]:
+                    FULLRES_HOLD.pop(k, None)
+    except Exception:
+        pass
+
+
+def _send_fullres(args, sids) -> None:
+    """Answer the hub's want_full: upload the good crop for each id still held."""
+    import base64
+    import urllib.request
+    for sid in sids or []:
+        try:
+            key = int(sid)
+        except (TypeError, ValueError):
+            continue
+        with _FULLRES_LOCK:
+            held = FULLRES_HOLD.get(key)
+        if not held:
+            continue
+        try:
+            body = json.dumps({
+                "node_id": args.node, "id": key,
+                "snap_b64": "data:image/jpeg;base64,"
+                + base64.b64encode(held[0]).decode()}).encode()
+            req = urllib.request.Request(
+                f"{args.hub}/api/sighting/fullres", method="POST", data=body,
+                headers={"Content-Type": "application/json", "User-Agent": NODE_UA,
+                         "Authorization": f"Bearer {args.token}"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                r.read()
+            # Whether it stored it or already had it, stop holding it.
+            with _FULLRES_LOCK:
+                FULLRES_HOLD.pop(key, None)
+            print(f"    full-res sent for {key}")
+        except Exception as exc:
+            print(f"    ! full-res upload failed for {key}: {exc}")
+
 
 # The last moment this detector actually PROCESSED a frame. The heartbeat reads
 # it, so "online" means the work is happening rather than merely that a thread
@@ -665,7 +754,17 @@ def heartbeat_loop(args, stop) -> None:
                 headers={"Content-Type": "application/json",
                  "User-Agent": NODE_UA,
                          "Authorization": f"Bearer {args.token}"})
-            urllib.request.urlopen(req, timeout=10).read()
+            raw = urllib.request.urlopen(req, timeout=10).read()
+            # 🚨 THE HUB ASKS FOR THE GOOD PICTURE HERE. If it has published any
+            # of this camera's vehicles, `want_full` names them; hand back the
+            # full-resolution crop we held at post time.
+            try:
+                resp = json.loads(raw or b"{}")
+            except Exception:
+                resp = {}
+            want = resp.get("want_full")
+            if want:
+                _send_fullres(args, want)
         except Exception as exc:
             print(f"  ! heartbeat failed: {exc}")
         stop.wait(30)
@@ -852,7 +951,11 @@ def post_one(vp, args, vid, ev=None, verdict=None, plate=None, agree=None,
             out = json.loads(r.read())
             print("    posted:", out)
             POSTED[0] += 1
-            return out.get("id")
+            sid = out.get("id")
+            # Hold the FULL-resolution crop so the hub can ask for it if it
+            # publishes this vehicle. Costs nothing until want_full names it.
+            _hold_fullres(sid, vp.best_frame, vp.best_vehicle_box)
+            return sid
     except Exception as exc:
         # 🚨 THE EXPENSIVE ONE. There is no retry and no queue behind this, so
         # a transient network error permanently loses a pass the detector had

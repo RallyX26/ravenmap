@@ -27,6 +27,7 @@ two-line bug with a one-way consequence, so it is done in exactly one place
 
 from __future__ import annotations
 
+import math
 import sys
 import time
 from collections import defaultdict
@@ -89,6 +90,49 @@ class PlateRead:
     # a "United States" plate read on a Michigan street is corroboration, and a
     # confident "Vietnam" on the same street is a sign the crop is not a plate.
     region: Optional[str] = None
+
+
+def _looks_like_plate(text: str) -> bool:
+    """A plate-plausible read. A real plate is the right length and almost always
+    MIXES letters and digits (ABC1234); a short one may be a vanity plate. A long
+    single-alphabet string is a company WORD on a trailer, or a DOT/phone number -
+    the exact 'text mistaken for a plate' that semi-truck livery produces."""
+    t = "".join(ch for ch in (text or "").upper() if ch.isalnum())
+    if not (3 <= len(t) <= 9):
+        return False
+    has_a = any(c.isalpha() for c in t)
+    has_d = any(c.isdigit() for c in t)
+    if has_a and has_d:
+        return True          # the normal plate shape
+    return len(t) <= 5       # all-letters / all-digits only at vanity length
+
+
+def frame_quality(vbox, fw, fh, frame=None) -> float:
+    """How well the VEHICLE is framed in this shot, 0..1: whole-in-view, big,
+    centred, sharp. This is what a published crop should be chosen on - the old
+    rule picked the crispest PLATE and saved cars half out of frame. Pass `frame`
+    to include a sharpness term (variance of Laplacian); omit it for a cheap
+    pre-check that skips the blur cost on obviously-worse frames."""
+    x0, y0, x1, y1 = vbox
+    bw, bh = x1 - x0, y1 - y0
+    if bw <= 0 or bh <= 0 or fw <= 0 or fh <= 0:
+        return 0.0
+    m = 3  # a box hard against an edge = the vehicle is partly out of frame
+    clipped = x0 <= m or y0 <= m or x1 >= fw - m or y1 >= fh - m
+    edge = 0.35 if clipped else 1.0
+    size = min((bw * bh) / (fw * fh) / 0.35, 1.0)         # ~35% of frame = full marks
+    off = (abs((x0 + x1) / 2 - fw / 2) / (fw / 2)
+           + abs((y0 + y1) / 2 - fh / 2) / (fh / 2)) / 2.0
+    center = 1.0 - 0.5 * off                              # mild: edges not disqualifying
+    sharp = 1.0
+    if frame is not None:
+        cy0, cy1 = max(0, int(y0)), min(int(fh), int(y1))
+        cx0, cx1 = max(0, int(x0)), min(int(fw), int(x1))
+        crop = frame[cy0:cy1, cx0:cx1]
+        if crop.size:
+            g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
+            sharp = min(cv2.Laplacian(g, cv2.CV_64F).var() / 200.0, 1.0)
+    return edge * (0.45 * size + 0.30 * center + 0.25 * sharp)
 
 
 @dataclass
@@ -382,6 +426,13 @@ class PlateReader:
                     "".join(ch for ch in text.upper() if ch.isalnum()))
                 continue
 
+            # Geometry can pass a trailer's company name or DOT number if the box
+            # happens to be plate-shaped; the READ shape catches it. A plate mixes
+            # letters and digits (or is short); a long single-alphabet word is not
+            # one, so it stops counting as a plate (and inflating "plate legible").
+            if not _looks_like_plate(text):
+                continue
+
             out.append(PlateRead(text=text, conf=conf, region=region,
                                  box=(fx0, fy0, fx1, fy1),
                                  area=pw * ph, frame_idx=-1))
@@ -476,6 +527,46 @@ def _iou(a: tuple, b: tuple) -> float:
     return inter / ua if ua > 0 else 0.0
 
 
+class _OneEuro:
+    """1-Euro filter (Casiez et al. 2012): near-zero jitter when the signal is
+    still, near-zero lag when it moves fast. The right tool for a box that should
+    be snappy AND smooth, not jumpy."""
+    def __init__(self, freq=15.0, mincutoff=1.2, beta=0.35, dcutoff=1.0):
+        self.freq, self.mincutoff, self.beta, self.dcutoff = freq, mincutoff, beta, dcutoff
+        self.x_prev = None
+        self.dx_prev = 0.0
+
+    def _alpha(self, cutoff):
+        tau = 1.0 / (2 * math.pi * cutoff)
+        te = 1.0 / self.freq
+        return 1.0 / (1.0 + tau / te)
+
+    def __call__(self, x):
+        if self.x_prev is None:
+            self.x_prev = x
+            return x
+        dx = (x - self.x_prev) * self.freq
+        ad = self._alpha(self.dcutoff)
+        dx_hat = ad * dx + (1 - ad) * self.dx_prev
+        cutoff = self.mincutoff + self.beta * abs(dx_hat)
+        a = self._alpha(cutoff)
+        x_hat = a * x + (1 - a) * self.x_prev
+        self.x_prev, self.dx_prev = x_hat, dx_hat
+        return x_hat
+
+
+class _BoxSmoother:
+    """Smooth a box by its centre + size (auto-aims centre-of-mass, keeps shape)."""
+    def __init__(self):
+        self.f = [_OneEuro() for _ in range(4)]
+
+    def __call__(self, box):
+        x0, y0, x1, y1 = box
+        cx, cy = self.f[0]((x0 + x1) / 2.0), self.f[1]((y0 + y1) / 2.0)
+        w, h = self.f[2](x1 - x0), self.f[3](y1 - y0)
+        return (int(cx - w / 2), int(cy - h / 2), int(cx + w / 2), int(cy + h / 2))
+
+
 class VehicleTracker:
     """ONNX vehicle detection plus a motion-predicted IoU tracker.
 
@@ -553,14 +644,18 @@ class VehicleTracker:
             t["vel"] = ((box[0] - ox0 + box[2] - ox1) / 2,
                         (box[1] - oy0 + box[3] - oy1) / 2)
             t["box"], t["label"], t["age"] = box, label, 0
-            out.append((tid, label, box, conf))
+            # Track on the RAW box (velocity/IoU); emit a 1-Euro SMOOTHED box so
+            # the overlay and crop lock onto centre-mass without jitter.
+            out.append((tid, label, t["smoother"](box), conf))
 
         for i, (box, label, conf) in enumerate(obs):
             if i in used_o:
                 continue
             tid = self._next_id; self._next_id += 1
-            self._tracks[tid] = {"box": box, "label": label, "vel": (0.0, 0.0), "age": 0}
-            out.append((tid, label, box, conf))
+            sm = _BoxSmoother()
+            self._tracks[tid] = {"box": box, "label": label, "vel": (0.0, 0.0),
+                                 "age": 0, "smoother": sm}
+            out.append((tid, label, sm(box), conf))
 
         for tid in list(self._tracks):
             if tid not in used_t and tid not in {o[0] for o in out}:

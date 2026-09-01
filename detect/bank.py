@@ -144,8 +144,17 @@ def bank_pass(vp, evidence: dict, verdict: dict,
                 cv2.rectangle(frame, (px0, py0), (px1, py1), (0, 0, 0), -1)
 
         x0, y0, x1, y1 = (int(v) for v in vp.best_vehicle_box)
-        pad_x, pad_y = int((x1 - x0) * 0.06), int((y1 - y0) * 0.06)
-        crop = frame[max(0, y0 - pad_y):min(h, y1 + pad_y),
+        # Pad so the WHOLE vehicle lands in the crop; the detector box is tight
+        # and clips wheels/mirrors/roof (6% left cars cut off). Top-heavy on
+        # purpose, matching drive.html: the LIGHT BAR/aerial sits just above the
+        # box and is the most diagnostic feature on a marked car, while nothing
+        # diagnostic hangs off the bottom and widening the sides only buys
+        # pavement (a privacy + resolution cost). Clamped to the frame edges.
+        bw, bh = x1 - x0, y1 - y0
+        pad_x = max(int(bw * 0.14), 20)
+        pad_top = max(int(bh * 0.30), 28)
+        pad_bot = max(int(bh * 0.12), 18)
+        crop = frame[max(0, y0 - pad_top):min(h, y1 + pad_bot),
                      max(0, x0 - pad_x):min(w, x1 + pad_x)]
         if crop.size == 0:
             return None

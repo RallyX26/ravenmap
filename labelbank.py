@@ -76,7 +76,15 @@ BANK = DATA / "training"
 # as such: `label_vocab` 1 = the merged government bucket, 2 = police and gov
 # are distinct. `split` mode re-opens the vocab-1 crops so a human resolves
 # them, one pass at a time. Nothing is inferred.
-VALID = {"police", "gov", "fleet", "civilian", "unsure"}
+VALID = {"police", "gov", "fleet", "civilian", "unsure", "screen"}
+# 🖥️ `screen` = a photo of a vehicle ON A SCREEN (a monitor or phone showing a
+# police car), i.e. someone trying to fake a sighting rather than a real vehicle
+# on the street. Kept as its own class, NOT a training negative: to CLIP a police
+# car on a screen still looks like a police car, so feeding these to the
+# government head as "not government" would teach it to distrust real police
+# vehicles and cost recall. fit_local's POSITIVE/NEGATIVE sets both exclude it,
+# so it is collected here for a future dedicated spoof/replay detector and never
+# pollutes the police-vs-not decision.
 
 # Bumped when a key's MEANING changes, never when a key is merely added.
 LABEL_VOCAB = 2
@@ -165,6 +173,29 @@ def _row_to_item(r) -> dict:
         "_head_gov": None if r["head_gov"] is None else bool(r["head_gov"]),
         "_uncertainty": 1.0 - float(r["clip_margin"] or 0.0),
     }
+
+
+def next_batch(mode: str = "likely", n: int = 24) -> list[dict]:
+    """A whole grid of crops at once, for the fast grid picker (/grid).
+
+    Same source as next_item (bank_index.pick), N at a time. Over-fetches and
+    drops any crop whose image is missing, so a pruned one shrinks the grid
+    rather than leaving a broken tile. Underscore keys (the model's guess) are
+    stripped: the grid must not anchor on what CLIP thought, the same rule
+    next_item follows.
+    """
+    import bank_index
+    rows = bank_index.pick(mode, thr=_head_threshold(), n=n * 2)
+    out = []
+    for r in rows:
+        it = _row_to_item(r)
+        p = image_path(it["day"], it["stem"])
+        if p is None or not p.exists():
+            continue
+        out.append({k: v for k, v in it.items() if not k.startswith("_")})
+        if len(out) >= n:
+            break
+    return out
 
 
 def _items_by_walk() -> list[dict]:
@@ -619,13 +650,21 @@ def _gov_score(item: dict) -> float:
     return float(c.get("conf") or 0.0)
 
 
-def set_label(day: str, stem: str, label: str, sampling: str = "review") -> dict:
+def set_label(day: str, stem: str, label: str, sampling: str = "review",
+              sync: bool = True, db=None, defer_index: bool = False) -> dict:
     """Write a human's call into the sidecar. Returns what CLIP had thought.
 
     The model's guess comes back in the RESPONSE rather than being available
     before the call, so the page can reveal it afterwards without ever having
     been able to show it first. The ordering is enforced here rather than
     trusted to the front end.
+
+    `sync=False` skips the box round-trip _sync_sighting normally does - UNLESS
+    the crop is already ON the map, which still needs correcting. The grid picker
+    uses it for the bulk 'not-police' labels: each was doing a network round-trip
+    to demote a sighting that was private anyway, which made a 24-crop save take
+    seconds. A crop that was actually published still syncs so a correction is
+    never silently dropped.
     """
     if label not in VALID:
         raise ValueError(f"label must be one of {sorted(VALID)}")
@@ -692,8 +731,14 @@ def set_label(day: str, stem: str, label: str, sampling: str = "review") -> dict
     # published, but only because a DIFFERENT guard happened to be in the way.
     # Relying on that would be relying on the labeller never running anywhere
     # privileged, which is not a property anybody checked or wrote down.
+    _was_public = (d.get("synced") == "promoted"
+                   or str(d.get("synced") or "").startswith("reclassified"))
     if sampling == "machine":
         synced = "not synced: machine label, training only"
+    elif not sync and not _was_public:
+        # Local-only fast path (grid bulk not-police): the crop was never on the
+        # map, so there is nothing to demote and no reason to pay a round-trip.
+        synced = None
     else:
         synced = _sync_sighting(d.get("sighting_id"), label, day=day, stem=stem)
     if synced:
@@ -721,11 +766,23 @@ def set_label(day: str, stem: str, label: str, sampling: str = "review") -> dict
     # already written by this point. A cache that cannot be updated must never
     # cost a human's judgement - the label survives, the ordering is stale until
     # the next `tools/bank_index.py`, and that is the right way round.
-    try:
-        import bank_index
-        bank_index.update_one(bank_index.connect(), day, stem)
-    except Exception as exc:                                   # noqa: BLE001
-        print(f"labelbank: label saved, index not updated ({exc})")
+    # `defer_index` lets a batch caller (the grid picker) skip the per-crop
+    # index write and fold all of them into one transaction afterwards - the
+    # sidecar above is the truth, so the index being a beat stale is fine. The
+    # old per-crop path opened a fresh connection (schema executescript, ~100 ms)
+    # AND committed (an fsync) every label, which is what made a 24-crop save
+    # take ~2 s. It also leaked the connection; opening our own now closes it.
+    if not defer_index:
+        try:
+            import bank_index
+            _bidx = db if db is not None else bank_index.connect()
+            try:
+                bank_index.update_one(_bidx, day, stem)
+            finally:
+                if db is None:
+                    _bidx.close()
+        except Exception as exc:                               # noqa: BLE001
+            print(f"labelbank: label saved, index not updated ({exc})")
 
     clip = d.get("clip") or {}
     return {"clip": {"vclass": clip.get("vclass"), "conf": clip.get("conf"),
@@ -763,9 +820,28 @@ def _call_box(payload: dict, path: str = "/api/node/label") -> Optional[dict]:
         return None
     hub, nid, tok = creds
     import urllib.request
+    body = {**payload, "node_id": nid}
+    # 🚨 SIGN THE CLAIM, NOT JUST THE CONNECTION.
+    # The hub demands an ed25519 signature from any node that has REGISTERED a
+    # public key (hub.py _ingest -> "signature did not verify", HTTP 401), and
+    # this camera has one. run_live signs its sightings exactly this way; the
+    # label/confirm path never did - so from the moment node signing was turned
+    # on, every government vehicle confirmed at the camera 401'd and reached
+    # NEITHER the map NOR the review pen, and the only trace was a print on a
+    # stdout nobody was watching. Sign over the SAME body that is sent (node_id
+    # in, sig out - sign_event excludes it). A node with no key returns None and
+    # the unsigned post is accepted exactly as before. Never fatal: a signing
+    # failure loses a signature, never the attempt.
+    try:
+        import node_key
+        sig = node_key.sign(Path(__file__).resolve().parent, nid, body)
+        if sig:
+            body["sig"] = sig
+    except Exception as exc:                                   # noqa: BLE001
+        print(f"[labelbank] could not sign {path}: {exc}")
     req = urllib.request.Request(
         f"{hub}{path}", method="POST",
-        data=json.dumps({**payload, "node_id": nid}).encode(),
+        data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json",
                  "User-Agent": NODE_UA,
                  "Authorization": f"Bearer {tok}"})

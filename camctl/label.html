@@ -72,6 +72,8 @@ main{flex:1;display:flex;align-items:center;justify-content:center;
 
 .b.civ{background:#1a1f28}
 .b.unsure{background:#241f14;border-color:#4a3a1c}
+.b.screen{background:#1c1426;border-color:#5a3a7a}
+.b.screen:hover{border-color:#a97fe0}
 .b.undo{flex:0 0 110px;background:#0a0e15;color:var(--dim)}
 
 .reveal{max-width:900px;margin:10px auto 0;min-height:34px;
@@ -103,6 +105,7 @@ main{flex:1;display:flex;align-items:center;justify-content:center;
   <div><b>LABEL VEHICLES</b><span class="sub">ground truth for the classifier</span></div>
   <div class="modes">
     <button class="mode on" data-m="review">Review</button>
+    <button class="mode" data-m="review_public">Review · public cams</button>
     <button class="mode" data-m="patrol">Patrol gap</button>
     <button class="mode" data-m="gap">Gap</button>
     <button class="mode" data-m="likely">Likely gov</button>
@@ -141,6 +144,7 @@ main{flex:1;display:flex;align-items:center;justify-content:center;
     <button class="b fleet"  data-l="fleet">Fleet / commercial<kbd>F</kbd></button>
     <button class="b civ"    data-l="civilian">Private vehicle<kbd>C</kbd></button>
     <button class="b unsure" data-l="unsure">Can't tell<kbd>U</kbd></button>
+    <button class="b screen" data-l="screen" title="A photo of a vehicle on a screen or phone - someone faking a sighting, not a real car on the street">On a screen (fake)<kbd>S</kbd></button>
     <button class="b undo"   id="undo">Undo<kbd>Z</kbd></button>
   </div>
   <div class="reveal" id="reveal"></div>
@@ -149,8 +153,7 @@ main{flex:1;display:flex;align-items:center;justify-content:center;
 
 <script>
 const $ = s => document.querySelector(s);
-let cur = null, last = null, mode = 'review', busy = false;
-const PASSKEY = 'sparrow.passall';
+let cur = null, last = null, lastAlso = [], mode = 'review', busy = false;
 
 const NOTES = {
   patrol: `<b>Patrol gap:</b> the queue to actually work. Crops where CLIP said
@@ -181,6 +184,12 @@ const NOTES = {
   review: `<b>Review mode:</b> random order, so these labels are a fair sample and
            can be used to MEASURE precision and recall. This is the mode that
            decides whether the public tier is safe to turn on.`,
+  review_public: `<b>Review &middot; public cams:</b> the same fair random draw, but
+           only from public traffic cams and other people's nodes &mdash; the ~86%
+           of traffic the his-camera test set never saw. Also measurable. This is
+           the queue that lets a retrain be judged on the cameras it actually runs
+           against. Government vehicles are rare here, so most crops are civilian;
+           every one still counts.`,
   hunt:   `<b>Hunt mode:</b> the cases the model finds hardest, first. Fastest way
            to IMPROVE it &mdash; but these labels are a biased sample by
            construction and must never be quoted as a performance figure.`,
@@ -240,14 +249,16 @@ function showCounts(s){
 }
 
 /* Show the rest of the pass, so one decision can cover the whole car. */
-/* ⚠️ DEFAULTS TO OFF, AND THAT IS DELIBERATE.
+/* ⚠️ OFF FOR EVERY CROP, AND NEVER REMEMBERED.
    The 2-second window is generous on purpose - being wrong costs a glance, not
-   a bad label - but at a busy moment it will put two different cars in one
-   strip, and it visibly does. Ticking this by default would spend that
-   generosity on silent mislabels, and a wrong label is worse than no label:
-   it is indistinguishable from signal at training time.
-   The choice is remembered, so a run of clean groups costs one tick, not one
-   per car. */
+   a bad label - but at a busy moment it puts two DIFFERENT cars in one strip,
+   and it visibly does. This used to persist the tick across crops "for
+   convenience", which meant one forgotten tick silently applied later answers
+   to unrelated vehicles: click police, and two civilian cars sharing the window
+   got police too. That happened. A wrong label is worse than no label - it is
+   indistinguishable from signal at training time - so this now resets to
+   unchecked on every crop. Tick it only when you have looked and the strip
+   really is one vehicle; it never carries over on its own. */
 function renderPass(d){
   const g = d.group || [];
   const box = $('#pass');
@@ -255,17 +266,12 @@ function renderPass(d){
   box.style.display = '';
   box.querySelector('.passhint').textContent =
     `${g.length} more crop${g.length===1?'':'s'} from the same second — probably `
-    + `this same vehicle. Check they are before answering.`;
-  $('#passall').checked = localStorage.getItem(PASSKEY) === '1';
+    + `this same vehicle. Check they are before ticking below.`;
+  $('#passall').checked = false;
   box.querySelector('.strip').innerHTML = g.map(x =>
     `<img src="/api/bank/img/${encodeURIComponent(x.day)}/${encodeURIComponent(x.stem)}" alt="">`
   ).join('');
 }
-
-document.addEventListener('change', (e) => {
-  if (e.target && e.target.id === 'passall')
-    localStorage.setItem(PASSKEY, e.target.checked ? '1' : '0');
-});
 
 async function load(){
   // Deliberately does NOT clear the reveal. It describes the crop you just
@@ -299,14 +305,16 @@ async function label(l){
   if (!cur || busy) return;
   busy = true;
   const item = cur;
+  // Only when he chose it, and he was looking at every crop in the strip when
+  // he did. Remembered so Undo can reverse the whole group, not just the primary.
+  const applied = ($('#passall').checked && item.group) ? item.group : [];
   const r = await api('/api/bank/label', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({day:item.day, stem:item.stem, label:l, mode,
-      // Only sent when he chose it, and he was looking at every crop in the
-      // strip when he did.
-      also: ($('#passall').checked && item.group) ? item.group : []})
+      also: applied})
   });
   last = item;
+  lastAlso = applied;
   showCounts(r);
   // The model's guess appears only NOW. Before the call it is not sent to this
   // page at all, so it cannot anchor the decision it is being measured against.
@@ -325,14 +333,18 @@ $('#undo').onclick = async () => {
   if (!last) return;
   const undo = await api('/api/bank/label', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({day:last.day, stem:last.stem, clear:true})
+    // Reverse the whole action, including any same-vehicle group it applied to.
+    body: JSON.stringify({day:last.day, stem:last.stem, clear:true,
+                          also: lastAlso})
   });
+  lastAlso = [];
   // Say what the undo REVERSED. Labelling a crop "Government" also puts its
   // sighting on the public map, and for a while Undo silently left it there -
   // #27421, a night frame nobody can identify, sat published for 14 hours
   // after an accidental keypress. An undo has to report what it undid.
   if (undo && undo.undone){
-    $('#reveal').innerHTML = `<span class="agree">Undone — <b>${undo.undone}</b>.</span>`;
+    const grp = undo.also_cleared ? ` (+${undo.also_cleared} in its group)` : '';
+    $('#reveal').innerHTML = `<span class="agree">Undone — <b>${undo.undone}</b>${grp}.</span>`;
   }
   cur = last; last = null;
   $('#reveal').innerHTML = '';
@@ -369,6 +381,7 @@ addEventListener('keydown', e => {
   else if (k === 'f') label('fleet');
   else if (k === 'c') label('civilian');
   else if (k === 'u' || k === ' ') { e.preventDefault(); label('unsure'); }
+  else if (k === 's') label('screen');   // a fake: a car photographed off a screen
   else if (k === 'z') $('#undo').click();
 });
 

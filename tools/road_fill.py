@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import subprocess
 import sys
 import tempfile
@@ -42,6 +43,12 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# 🪟 NO POPUP WINDOW. This runs from a scheduled task (~every 10 min) under
+# pythonw, so python itself is hidden - but each ssh/scp child still flashes a
+# CMD window unless told not to. CREATE_NO_WINDOW is Windows-only; getattr keeps
+# this a no-op elsewhere.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 
 import road                                             # noqa: E402
 
@@ -90,7 +97,8 @@ def wait_for_slot(max_wait: float = 90.0, quiet: bool = False) -> bool:
 
 def sh(box: str, key: str, cmd: str, timeout: int = 300) -> str:
     r = subprocess.run(["ssh", "-i", key, "-o", "BatchMode=yes", box, cmd],
-                       capture_output=True, timeout=timeout)
+                       capture_output=True, timeout=timeout,
+                       creationflags=_NO_WINDOW)
     if r.returncode != 0:
         raise SystemExit("ssh failed: %s" % r.stderr.decode()[:300])
     return r.stdout.decode("utf-8", "replace")
@@ -157,7 +165,8 @@ def main() -> None:
     q = tmp / "wanted.py"
     q.write_text(REMOTE_WANTED, encoding="utf-8")
     subprocess.run(["scp", "-i", a.key, "-o", "BatchMode=yes", "-q",
-                    str(q), "%s:/tmp/_road_wanted.py" % a.box], check=True)
+                    str(q), "%s:/tmp/_road_wanted.py" % a.box], check=True,
+                   creationflags=_NO_WINDOW)
     info = json.loads(sh(a.box, a.key,
                          "cd /opt/sparrowmap && .venv/bin/python /tmp/_road_wanted.py"))
     missing = info["missing"]
@@ -214,7 +223,8 @@ def main() -> None:
         return
     subprocess.run(["scp", "-i", a.key, "-o", "BatchMode=yes", "-q",
                     "-r"] + [str(p) for p in out.iterdir()]
-                   + ["%s:%s/" % (a.box, REMOTE_CACHE)], check=True)
+                   + ["%s:%s/" % (a.box, REMOTE_CACHE)], check=True,
+                   creationflags=_NO_WINDOW)
     sh(a.box, a.key, "chown -R sparrow:sparrow %s" % REMOTE_CACHE)
     print("copied %d cell(s) to the box (%d failed)" % (done, fail))
     print("box cache now: %s"

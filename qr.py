@@ -37,7 +37,7 @@ import io
 # The longest payload actually round-tripped. Beyond this the encoder is
 # probably still fine, but nothing here has PROVEN it, and a key is not the
 # place to find out.
-VERIFIED_MAX = 173
+VERIFIED_MAX = 260   # covers a Sparrow Send address (~256 B base64url); see _selftest
 
 
 def png(text: str, scale: int = 8, border: int = 4) -> bytes:
@@ -70,8 +70,17 @@ def _selftest() -> bool:
     # The test needs a string of the right SHAPE, never a live one. Both values
     # below are obviously fake and the length is what matters.
     base = "https://sparrowmap.com/node#k=n_example1."
+    # A Sparrow Send address is ~256 bytes of base64url (two P-256 public keys in
+    # a JSON bundle). Verify with a HIGH-ENTROPY payload like a real one: cv2's
+    # detector flakes on repetitive/monotone strings of that length, but genuine
+    # addresses (random keys) decode reliably. Deterministic via a hash chain.
+    import base64 as _b64, hashlib as _hl
+    _seed, _buf = b"sparrow-send-address-selftest", b""
+    while len(_buf) < 200:
+        _seed = _hl.sha256(_seed).digest(); _buf += _seed
+    addr256 = _b64.urlsafe_b64encode(_buf).decode().rstrip("=")[:256]
     cases = ["short", base + "A" * 32,
-             base + "x" * 60, base + "x" * 130]
+             base + "x" * 60, base + "x" * 130, addr256]
     ok = True
     for t in cases:
         arr = np.array(Image.open(io.BytesIO(png(t, scale=10))).convert("L"))

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Contribute to SparrowMap</title>
+<style>
+  :root{
+    --bg:#0a0d12; --card:#111621; --line:#1e2733; --ink:#e7edf5; --dim:#9fb0c3;
+    --red:#ff3b47; --green:#3ddc97; --amber:#ffb020; --blue:#5cc8ff; --code:#0c1119;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    -webkit-text-size-adjust:100%}
+  .wrap{max-width:840px;margin:0 auto;padding:26px 18px 70px}
+  h1{font-size:27px;margin:0 0 4px}
+  .sub{color:var(--dim);margin:0 0 24px}
+  h2{font-size:20px;margin:32px 0 10px;display:flex;align-items:center;gap:9px}
+  h3{font-size:15px;margin:18px 0 6px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:14px 0}
+  .rule{border-left:4px solid var(--green)}
+  p{margin:8px 0}
+  ul,ol{margin:8px 0;padding-left:22px} li{margin:6px 0}
+  code{font:13px ui-monospace,Consolas,monospace;background:var(--code);border:1px solid var(--line);
+    border-radius:6px;padding:1px 6px;color:var(--blue);word-break:break-word}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto;
+    -webkit-overflow-scrolling:touch;margin:8px 0}
+  pre code{background:none;border:0;padding:0;color:#cfe3f5;white-space:pre;display:block}
+  .k{color:#8fd0ff} .s{color:#a6e3a1} .c{color:#6c7a8a}
+  table{width:100%;min-width:560px;border-collapse:collapse;margin:6px 0;font-size:14px}
+  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  /* field-name and required/optional columns should not wrap - let the whole
+     table scroll sideways on a phone instead of stacking each cell. */
+  td:first-child,td:nth-child(2),th:first-child,th:nth-child(2){white-space:nowrap}
+  th{color:var(--dim);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+  td b{color:var(--ink)} .req{color:var(--green);font-weight:700} .opt{color:var(--dim)}
+  .note{border-left:4px solid var(--amber)}
+  .foot{color:var(--dim);font-size:13px;margin-top:36px;border-top:1px solid var(--line);padding-top:14px}
+  a{color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Contribute to SparrowMap</h1>
+  <p class="sub">Feed sightings from your own device using two endpoints. Your compute stays yours. Video never leaves your machine.</p>
+
+  <div class="card rule">
+    <h2 style="margin-top:0">🔒 What actually goes up</h2>
+    <p>SparrowMap never accepts video. A contribution is a <b>small, plate-illegible crop plus a position</b>, and nothing else. Our side runs the classifier and a person confirms it before anything appears on the map. Only government and emergency vehicles are ever published; private vehicles are dropped.</p>
+    <p style="margin-bottom:0">So you send crops, we decide. You never send raw footage, and you never publish a claim directly.</p>
+  </div>
+
+  <h2>The two endpoints</h2>
+  <p>Base URL: <code>https://map.sparrowmap.com</code></p>
+  <ol>
+    <li><b>Enroll once</b> to register your device and get a token.</li>
+    <li><b>Post a sighting</b> for each vehicle you detect, using that token.</li>
+  </ol>
+
+  <h2>1 &middot; Enroll &mdash; <code>POST /api/enroll</code></h2>
+  <div class="card">
+    <p>Send a name and a rough starting position. For anything that <b>moves</b> (a dashcam, a car, a phone), set <code>"kind": "mobile"</code>. A fixed camera can omit it.</p>
+    <pre><code><span class="k">curl</span> -X POST https://map.sparrowmap.com/api/enroll \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d <span class="s">'{"name":"My Pi node","lat":XX.XXXX,"lon":-YY.YYYY,"kind":"mobile","contact":"your handle or email"}'</span></code></pre>
+    <p><b>Response</b> (the token is shown <b>once</b> &mdash; save it):</p>
+    <pre><code>{ <span class="k">"id"</span>: <span class="s">"n_1a2b3c4d"</span>, <span class="k">"status"</span>: <span class="s">"active"</span>, <span class="k">"token"</span>: <span class="s">"KEEP-THIS-SECRET"</span>,
+  <span class="k">"review_url"</span>: <span class="s">"/rv"</span>, <span class="k">"review_token"</span>: <span class="s">"…"</span> }</code></pre>
+    <p style="margin-bottom:0"><code>review_url</code> + <code>review_token</code> let you review your own device's catches at <code>/rv</code>. Replace <code>XX.XXXX</code> / <code>-YY.YYYY</code> with your real latitude and longitude.</p>
+  </div>
+
+  <h2>2 &middot; Post a sighting &mdash; <code>POST /api/sightings</code></h2>
+  <div class="card">
+    <p>Send the token in the <code>Authorization</code> header. Include a sub-resolution crop and where the vehicle sits in it. For a moving node, include the live GPS on every sighting.</p>
+    <pre><code><span class="k">curl</span> -X POST https://map.sparrowmap.com/api/sightings \
+  -H <span class="s">"Authorization: Bearer KEEP-THIS-SECRET"</span> \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d <span class="s">'{
+    "node_id": "n_1a2b3c4d",
+    "ts": 1700000000,
+    "lat": XX.XXXX, "lon": -YY.YYYY,
+    "source": "phone_node",
+    "snap_b64": "data:image/jpeg;base64,/9j/4AAQ…",
+    "vehicle_box": [x1, y1, x2, y2],
+    "body": "car"
+  }'</span></code></pre>
+
+    <h3>Python</h3>
+    <pre><code><span class="k">import</span> base64, json, time, requests
+
+<span class="k">with</span> open(<span class="s">"crop.jpg"</span>, <span class="s">"rb"</span>) <span class="k">as</span> f:
+    b64 = <span class="s">"data:image/jpeg;base64,"</span> + base64.b64encode(f.read()).decode()
+
+requests.post(<span class="s">"https://map.sparrowmap.com/api/sightings"</span>,
+  headers={<span class="s">"Authorization"</span>: <span class="s">"Bearer KEEP-THIS-SECRET"</span>},
+  json={
+    <span class="s">"node_id"</span>: <span class="s">"n_1a2b3c4d"</span>,
+    <span class="s">"ts"</span>: time.time(),
+    <span class="s">"lat"</span>: XX.XXXX, <span class="s">"lon"</span>: -YY.YYYY,   <span class="c"># live GPS, per sighting</span>
+    <span class="s">"source"</span>: <span class="s">"phone_node"</span>,
+    <span class="s">"snap_b64"</span>: b64,
+    <span class="s">"vehicle_box"</span>: [x1, y1, x2, y2],
+    <span class="s">"body"</span>: <span class="s">"car"</span>,
+  })</code></pre>
+  </div>
+
+  <h2>Fields</h2>
+  <div class="card">
+    <div class="scroll">
+    <table>
+      <tr><th>Field</th><th></th><th>What it is</th></tr>
+      <tr><td><code>node_id</code></td><td class="req">required</td><td>The id you got from <code>/api/enroll</code>.</td></tr>
+      <tr><td><code>snap_b64</code></td><td class="req">required</td><td>A <b>sub-resolution, plate-illegible</b> crop as a <code>data:image/jpeg;base64,…</code> string. Keep it small (a couple hundred px of vehicle). Never full-res, never video.</td></tr>
+      <tr><td><code>vehicle_box</code></td><td class="req">required</td><td><code>[x1,y1,x2,y2]</code> pixel box of the vehicle in the crop, so the server crops to the vehicle and not the street.</td></tr>
+      <tr><td><code>lat</code>, <code>lon</code></td><td class="req">required if mobile</td><td>The live GPS for this sighting. A fixed camera can omit these (it uses its watched span). A moving node <b>must</b> send them, or every dot pins to the enrol point.</td></tr>
+      <tr><td><code>ts</code></td><td class="opt">optional</td><td>Unix time of the sighting. Defaults to now.</td></tr>
+      <tr><td><code>source</code></td><td class="opt">optional</td><td>Use <code>"phone_node"</code> for a remote contributor: the crop is parked so our classifier scores it and a human reviews before publish.</td></tr>
+      <tr><td><code>body</code></td><td class="opt">optional</td><td>Your guess at the vehicle type (<code>"car"</code>, <code>"truck"</code>…). A hint only; the classifier decides.</td></tr>
+      <tr><td><code>heading</code></td><td class="opt">optional</td><td>Direction the vehicle was travelling, degrees.</td></tr>
+      <tr><td><code>plate_text</code> / <code>plate_conf</code></td><td class="opt">optional</td><td>Only if you read a plate. Weak reads are dropped; the crop still counts.</td></tr>
+    </table>
+    </div>
+  </div>
+
+  <div class="card note">
+    <h2 style="margin-top:0">⚠️ Good to know</h2>
+    <ul style="margin-bottom:0">
+      <li>The token is returned <b>once</b>. Store it securely; treat it like a password.</li>
+      <li>There are per-node and site-wide rate limits. A <code>503 "at capacity"</code> means retry shortly, not an error in your code.</li>
+      <li>Nothing publishes automatically. Your crops are classified on our side and a person confirms government vehicles before they hit the map.</li>
+      <li>Want the full detector instead of writing your own? It is open source &mdash; run the node client and it handles enroll and posting for you.</li>
+    </ul>
+  </div>
+
+  <div class="card" style="border-left:4px solid var(--amber)">
+    <h2 style="margin-top:0">📡 No camera? Help test the RF scanner <span style="font-size:11px;font-weight:700;letter-spacing:.5px;color:#08110b;background:var(--green);border-radius:999px;padding:2px 9px;vertical-align:middle">BETA</span></h2>
+    <p style="margin:8px 0">We're building a scanner that finds surveillance cameras (Flock/ALPR) by the wifi they broadcast — no camera needed, just an Android phone or a Raspberry Pi. Same privacy rule: only surveillance devices leave your device, everything private is dropped at the edge.</p>
+    <p style="margin-bottom:0"><a href="/rfbeta"><b>Join the RF beta →</b></a></p>
+  </div>
+
+  <p class="foot">Compute stays on your device, video never leaves it, and only public government vehicles are ever published. That is the whole point of SparrowMap.</p>
+
+</div>
+<script src="/static/sitenav.js?v=39"></script>
+</body>
+</html>

@@ -48,6 +48,7 @@ transmitted.**
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -275,6 +276,176 @@ def quarantine_write(sighting_id: int, crop_bytes: bytes,
 
 
 REVIEW = INBOX.parent / "review"
+RF_PEN = INBOX.parent / "rf_pen"
+# Public "I spotted a fixed surveillance camera here" reports from the no-install
+# browser page (/spot). Every one carries a PHOTO and waits for a person - see
+# camera_park for why the photo is mandatory, not optional.
+CAMERA_PEN = INBOX.parent / "camera_pen"
+
+
+def rf_park(node_id: str, candidate: dict) -> Optional[str]:
+    """Park ONE RF surveillance-device candidate for human review.
+
+    RF candidates carry no image and no civilian data - the client already
+    dropped every private device at the edge, so this is only ever a claim that
+    a KNOWN surveillance device (a Flock/ALPR camera, etc.) was heard at a
+    position. It NEVER publishes: it lands in the RF pen and waits for a person,
+    exactly like the government-vehicle review pen. A false RF guess must cost a
+    review click, never a wrong dot on the public map.
+
+    Stored as one json per (node, device), so re-hearing the same camera updates
+    rather than piling up.
+    """
+    try:
+        RF_PEN.mkdir(parents=True, exist_ok=True)
+        dev = str(candidate.get("dev_id") or "")[:32] or "unknown"
+        stem = f"{str(node_id)[:24]}_{dev}"
+        # keep only fields that describe the surveillance device + where/when,
+        # plus the police-equipment tag used to corroborate a visual sighting.
+        safe = {k: candidate.get(k) for k in
+                ("dev_id", "ssid", "vendor_reason", "band", "rssi",
+                 "lat", "lon", "ts", "police_conf", "police_reason",
+                 "is_drone", "drone_reason")}
+        (RF_PEN / f"{stem}.json").write_text(json.dumps(
+            {**safe, "node_id": str(node_id)[:24], "reviewed": None,
+             "written": time.time()}, indent=1), encoding="utf-8")
+        return stem
+    except Exception:
+        return None
+
+
+# A public camera report must carry a real photograph. This is the whole safety
+# property: /api/drive/report was withdrawn precisely because it let anyone
+# assert a location from a pair of numbers with no picture and no review. A
+# camera spot is only ever a CLAIM until a person looks at the photo, so it lands
+# in the pen with reviewed=None and never, ever touches the public map.
+CAMERA_MIN_PHOTO = 2 * 1024          # smaller than this is not a real JPEG
+CAMERA_MAX_PHOTO = 4 * 1024 * 1024   # a phone photo, not a video
+
+
+# Public "this OSM camera is gone / is still here" reports about a KNOWN camera
+# on the Flock/ALPR layer. Distinct from the camera_pen (a NEW camera spotted,
+# with a photo): these reference an existing osm_id, carry no photo, and only
+# ever update the layer through a review that curates cameras_removed.json - a
+# report never hides or confirms a camera by itself.
+CAMERA_STATUS_PEN = INBOX.parent / "camera_status_pen"
+
+
+def camera_status_report(report: dict) -> Optional[str]:
+    """Park ONE 'removed' / 'present' report about a known OSM ALPR camera.
+
+    One file per (osm_id, kind), so repeat reports accumulate a vote count
+    rather than piling up, and a reviewer can weigh them. Never touches the map:
+    the served layer only drops cameras a human put in cameras_removed.json.
+    """
+    oid = str(report.get("id") or "")[:32]
+    kind = str(report.get("kind") or "")[:16]
+    if not oid or kind not in ("removed", "present"):
+        return None
+    try:
+        CAMERA_STATUS_PEN.mkdir(parents=True, exist_ok=True)
+        stem = f"{oid}_{kind}"
+        f = CAMERA_STATUS_PEN / f"{stem}.json"
+        prior = {}
+        if f.exists():
+            try:
+                prior = json.loads(f.read_text(encoding="utf-8"))
+            except Exception:
+                prior = {}
+        ip_hash = hashlib.sha256(
+            str(report.get("ip") or "").encode()).hexdigest()[:12]
+        seen = set(prior.get("reporters") or [])
+        seen.add(ip_hash)
+        f.write_text(json.dumps({
+            "id": oid, "kind": kind,
+            "lat": report.get("lat"), "lon": report.get("lon"),
+            "note": str(report.get("note") or "")[:280],
+            "source": str(report.get("source") or "public")[:16],
+            "votes": len(seen), "reporters": sorted(seen),
+            "reviewed": None, "first": prior.get("first") or time.time(),
+            "last": time.time(),
+        }, indent=1), encoding="utf-8")
+        return stem
+    except Exception:
+        return None
+
+
+def camera_park(report: dict, photo: bytes) -> Optional[str]:
+    """Park ONE public "surveillance camera spotted here" report for review.
+
+    Requires a photograph (the caller guarantees it is non-empty; the size
+    bounds are enforced here). Stores the photo and a small json side by side in
+    the camera pen. No identity is kept - only a truncated hash of the address,
+    enough to rate-limit and spot a flood, never enough to name a reporter.
+    Returns the stem, or None if the photo is missing/oversize/undersize.
+    """
+    if not photo or not (CAMERA_MIN_PHOTO <= len(photo) <= CAMERA_MAX_PHOTO):
+        return None
+    try:
+        lat = float(report.get("lat"))
+        lon = float(report.get("lon"))
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    try:
+        CAMERA_PEN.mkdir(parents=True, exist_ok=True)
+        # A content hash names the pair, so the same photo submitted twice
+        # updates one entry instead of piling up duplicates in the pen.
+        stem = hashlib.sha256(photo).hexdigest()[:20]
+        ip_hash = hashlib.sha256(
+            str(report.get("ip") or "").encode()).hexdigest()[:12]
+        (CAMERA_PEN / f"{stem}.jpg").write_bytes(photo)
+        (CAMERA_PEN / f"{stem}.json").write_text(json.dumps({
+            "lat": round(lat, 6), "lon": round(lon, 6),
+            "note": str(report.get("note") or "")[:280],
+            "kind": str(report.get("kind") or "camera")[:24],
+            "accuracy_m": report.get("accuracy_m"),
+            "ip_hash": ip_hash, "photo": f"{stem}.jpg",
+            "reviewed": None, "written": time.time(),
+        }, indent=1), encoding="utf-8")
+        return stem
+    except Exception:
+        return None
+
+
+# How close in space and time an RF police-equipment hit must be to a visual
+# police sighting to count as corroboration. Tight on purpose: a patrol car and
+# the camera that saw it are within a block and a minute, so a wider window would
+# start matching unrelated traffic.
+RF_CORROBORATE_M = 150.0
+RF_CORROBORATE_S = 120.0
+
+
+def rf_corroborates(sighting: dict, candidate: dict) -> tuple[bool, str]:
+    """Does this RF police-equipment candidate back up a visual police sighting?
+
+    True only when the candidate is police-vehicle gear (police_conf set) AND it
+    was heard within RF_CORROBORATE_M metres and RF_CORROBORATE_S seconds of the
+    sighting. This is a SECOND signal on an already-visual sighting - it raises a
+    reviewer's confidence, it never creates a sighting or publishes on its own.
+
+    A 'weak' vendor (in-car router, also commercial) only ever means anything
+    HERE, tied to a visual police call; on its own it is ignored.
+    """
+    import math
+    conf = candidate.get("police_conf") or ""
+    if conf not in ("strong", "weak"):
+        return False, ""
+    try:
+        slat, slon, sts = float(sighting["lat"]), float(sighting["lon"]), float(sighting["ts"])
+        clat, clon, cts = float(candidate["lat"]), float(candidate["lon"]), float(candidate["ts"])
+    except (KeyError, TypeError, ValueError):
+        return False, ""
+    if abs(sts - cts) > RF_CORROBORATE_S:
+        return False, ""
+    # rough metres: 111,320 m per degree lat; scale lon by cos(lat)
+    dlat = (slat - clat) * 111320.0
+    dlon = (slon - clon) * 111320.0 * math.cos(math.radians(slat))
+    dist = math.hypot(dlat, dlon)
+    if dist > RF_CORROBORATE_M:
+        return False, ""
+    return True, f"{conf} RF {candidate.get('police_reason','')} {int(dist)}m/{int(abs(sts-cts))}s away"
 
 
 def review_write(sighting_id: int, crop_bytes: bytes, meta: dict) -> Optional[str]:

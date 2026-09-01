@@ -77,6 +77,11 @@ body{
   .top{flex-wrap:wrap;gap:8px}
   .top .state{display:none}
   .signin{margin-left:auto}
+  /* On a phone the pair takes one full row and the two buttons share it evenly,
+     so What's-new stays beside the map button instead of dropping below it. */
+  .ctapair{flex:1 1 100%;width:100%}
+  .ctapair .btn{flex:1 1 0;min-width:0;padding-left:12px;padding-right:12px;
+    white-space:nowrap;text-align:center}
 }
 
 /* ---------- hero ---------- */
@@ -149,6 +154,11 @@ h1 .dim{color:var(--steel)}
 .btn:hover{background:#1560b0;border-color:#1560b0}
 .btn.ghost{background:transparent;color:var(--blue-hi)}
 .btn.ghost:hover{background:rgba(27,116,209,.12)}
+/* Keep the primary map button and the What's-new button glued together as one
+   unit so they sit side by side and never stack apart. */
+.ctapair{display:inline-flex;gap:12px;flex-wrap:nowrap;align-items:stretch}
+.btn.news{background:transparent;color:var(--blue-hi);border-color:var(--blue-hi)}
+.btn.news:hover{background:rgba(27,116,209,.12)}
 a:focus-visible,.btn:focus-visible{outline:2px solid var(--blue-hi);outline-offset:3px}
 
 footer{
@@ -206,7 +216,10 @@ footer a{color:var(--steel)}
       before anything is sent anywhere.
     </p>
     <p class="herocta rise">
-      <a href="https://map.sparrowmap.com" class="btn">Open the live map</a>
+      <span class="ctapair">
+        <a href="https://map.sparrowmap.com" class="btn">Open live map</a>
+        <a href="https://map.sparrowmap.com/?news=1" class="btn news">&#10024; What&#39;s new</a>
+      </span>
       <a href="https://map.sparrowmap.com/app" class="btn ghost">Add a camera</a>
       <a href="https://map.sparrowmap.com/drive" class="btn ghost">Driving mode</a>
       <!-- The business route was explained a long way down this page and had no

@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Radar screen — SparrowMap</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<meta name="theme-color" content="#0B0E13">
+<style>
+  :root{ --bg:#0B0E13; --panel:#121722; --ink:#e7edf5; --muted:#93a3b3;
+         --line:#22303f; --ka:#ef2b2b; --k:#f59e0b; --x:#8a8a8a; --laser:#c026d3;
+         --grid:#1c6b4a; --sweep:#2ee08a; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:10px;padding:12px 16px;
+         border-bottom:1px solid var(--line)}
+  header a{color:var(--sweep);text-decoration:none;font-weight:600}
+  header b{letter-spacing:.5px}
+  .tag{color:var(--muted);font-size:12px}
+  main{max-width:640px;margin:0 auto;padding:16px}
+  .scopewrap{position:relative;width:100%;max-width:520px;margin:6px auto}
+  canvas{width:100%;height:auto;display:block;border-radius:50%;
+         background:radial-gradient(circle at 50% 50%,#0d1a15 0%,#08110d 70%,#060b09 100%);
+         box-shadow:0 0 0 1px var(--line),0 10px 40px rgba(0,0,0,.5)}
+  .readout{text-align:center;margin:12px 0;min-height:44px}
+  .readout .big{font-size:22px;font-weight:700}
+  .readout .sub{color:var(--muted);font-size:13px}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:10px 0}
+  button.ctl{background:var(--panel);color:var(--ink);border:1px solid var(--line);
+             border-radius:9px;padding:9px 14px;font-size:14px;cursor:pointer}
+  button.ctl.on{border-color:var(--sweep);color:var(--sweep)}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;
+          color:var(--muted);font-size:12px;margin:6px 0 2px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:50%;
+            margin-right:5px;vertical-align:middle}
+  .note{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+        padding:14px 16px;margin:16px 0;color:var(--muted);font-size:13.5px}
+  .note b{color:var(--ink)}
+  .status{text-align:center;color:var(--muted);font-size:12.5px;margin-top:4px}
+  a.plain{color:var(--sweep)}
+</style>
+</head>
+<body>
+<header>
+  <a href="/">&larr; Map</a>
+  <b>📡 RADAR SCREEN</b>
+  <span class="tag">live speed-radar sources near you</span>
+</header>
+<main>
+  <div class="scopewrap">
+    <canvas id="scope" width="520" height="520" aria-label="Radar scope"></canvas>
+  </div>
+  <div class="readout" id="readout">
+    <div class="big" id="rbig">Scanning…</div>
+    <div class="sub" id="rsub">north is up</div>
+  </div>
+  <div class="legend">
+    <span><i style="background:var(--ka)"></i>Ka — police radar</span>
+    <span><i style="background:var(--k)"></i>K — police / car radar</span>
+    <span><i style="background:var(--x)"></i>X — mostly doors</span>
+    <span><i style="background:var(--laser)"></i>Laser — lidar gun</span>
+  </div>
+  <div class="controls">
+    <button class="ctl on" id="liveBtn">Live</button>
+    <button class="ctl" id="demoBtn">Demo</button>
+  </div>
+  <div class="status" id="status"></div>
+
+  <div class="note">
+    <b>How it works.</b> The network places a source where paired detector
+    hardware reports a radar emission — it is not a tap, and it fades on its own
+    in a few minutes. <b>Ka band (33–35 GHz) is essentially police-only</b>, so it
+    reads red. <b>K band (24 GHz)</b> is shared with cars' own blind-spot radar,
+    so it is dimmer and wants a second reporter to trust. One detector shows you
+    strength; the real red dot on a road tightens as several drivers see the same
+    source from different spots.
+  </div>
+  <div class="note">
+    <b>No detector yet?</b> The scope is empty until hardware is feeding the
+    network — that is honest, not broken. Tap <b>Demo</b> to see how a live pass
+    looks. Got a detector? <a class="plain" href="/radarlink">Connect it in your
+    browser</a> (no app). Shopping? See the <a class="plain" href="/buy#radar">picks</a>
+    or the full <a class="plain" href="/sensors">build/buy list</a>.
+  </div>
+</main>
+<script>
+(function(){
+  var cv = document.getElementById('scope'), ctx = cv.getContext('2d');
+  var W = cv.width, H = cv.height, CX = W/2, CY = H/2, R = W/2 - 6;
+  var RANGE_M = 1600;                 // outer ring distance
+  var rings = [0.25,0.5,0.75,1.0];
+  var sweep = 0;                      // radians
+  var mode = 'live';                  // 'live' | 'demo'
+  var me = null;                      // {lat,lon}
+  var blips = [];                     // {bearing, dist, band, conf, seen}
+  var demo = null;
+  var COL = {ka:'#ef2b2b', k:'#f59e0b', x:'#8a8a8a', laser:'#c026d3'};
+
+  function bandColor(b){ return COL[b] || '#8a8a8a'; }
+
+  // Great-circle bearing + distance from me to a point.
+  function toPolar(lat, lon){
+    var toR = Math.PI/180;
+    var dLat = (lat - me.lat), dLon = (lon - me.lon);
+    var y = Math.sin(dLon*toR)*Math.cos(lat*toR);
+    var x = Math.cos(me.lat*toR)*Math.sin(lat*toR)
+          - Math.sin(me.lat*toR)*Math.cos(lat*toR)*Math.cos(dLon*toR);
+    var brg = Math.atan2(y, x);                       // radians, 0 = north
+    var mPerDegLat = 111320;
+    var dx = dLon*toR*6371000*Math.cos(me.lat*toR);
+    var dy = dLat*toR*6371000;
+    var dist = Math.sqrt(dx*dx + dy*dy);
+    return {bearing: brg, dist: dist};
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    // range rings
+    ctx.strokeStyle = 'rgba(46,224,138,0.18)'; ctx.lineWidth = 1;
+    rings.forEach(function(f){
+      ctx.beginPath(); ctx.arc(CX,CY,R*f,0,Math.PI*2); ctx.stroke();
+    });
+    // cross hairs
+    ctx.beginPath(); ctx.moveTo(CX,CY-R); ctx.lineTo(CX,CY+R);
+    ctx.moveTo(CX-R,CY); ctx.lineTo(CX+R,CY); ctx.stroke();
+    // N marker
+    ctx.fillStyle = 'rgba(46,224,138,0.5)'; ctx.font = '12px system-ui';
+    ctx.textAlign = 'center'; ctx.fillText('N', CX, CY-R+14);
+    // sweep wedge
+    var grad = ctx.createRadialGradient(CX,CY,0,CX,CY,R);
+    grad.addColorStop(0,'rgba(46,224,138,0.28)');
+    grad.addColorStop(1,'rgba(46,224,138,0)');
+    ctx.save(); ctx.translate(CX,CY); ctx.rotate(sweep);
+    ctx.beginPath(); ctx.moveTo(0,0);
+    ctx.arc(0,0,R,-0.35,0.02); ctx.closePath();
+    ctx.fillStyle = grad; ctx.fill();
+    ctx.restore();
+    // blips
+    var all = blips.slice();
+    if (demo) all.push(demo);
+    all.forEach(function(b){
+      var rr = Math.min(1, b.dist/RANGE_M) * R;
+      var px = CX + rr*Math.sin(b.bearing);
+      var py = CY - rr*Math.cos(b.bearing);
+      var col = bandColor(b.band);
+      // fade a little with age of the sweep hit
+      var glow = b.seen ? 1 : 0.55;
+      ctx.globalAlpha = glow;
+      ctx.beginPath(); ctx.arc(px,py, 6 + 5*(b.conf||0.5), 0, Math.PI*2);
+      ctx.fillStyle = col; ctx.fill();
+      ctx.globalAlpha = 0.25*glow;
+      ctx.beginPath(); ctx.arc(px,py, 12 + 8*(b.conf||0.5), 0, Math.PI*2);
+      ctx.fillStyle = col; ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+    sweep += 0.045;
+    if (sweep > Math.PI*2) sweep -= Math.PI*2;
+    // mark blips the sweep just passed (for the brighten effect)
+    all.forEach(function(b){
+      var d = Math.abs(((b.bearing - sweep + Math.PI*3)%(Math.PI*2)) - Math.PI);
+      if (d < 0.2) b.seen = true;
+    });
+    requestAnimationFrame(draw);
+  }
+
+  // WebAudio blip so a real Ka pass or a demo pass is audible.
+  var actx = null;
+  function beep(band){
+    try{
+      actx = actx || new (window.AudioContext||window.webkitAudioContext)();
+      var o = actx.createOscillator(), g = actx.createGain();
+      o.type = band==='ka' ? 'sine' : 'triangle';
+      o.frequency.value = band==='ka' ? 880 : band==='laser' ? 1400 : 620;
+      g.gain.value = 0.0001; o.connect(g); g.connect(actx.destination);
+      var t = actx.currentTime; o.start(t);
+      g.gain.exponentialRampToValueAtTime(0.25, t+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t+0.18);
+      o.stop(t+0.2);
+    }catch(e){}
+  }
+
+  function setReadout(){
+    var big = document.getElementById('rbig'), sub = document.getElementById('rsub');
+    var list = blips.slice(); if (demo) list.push(demo);
+    if (!list.length){ big.textContent = mode==='demo' ? 'Demo running…' : 'Clear';
+      sub.textContent = mode==='demo' ? 'a Ka source is approaching' : 'no radar detected near you'; return; }
+    list.sort(function(a,b){ return a.dist-b.dist; });
+    var n = list[0];
+    big.innerHTML = '<span style="color:'+bandColor(n.band)+'">'+n.band.toUpperCase()
+      +' radar</span> · '+Math.round(n.dist)+' m';
+    sub.textContent = Math.round((n.conf||0.5)*100)+'% confidence · '
+      + (list.length-0) + ' source'+(list.length===1?'':'s')+' near you';
+  }
+
+  async function pollLive(){
+    if (mode!=='live' || !me) return;
+    var d = 0.02;   // ~2 km box around me
+    var box = (me.lat-d)+','+(me.lon-d)+','+(me.lat+d)+','+(me.lon+d);
+    try{
+      var r = await (await fetch('/api/radar?box='+box)).json();
+      var seenKa = blips.some(function(b){return b.band==='ka';});
+      blips = (r.dots||[]).map(function(dot){
+        var p = toPolar(dot.lat, dot.lon);
+        return {bearing:p.bearing, dist:p.dist, band:dot.band, conf:dot.conf, seen:false};
+      });
+      if (!seenKa && blips.some(function(b){return b.band==='ka';})) beep('ka');
+      document.getElementById('status').textContent =
+        r.active ? (r.active+' source(s) live on the network') : 'network clear near you';
+    }catch(e){
+      document.getElementById('status').textContent = 'could not reach the network';
+    }
+    setReadout();
+  }
+
+  function startDemo(){
+    // A synthetic Ka source approaching from the NE, looping.
+    var t0 = Date.now();
+    demo = {bearing: 0.9, dist: RANGE_M, band:'ka', conf:0.8, seen:false};
+    beep('ka');
+    if (demo._iv) clearInterval(demo._iv);
+    demo._iv = setInterval(function(){
+      var elapsed = (Date.now()-t0)/1000;
+      demo.dist = Math.max(60, RANGE_M - (elapsed%16)*100);   // approach then reset
+      if (demo.dist <= 70) { /* passing */ }
+      demo.bearing = 0.9 + Math.sin(elapsed/6)*0.3;
+      setReadout();
+    }, 400);
+    document.getElementById('status').textContent = 'demo — no real data is shown or sent';
+  }
+  function stopDemo(){ if (demo && demo._iv) clearInterval(demo._iv); demo = null; }
+
+  document.getElementById('liveBtn').onclick = function(){
+    mode='live'; this.classList.add('on');
+    document.getElementById('demoBtn').classList.remove('on');
+    stopDemo(); pollLive(); setReadout();
+  };
+  document.getElementById('demoBtn').onclick = function(){
+    mode='demo'; this.classList.add('on');
+    document.getElementById('liveBtn').classList.remove('on');
+    blips=[]; startDemo();
+  };
+
+  // Location for the live scope. If denied, we center on a default and the live
+  // feed simply can't place you — demo still works.
+  if (navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(function(pos){
+      me = {lat:pos.coords.latitude, lon:pos.coords.longitude};
+      pollLive();
+    }, function(){
+      document.getElementById('status').textContent =
+        'location off — turn it on for the live scope, or try Demo';
+    }, {enableHighAccuracy:true, timeout:8000});
+  }
+  setInterval(pollLive, 12000);
+  draw();
+})();
+</script>
+</body>
+</html>

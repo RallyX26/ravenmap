@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RF Beta — SparrowMap</title>
+<style>
+  :root{--bg:#0a0d12;--card:#111621;--line:#1e2733;--ink:#e7edf5;--dim:#9fb0c3;
+    --red:#ff3b47;--green:#3ddc97;--amber:#ffb020;--blue:#5cc8ff;--code:#0c1119;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-text-size-adjust:100%}
+  .wrap{max-width:820px;margin:0 auto;padding:26px 18px 70px}
+  h1{font-size:26px;margin:0 0 4px}
+  .sub{color:var(--dim);margin:0 0 22px}
+  h2{font-size:19px;margin:30px 0 10px;display:flex;align-items:center;gap:9px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:14px 0}
+  .rule{border-left:4px solid var(--green)} .note{border-left:4px solid var(--amber)}
+  .beta{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.5px;color:#08110b;
+    background:var(--green);border-radius:999px;padding:2px 9px;vertical-align:middle;margin-left:8px}
+  p{margin:8px 0} ol,ul{margin:8px 0;padding-left:22px} li{margin:7px 0}
+  code{font:13px ui-monospace,Consolas,monospace;background:var(--code);border:1px solid var(--line);
+    border-radius:6px;padding:1px 6px;color:var(--blue);word-break:break-word}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto;
+    -webkit-overflow-scrolling:touch;margin:8px 0}
+  pre code{background:none;border:0;padding:0;color:#cfe3f5;white-space:pre;display:block}
+  .foot{color:var(--dim);font-size:13px;margin-top:34px;border-top:1px solid var(--line);padding-top:14px}
+  a{color:var(--blue)} b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Help test the RF scanner <span class="beta">BETA</span></h1>
+  <p class="sub">Find surveillance cameras — and help confirm police vehicles — by the wifi they broadcast. No plates, no faces, just signal.</p>
+  <h2 id="cameras-layer">📷 The Flock / ALPR camera layer</h2>
+  <div class="card">
+    <p style="margin-top:0">The map now has a <b>Flock / ALPR camera layer</b> — automated licence-plate readers pulled from OpenStreetMap (the <a href="https://deflock.me" target="_blank" rel="noopener noreferrer">DeFlock</a> project). Turn it on with <b>Layers → “Flock / ALPR cameras”</b> and zoom in. Each camera is a <b>red cone that points the way it faces</b>, so you can see what it's watching.</p>
+    <p><b>Keeping it honest — you have to be there.</b> Cities add and remove these cameras, so every one has <b>“✓ Still here”</b> and <b>“✗ Removed”</b> buttons. Tapping them uses your phone's location, and the report is <b>refused unless you're standing at the camera</b>. That's on purpose: nobody can sit at home and mass-report cameras gone (or invent ones that aren't there).</p>
+    <p style="margin-bottom:0"><b>What happens to a report.</b> It's a vote, not an edit — a camera only comes off the map after it's reviewed. And this is where the RF beta closes the loop: when a scanner <b>hears a real Flock camera's wifi</b> next to a mapped one, that camera is marked <b>✓ confirmed present</b>. So the layer trends toward the cameras that are actually still out there.</p>
+  </div>
+
+  <div class="card note">
+    <p style="margin:0"><b>No hardware?</b> If you just want to report a camera you can see, skip all of this — <a href="/spot">photograph it from your browser</a>. No app, no ESP32, no Pi. A reviewer checks every photo before it reaches the map.</p>
+  </div>
+
+  <div class="card rule">
+    <h2 style="margin-top:0">🔒 What it does, and what it never does</h2>
+    <p>Two things, both by wifi/Bluetooth only:</p>
+    <ul style="margin:6px 0">
+      <li><b>Find surveillance cameras.</b> Flock and other ALPR cameras broadcast a wifi name; the scanner watches for those and only those.</li>
+      <li><b>Corroborate a police sighting.</b> Patrol cars carry gear that broadcasts too — Axon body/dash cameras especially. Hearing that gear <b>at the same place and time a camera already saw a police vehicle</b> is a strong second signal that confirms the sighting.</li>
+    </ul>
+    <p>Every <b>other</b> device your scanner sees — homes, other phones, ordinary cars — is <b>counted and thrown away instantly</b>, never shown, never saved, never sent. Same rule SparrowMap uses for licence plates: the private side is destroyed on your device.</p>
+    <p style="margin-bottom:0"><b>Honest limit:</b> RF alone can't name a cop car — some in-car gear also lives in work trucks. It <b>confirms</b> what a camera already saw; it never invents a sighting, and it uploads <b>nothing on its own</b>. Nothing hits the map without a person reviewing it.</p>
+  </div>
+
+  <h2>📱 What you need</h2>
+  <ul>
+    <li>An <b>Android</b> phone (iPhone can't scan wifi like this — Android only for now).</li>
+    <li><b>Termux</b> and <b>Termux:API</b> — both free from <a href="https://f-droid.org">F-Droid</a> (not the Play Store versions, they're outdated).</li>
+  </ul>
+
+  <h2>▶️ Setup (one time, ~2 minutes)</h2>
+  <div class="card">
+    <p>Open Termux and paste:</p>
+    <pre><code>pkg install -y python termux-api
+curl -O https://map.sparrowmap.com/rf/phone_scan.py</code></pre>
+    <p style="margin-bottom:0">Then install the <b>Termux:API</b> app from F-Droid if you haven't (it's what lets the script read wifi).</p>
+  </div>
+
+  <h2>🚗 Run it</h2>
+  <div class="card">
+    <pre><code>python phone_scan.py            # one scan, right where you are
+python phone_scan.py --watch   # keep scanning while you walk or drive</code></pre>
+    <p>Best test: drive or walk past a spot you know has a Flock or ALPR camera (intersections, town entrances, parking lots). If it broadcasts wifi, you'll see a <b>🚨 SURVEILLANCE</b> line.</p>
+    <p style="margin-bottom:0">When you're done, it prints a block starting <code>--- copy everything below ---</code>. Copy that and send it to us, along with roughly where you were (a cross street is plenty).</p>
+  </div>
+
+  <div class="card note">
+    <h2 style="margin-top:0">⚠️ What we're actually testing</h2>
+    <ul style="margin-bottom:0">
+      <li>Whether real Flock/ALPR cameras <b>show up</b> at all, and what names they use — that's the data we need to make this reliable.</li>
+      <li>Whether <b>police in-car gear</b> (Axon docks/cameras especially) shows up near a real patrol car — that's what powers the police-sighting confirmation.</li>
+      <li>Phones only see devices that <b>broadcast</b> a name. Silent devices and deeper Bluetooth need the Raspberry Pi version. Broadcast is plenty to prove it works.</li>
+      <li>False alarms are fine and useful — send them too. Nothing you send goes public without us reviewing it.</li>
+    </ul>
+  </div>
+
+  <h2>📤 Sending results (phone)</h2>
+  <p>For the phone beta, just paste the copied block to us (DM or email) with a rough location. It's reviewed before anything goes on the map.</p>
+
+  <h2>🚔 Confirming police vehicles (not just cameras)</h2>
+  <div class="card" style="border-left:4px solid var(--amber)">
+    <p style="margin-top:0">The scanner also flags <b>police in-car equipment</b> — Axon body/dash cameras and docks especially, which are police-dominant. It reports those with a confidence tag alongside the camera finds.</p>
+    <p>On its own that isn't proof — some in-car gear also lives in work trucks. But mounted in a moving vehicle (a Pi on the dash), hearing patrol gear <b>right where a camera already saw a police vehicle</b> is a strong second signal. That's the goal: RF <b>confirms</b> a visual police sighting, it never names a cop car by itself.</p>
+    <p style="margin-bottom:0">So a Pi in a car does double duty: it maps surveillance cameras as you drive, and it corroborates police sightings along the same route. All of it human-reviewed before anything publishes.</p>
+  </div>
+
+  <h2>🛸 Drones</h2>
+  <div class="card">
+    <p style="margin-top:0">Since 2023 most drones must broadcast <b>Remote ID</b> over the same 2.4/5&nbsp;GHz wifi and Bluetooth this scanner reads — so it flags drones too (DJI, Skydio, Autel and friends). A drone alone isn't proof of a <i>police</i> drone, and agencies fly the same models everyone else does, so it's treated like the in-car gear: it corroborates when it shows up over a police presence.</p>
+    <p style="margin-bottom:0">A plain scan catches the drone's control link and maker. The full Remote ID broadcast (its id and the operator's location) needs monitor mode — an Alfa adapter on a Pi, or an ESP32 in promiscuous mode — which is the next step. For manned aircraft (police helicopters and surveillance planes) the tool is different: a ~$25 <b>RTL-SDR</b> reading ADS-B on 1090&nbsp;MHz. That's a separate build; get in touch on <a href="/contribute">Contribute</a> if you want to help with it.</p>
+  </div>
+
+  <h2>🖥️ Raspberry Pi (auto-upload)</h2>
+  <div class="card">
+    <p>If you have a Pi (or any Linux box) it can scan and <b>upload on its own</b>, no copy-paste. It flags surveillance cameras <b>and</b> police in-car gear; every private network is dropped on the box. Uploads land in a review pen — <b>nothing goes on the public map without a person confirming it.</b></p>
+    <p><b>1. Get the scanner:</b></p>
+    <pre><code>sudo apt install -y network-manager python3
+curl -O https://map.sparrowmap.com/rf/rf_scan.py</code></pre>
+    <p><b>2. Enroll once</b> to get a node id + token (save the token, shown once):</p>
+    <pre><code>curl -X POST https://map.sparrowmap.com/api/enroll \
+  -H "Content-Type: application/json" \
+  -d '{"name":"My RF Pi","lat":XX.XXXX,"lon":-YY.YYYY,"kind":"rf"}'</code></pre>
+    <p><b>3. Run it</b> (loops, scans, uploads surveillance + police gear only):</p>
+    <pre><code>python3 rf_scan.py --post --node n_YOURID --token YOURTOKEN</code></pre>
+    <p style="margin-bottom:0">Mount it in a vehicle (best for confirming patrol cars) or a window overlooking a road. A GPS dongle is optional now (position is added in the next version); for a fixed spot the enroll location is enough. A monitor-mode + Bluetooth upgrade (an Alfa adapter) comes later — plain wifi scanning already catches broadcasting cameras and Axon gear.</p>
+  </div>
+
+  <h2>🔧 ESP32 (about $5)</h2>
+  <div class="card">
+    <p style="margin-top:0">An <b>ESP32</b> is a tiny cheap chip that scans wifi and Bluetooth — a matchbox you leave in a car or a window. There's a ready-to-flash sketch: it keeps only surveillance cameras and police gear and uploads them, dropping everything private on-chip, same rule as the rest.</p>
+    <p><b>1. Enroll once</b> (from any computer) for a node id + token:</p>
+    <pre><code>curl -X POST https://map.sparrowmap.com/api/enroll \
+  -H "Content-Type: application/json" \
+  -d '{"name":"My ESP32","lat":XX.XXXX,"lon":-YY.YYYY,"kind":"rf"}'</code></pre>
+    <p><b>2. Flash it</b> with the Arduino IDE (install the "esp32" boards package):</p>
+    <pre><code># get the sketch, open it in Arduino IDE
+curl -O https://map.sparrowmap.com/rf/esp32_sparrow.ino</code></pre>
+    <p style="margin-bottom:0">Fill in the CONFIG block at the top (the wifi it uploads through, plus your node id + token), then upload. Open the Serial Monitor at 115200 to watch it scan. For a moving sensor, tether it to a phone hotspot. <b>Honest note:</b> the sketch is new and hasn't been proven on real hardware in the field yet — if you flash one, tell us what it catches.</p>
+  </div>
+
+  <h2>🛠️ Other hardware</h2>
+  <div class="card">
+    <p style="margin-bottom:0">Any device that can see wifi/Bluetooth can feed SparrowMap — another microcontroller, an SDR, a router, whatever you've got. The upload endpoint is open and documented on the <a href="/contribute">Contribute</a> page. Build with it and get in touch; if it works, we'll add a guide for it. The goal is to use <b>any hardware that works</b>, not lock people to one board.</p>
+  </div>
+
+  <h2>🔜 What's next</h2>
+  <p>Once field tests confirm the scanner reliably spots real cameras and police gear, two things turn on, both behind the same human review: a dedicated <b>surveillance map layer</b> for confirmed cameras, and <b>police-sighting confirmation</b> — when the scanner hears patrol gear right where a camera saw a police vehicle, that sighting gets a second, independent confirmation before it's published. Cheap ESP32 sensors are how this scales past hobbyists.</p>
+
+  <p class="foot">Open source, free, government and surveillance hardware only. Your neighbours and your own devices are destroyed at the edge and never leave your phone. That's the whole point.</p>
+
+</div>
+<script src="/static/sitenav.js?v=39"></script>
+</body>
+</html>
