@@ -30,6 +30,7 @@ import community
 import db
 import ingest_decisions
 import ingest_media
+import ingest_persistence
 import ingest_record
 import mapdata
 import microcache
@@ -3188,74 +3189,20 @@ class Handler(BaseHTTPRequestHandler):
         rec = record.record
         s_lat = record.latitude
         s_lon = record.longitude
-        # 🚨 IS THIS A NEW VEHICLE, OR THE SAME ONE STILL CROSSING THE FRAME?
-        # A tracker that loses a vehicle behind a window pillar and re-acquires
-        # it produces several completed tracks for one pass, and each posted its
-        # own sighting - three dots on the map for one patrol car. Fold them.
-        # See db.merge_window_row for why the test is deliberately blunt.
-        # 🚨 `candidate`, NOT `tier`. This read tier == "public" a few lines
-        # after tier was forced to "private", so it was dead code and the
-        # occluded-pass bug came straight back - now as THREE review cards for
-        # one patrol car, which a human then confirms three times onto the map.
-        # Only government candidates are folded: merging ordinary traffic by
-        # class and time window would be far too blunt.
-        prior = (db.merge_window_row(nid, c["vclass"], ts)
-                 if candidate else None)
-        if prior:
-            db.bump_detections(prior["id"], ts, c["conf"])
-            # Liveness is a SERVER observation: "this node spoke to me just
-            # now". Passing the node's own timestamp let a fast clock pin a
-            # dead camera online and a slow one flap a working camera offline,
-            # while /api/heartbeat recorded the same event correctly - so the
-            # two paths disagreed about the same node.
-            db.heartbeat(nid)
-            return self._json({"id": prior["id"], "tier": tier,
-                               "vclass": c["vclass"], "merged_into": prior["id"],
-                               "why": "same pass as a sighting seconds earlier"})
-
-        # Reduce BEFORE the write, never on the way out: a read-time redaction
-        # leaves the data on the disk, and the disk is what gets copied.
-        rec = mirror.strip_sighting(rec)
-        rec["id"] = db.insert_sighting(rec)
-        # 🚨 LINK THE BANKED CROP TO THE SIGHTING IT CAME FROM.
-        # Without this a remote crop is an orphan: labelling it "police" in the
-        # UI would record the judgement and leave the map untouched, because
-        # _sync_sighting has no id to promote. A volunteer's phone catching a
-        # patrol car has to be able to reach the map, or their contribution is
-        # training data and nothing else.
-        if banked_stem:
-            try:
-                from detect import bank as _bank
-                _bank.link_sighting(banked_stem, rec["id"])
-            except Exception:
-                pass
-        # Park the plate-less crop for the home classifier, keyed by this row.
-        # After strip_sighting, so nothing about the mirror's own record changed.
-        if relay_crop is not None:
-            mirror.quarantine_write(rec["id"], relay_crop, {
-                "ts": ts, "pub_lat": s_lat, "pub_lon": s_lon,
-                "node_name": nd.get("name") or "",
-                "det_conf": ev.get("det_conf"), "body": ev.get("body")})
-        # A camera's government candidate parks in the review pen for a human.
-        if review_crop is not None:
-            mirror.review_write(rec["id"], review_crop, {
-                "ts": ts, "node_id": nid, "node_name": nd.get("name") or "",
-                "score": c.get("conf"), "vclass": c["vclass"],
-                "det_conf": ev.get("det_conf"), "body": ev.get("body")})
-            # The full-resolution original beside it, at home only. This is
-            # what the reviewer is shown and what a confirmation publishes, so
-            # the livery survives the wait and a plate is not destroyed for a
-            # vehicle whose plate is the entire point of the public tier.
-            # mirror.evidence_write refuses on a mirror; core.EVIDENCE carries
-            # the rails and the cost.
-            if evidence_crop is not None:
-                mirror.evidence_write(rec["id"], evidence_crop)
-
-        # A node that is posting is self-evidently awake, so a submission is
-        # also a heartbeat. Detectors that never learn to beat still show
-        # online while they are actually working.
-        db.heartbeat(nid)
-        FEED.publish(rec)
+        # ingest_persistence calls mirror.strip_sighting before inserting.
+        persisted = ingest_persistence.persist_vehicle_sighting(
+            rec, ev, nd, nid, c, ts, candidate, s_lat, s_lon, banked_stem,
+            relay_crop, review_crop, evidence_crop, FEED,
+        )
+        if persisted.merged_into is not None:
+            return self._json({
+                "id": persisted.merged_into,
+                "tier": tier,
+                "vclass": c["vclass"],
+                "merged_into": persisted.merged_into,
+                "why": "same pass as a sighting seconds earlier",
+            })
+        rec = persisted.record
         # 🚨 TELL THE CAMERA ITS CROP IS WAITING ON A HUMAN.
         # A phone detects VEHICLES; the government call happens here, after the
         # post. So the phone has never known it caught a patrol car - the
