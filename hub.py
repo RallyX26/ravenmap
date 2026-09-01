@@ -29,6 +29,7 @@ import admission
 import community
 import db
 import ingest_decisions
+import ingest_media
 import ingest_record
 import mapdata
 import microcache
@@ -3159,149 +3160,17 @@ class Handler(BaseHTTPRequestHandler):
         if decision.decided_by:
             ev["_decided_by"] = decision.decided_by
 
-        # A public mirror cannot score a phone crop (no GPU, no trained head),
-        # so it parks a plate-less copy for the home classifier to pull. Captured
-        # HERE, before the mirror drops the image below, and written to the inbox
-        # after the row exists so it can be keyed by the sighting id. The size is
-        # re-verified (subresolution_bytes), so an oversized crop is refused, not
-        # quarantined. See mirror.quarantine_write.
-        relay_crop = None
-        if (source == "phone_node" and ev.get("snap_b64")
-                and mirror.relay_enabled()):
-            try:
-                relay_crop = snapshot.subresolution_bytes(ev["snap_b64"])
-            except Exception:
-                relay_crop = None
-
-        # A camera node scores its own crop, so its GOVERNMENT candidates go
-        # straight to the review pen for a human to confirm - captured here as a
-        # sub-resolution, plate-less crop BEFORE the mirror strips the image
-        # below. Phone-node crops take the inbox path instead (box_puller pulls
-        # and scores them at home first), so they are excluded here.
-        # `phone` (a human submission) is included here now that it no longer
-        # reaches the public tier by itself: the pen is where its claim gets
-        # looked at. `phone_node` is still excluded because it has its own route
-        # - the inbox, which box_puller pulls and scores at home.
-        review_crop = None
-        evidence_crop = None
-        if (source != "phone_node" and mirror.relay_enabled()
-                and ev.get("snap_b64") and c["vclass"] in ("police", "gov_dot")):
-            try:
-                # 🚨 CROP TO THE VEHICLE FIRST. A camera node posts its whole
-                # FRAME (store_submitted crops it server-side), so merely
-                # downscaling it parked a 200px photograph of the street - and
-                # the neighbours' houses with it - in front of every reviewer.
-                # The published snapshot was already being cropped correctly;
-                # only this second reader of the same field was not.
-                _vb = ev.get("vehicle_box")
-                if _vb:
-                    review_crop = snapshot.crop_to_subres(ev["snap_b64"],
-                                                          tuple(_vb))
-                    # And the same crop WITHOUT the 200px shrink, for the
-                    # reviewer and for whatever gets published if they say yes.
-                    # Built here because this is the last point the original
-                    # frame is still in hand - below, the mirror strips the
-                    # image and the redaction path rewrites it. Failing to
-                    # produce it must never cost the pen its card, so the pen
-                    # crop above is computed first and this cannot unset it.
-                    try:
-                        evidence_crop = snapshot.crop_full(ev["snap_b64"],
-                                                           tuple(_vb))
-                    except Exception:
-                        evidence_crop = None
-                else:
-                    # No box means nothing to crop to. Park no picture rather
-                    # than a bystander's - the same call the snapshot path
-                    # already makes a few lines below. The candidate still
-                    # reaches the reviewer, without an image.
-                    review_crop = None
-            except Exception:
-                review_crop = None
-
-        dropped_image = None
-        banked_stem = None
-        if ev.get("snap_b64") and not mirror.may_store_image(tier):
-            # Nothing to redact, nothing to leak, nothing to subpoena. A
-            # mirror keeps photographs of published government vehicles only.
-            ev.pop("snap_b64", None)
-            dropped_image = "public mirror keeps no private-tier imagery"
-        if ev.get("snap_b64") and not ev.get("snap"):
-            pbox = ev.get("plate_box")
-            pboxes = ev.get("plate_boxes") or ([pbox] if pbox else [])
-            vbox = ev.get("vehicle_box")
-            meta = {"ts": float(ev.get("ts") or now()), "node_id": nid,
-                    "node_name": nd["name"], "tier": tier,
-                    "plate_text": plate, "vclass": c["vclass"],
-                    "watermark": "UNVERIFIED" if source == "phone" else ""}
-            if source == "phone_node" and not pbox:
-                # A phone node cannot locate a plate to redact, so it destroys
-                # it instead: the crop arrives already below plate legibility.
-                # store_subresolution MEASURES that rather than believing it.
-                try:
-                    ev["snap"] = snapshot.store_subresolution(ev["snap_b64"], meta)
-                    # And keep a copy for labelling. This is the entire reason
-                    # phone nodes are worth building: every window someone puts
-                    # a camera in is real vehicles in real conditions, which is
-                    # what the classifier has been starving for.
-                    #
-                    # 🚨 BUT A MIRROR MUST NEVER BANK. mirror.may_bank() existed
-                    # for exactly this and was never called, so a public mirror
-                    # was writing the ORIGINAL full-resolution crop to disk -
-                    # the un-degraded image, the thing THREAT_MODEL promises a
-                    # breach cannot yield. Labelling happens where the camera is;
-                    # the mirror carries claims, not photographs of the street.
-                    if mirror.may_bank():
-                        from detect import bank as _bank
-                        banked_stem = _bank.bank_remote(
-                            snapshot.decode_bytes(ev["snap_b64"]), nid,
-                            {"ts": float(ev.get("ts") or now()),
-                             "cls_name": ev.get("body") or "car",
-                             "det_conf": ev.get("det_conf")})
-                except ValueError as exc:
-                    dropped_image = str(exc)
-                except Exception as exc:
-                    return self._err(400, f"snapshot rejected: {exc}")
-            elif tier != "public" and not pbox and not candidate:
-                # We cannot redact a plate we cannot locate, and a photograph of
-                # a car IS a photograph of its plate. So a private-tier image
-                # with no plate box is discarded rather than stored. The
-                # sighting itself still counts; only the picture is dropped.
-                #
-                # ⚠️ `not candidate` IS THE THIRD BEHAVIOUR THIS FILE LOST BY
-                # READING `tier` AFTER IT WAS FORCED TO PRIVATE. The two named
-                # above tier's rewrite are fragment merging and the pen write;
-                # this is the same mistake with the worst outcome. A marked
-                # patrol car whose plate the camera could not resolve - which is
-                # MOST of them, at 22px against the 60 an OCR needs - hit this
-                # branch and had its photograph thrown away for failing to
-                # locate a plate that was never going to be legible. The
-                # candidate's original is kept in core.EVIDENCE below instead,
-                # where the reviewer can actually see the livery.
-                dropped_image = "no plate box to redact on a private-tier image"
-            elif source == "phone":
-                # A human aimed the camera; their framing IS the crop.
-                try:
-                    ev["snap"] = snapshot.store_prepared(
-                        ev["snap_b64"], meta,
-                        plate_box=tuple(pbox) if pbox else None)
-                except Exception as exc:
-                    return self._err(400, f"snapshot rejected: {exc}")
-            elif not vbox:
-                # 🚨 A CAMERA NODE MUST SEND THE BOX IT DETECTED.
-                # Without one there is nothing to crop to, and the previous
-                # behaviour - fall through to the phone path - stored the whole
-                # street: the neighbours' houses and other vehicles' plates,
-                # none of them redacted. Drop the picture instead. The sighting
-                # still counts; an un-croppable image is not worth a bystander.
-                dropped_image = "camera submission carried no vehicle_box to crop to"
-            else:
-                try:
-                    ev["snap"] = snapshot.store_submitted(
-                        ev["snap_b64"], meta, tuple(vbox),
-                        plate_box=tuple(pbox) if pbox else None,
-                        plate_boxes=[tuple(b) for b in pboxes])
-                except Exception as exc:
-                    return self._err(400, f"snapshot rejected: {exc}")
+        try:
+            media = ingest_media.prepare_vehicle_media(
+                ev, nd, nid, plate, source, c, tier, candidate
+            )
+        except ingest_media.SnapshotRejected as exc:
+            return self._err(400, f"snapshot rejected: {exc}")
+        relay_crop = media.relay_crop
+        review_crop = media.review_crop
+        evidence_crop = media.evidence_crop
+        dropped_image = media.dropped_image
+        banked_stem = media.banked_stem
 
         # 🚨 CLAMP THE NODE'S CLOCK. IT DECIDES RETENTION, ORDERING AND LIVENESS.
         #
