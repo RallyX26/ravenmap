@@ -124,7 +124,11 @@ for _d in (DATA, SNAPS):
 # entire privacy posture of a deployment in one screen.
 
 DEFAULTS = {
-    "site_name": "SparrowMap",
+    "site_name": "RavenMap",
+
+    # Optional CARTO basemap API key.
+    # Deployment-specific; never commit a real key.
+    "carto_api_key": "",
 
     # 🧪 STAGED, OFF BY DEFAULT. The aircraft page (/planes) reads live ADS-B
     # and the FAA registry to show government aircraft and ones that are
