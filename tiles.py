@@ -34,6 +34,7 @@ from __future__ import annotations
 import threading
 import urllib.request
 from pathlib import Path
+from core import CONFIG
 
 from ratelimit import rate_ok
 
@@ -169,6 +170,12 @@ def serve(handler, path: str) -> None:
 
     url = TILE_UPSTREAM.format(s=TILE_SUBDOMAINS[(x + y) % len(TILE_SUBDOMAINS)],
                                z=z, x=x, y=y)
+
+    carto_key = str(CONFIG.get("carto_api_key", "")).strip()
+    if carto_key:
+        from urllib.parse import quote
+        url += "?key=" + quote(carto_key, safe="")
+
     try:
         raw = urllib.request.urlopen(urllib.request.Request(
             url, headers={"User-Agent": "SparrowMap/0.1 (+https://sparrowmap.com)"}),
