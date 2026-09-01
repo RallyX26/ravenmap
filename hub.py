@@ -29,6 +29,7 @@ import admission
 import community
 import db
 import ingest_decisions
+import ingest_record
 import mapdata
 import microcache
 import mirror
@@ -3307,70 +3308,17 @@ class Handler(BaseHTTPRequestHandler):
         # This took the submitted value unchecked, and three separate systems
         # read it afterwards. A camera running one hour slow has its sighting
         # stored, penned, confirmed by a human and promoted to public - and then
-        # never drawn, because /api/sightings defaults to since = now() - 3600.
-        # Every counter reports success and the dot is simply not on the map.
-        # A back-dated row is also what the retention sweep deletes first, so a
-        # skewed clock can quietly feed evidence to the janitor.
-        #
-        # The node's claim is kept in the response rather than thrown away: the
-        # camera is the only party that can fix its own clock, and it cannot fix
-        # what it is never told. `clock_skew_s` is what a node should log loudly.
-        claimed = float(ev.get("ts") or now())
-        server_now = now()
-        skew = claimed - server_now
-        # A little slack for network delay and honest drift; beyond that the
-        # SERVER's clock wins, because it is the one every reader compares
-        # against.
-        ts = claimed if abs(skew) <= 120 else server_now
-
-        # ⚠️ NEVER nd["lat"] / nd["lon"] HERE. Those are the camera's TRUE
-        # coordinates, and /api/sightings serves whatever is stored to anyone.
-        # Storing them defeated the node-position jitter entirely - one
-        # sighting gave up the exact camera location. See
-        # nodes.sighting_position.
-        #
-        # The seed makes the position stable for this sighting and different
-        # from the next one, so passes spread along the watched stretch instead
-        # of stacking 31 dots on one pixel.
-        s_lat, s_lon = node_mod.sighting_position(
-            nd, ev.get("lat"), ev.get("lon"),
-            seed=f"{nid}:{ts:.3f}:{ev.get('snap_sha256') or plate or ''}")
-
-        # An empty string is not "no plate", it is a value - and it was being
-        # counted as a distinct vehicle. Store the absence as an absence.
-        phash = privacy.plate_hash(plate, ev.get("plate_state", "")) or None
-
-        rec = {
-            "node_id": nid, "ts": ts,
-            "lat": s_lat, "lon": s_lon,
-            "tier": tier,
-            "plate_hash": phash,
-            # Plate text rides on `tierable` alone, NOT on the tier. A public
-            # SIGHTING is public because it carries no identifier; attaching an
-            # unverified plate to it would smuggle the identifier back in
-            # through the very row that was supposed to be identifier-free.
-            # Stored for a PUBLIC-tier row, served only after a human confirms
-            # it - see privacy.redact. The photograph on a public row already
-            # shows the plate, so keeping the text alongside adds no exposure
-            # that the image did not; what it adds is SEARCH, and search waits
-            # for a person. A retraction purges both (db.review_sighting).
-            # 🚨 PLATE TEXT RIDES ON `tierable` ALONE. The old `or tier=="public"`
-            # attached a plate to any public row - including a `sightable`-only
-            # dot, which is public precisely BECAUSE it carries no identifier.
-            # That smuggled the identifier back into the row that was supposed to
-            # be identifier-free, the exact thing the comment below warns of.
-            "plate_text": plate if c["tierable"] else None,
-            "plate_state": ev.get("plate_state") if c["tierable"] else None,
-            "plate_conf": conf,
-            "vclass": c["vclass"], "vclass_conf": c["conf"], "vclass_why": c["why"],
-            "color": ev.get("color"), "body": ev.get("body"),
-            "make": ev.get("make"), "model": ev.get("model"),
-            "heading": ev.get("heading"), "speed_mph": ev.get("speed_mph"),
-            "snap": ev.get("snap"), "source": ev.get("source", "camera"),
-            "reviewed": ev.get("_reviewed"), "decided_by": ev.get("_decided_by"),
-            "bank_ref": (ev.get("bank_ref") or None),
-            "sig_ok": 1 if sig_ok else 0,
-        }
+        timestamp = ingest_record.resolve_ingest_timestamp(ev.get("ts"))
+        ts = timestamp.timestamp
+        skew = timestamp.skew
+        # The record builder preserves the privacy.redact boundary by storing
+        # only node_mod.sighting_position's safe coordinates.
+        record = ingest_record.build_vehicle_sighting_record(
+            ev, nd, nid, plate, conf, c, tier, sig_ok, ts
+        )
+        rec = record.record
+        s_lat = record.latitude
+        s_lon = record.longitude
         # 🚨 IS THIS A NEW VEHICLE, OR THE SAME ONE STILL CROSSING THE FRAME?
         # A tracker that loses a vehicle behind a window pillar and re-acquires
         # it produces several completed tracks for one pass, and each posted its
@@ -3450,18 +3398,9 @@ class Handler(BaseHTTPRequestHandler):
         # `parked` is the honest signal: not "this is a cop", but "a person is
         # being asked about this one", which is exactly when it is worth asking
         # the person who is standing there.
-        out = {"id": rec["id"], "tier": tier, "vclass": c["vclass"],
-               "why": c["why"], "parked": review_crop is not None}
-        if abs(skew) > 120:
-            # Said plainly, because the node cannot see this any other way and
-            # the consequence - its sightings landing outside every default
-            # time window - is invisible from its side.
-            out["clock_skew_s"] = round(skew, 1)
-            out["note"] = (f"your clock is {abs(skew):.0f}s "
-                           f"{'ahead of' if skew > 0 else 'behind'} the hub; "
-                           f"the server time was used instead")
-        if dropped_image:
-            out["image_dropped"] = dropped_image
+        out = ingest_record.build_ingest_response_metadata(
+            rec["id"], tier, c, review_crop is not None, skew, dropped_image
+        )
         return self._json(out)
 
     # -- server-sent events ---------------------------------------------
