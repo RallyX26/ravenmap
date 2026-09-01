@@ -56,6 +56,14 @@ from detect.vehicle_id import VehicleIdentifier    # noqa: E402
 REMOTE_PY = "/opt/sparrowmap/.venv/bin/python"
 REMOTE_PUBLISH = "/opt/sparrowmap/tools/box_publish.py"
 
+# 🪟 NO POPUP WINDOW. On Windows every subprocess that launches a console child
+# (ssh, tar, a nested python) flashes a console window unless told not to. The
+# puller runs on a loop and peeks-then-pulls over ssh each cycle, so without
+# this a CMD window blinks on his desktop every pass - reported as annoying, and
+# rightly. CREATE_NO_WINDOW exists only on Windows; getattr keeps this a no-op
+# everywhere else.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+
 # The marked-law-enforcement gate. These classes' prompts are all marked-
 # specific (see vehicle_id.CLASSES); the thresholds are measured to sit above
 # every unmarked false positive in the ground-truth set. Deliberately strict:
@@ -115,11 +123,21 @@ def pull(args) -> tuple[Path, bool]:
     # so the ssh exit code alone cannot distinguish the two. What can: ssh
     # returns 255 for its own failures, and a reachable host with an empty
     # directory still produces a valid (tiny) tar on stdout.
-    proc = subprocess.run(
-        ["ssh", "-i", args.key, "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
-         "-o", "StrictHostKeyChecking=accept-new", args.box,
-         f"tar -C {args.remote} -cf - . 2>/dev/null || true"],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+    try:
+        proc = subprocess.run(
+            ["ssh", "-i", args.key, "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
+             "-o", "StrictHostKeyChecking=accept-new", args.box,
+             f"tar -C {args.remote} -cf - . 2>/dev/null || true"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120,
+            creationflags=_NO_WINDOW)
+    except subprocess.TimeoutExpired:
+        # 🚨 A STALLED SSH IS "COULD NOT REACH THE BOX THIS CYCLE", NOT A CRASH.
+        # His uplink blips, and a hung ssh raised TimeoutExpired straight past
+        # the loop's BoxUnreachable handler and KILLED the puller - which then
+        # stayed dead while the box's 12h inbox TTL deleted crops unread. The
+        # remote tar itself takes ~0.1s; the timeout only ever fires on the
+        # link, so convert it to the recoverable error the loop already retries.
+        raise BoxUnreachable(f"ssh to {args.box} timed out reading the inbox")
     if proc.returncode != 0 or not proc.stdout:
         err = (proc.stderr or b"").decode("utf-8", "replace").strip()[:200]
         raise BoxUnreachable(
@@ -128,7 +146,7 @@ def pull(args) -> tuple[Path, bool]:
     try:
         subprocess.run(["tar", "-C", str(tmp), "-xf", "-"],
                        input=proc.stdout, capture_output=True, timeout=60,
-                       check=True)
+                       check=True, creationflags=_NO_WINDOW)
     except Exception as exc:                                  # noqa: BLE001
         # An unreadable archive is also not an empty inbox.
         raise BoxUnreachable(f"inbox transferred but could not be extracted: {exc}")
@@ -152,13 +170,14 @@ def apply_verdict(args, publish: list[dict], review: list[dict],
         proc = subprocess.run(
             [sys.executable, str(repo / "tools" / "box_publish.py")],
             input=payload, capture_output=True, text=True, timeout=120,
-            cwd=str(repo))
+            cwd=str(repo), creationflags=_NO_WINDOW)
     else:
         proc = subprocess.run(
             ["ssh", "-i", args.key, "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
              "-o", "StrictHostKeyChecking=accept-new", args.box,
              REMOTE_PY + " " + REMOTE_PUBLISH],
-            input=payload, capture_output=True, text=True, timeout=180)
+            input=payload, capture_output=True, text=True, timeout=180,
+            creationflags=_NO_WINDOW)
 
     out = (proc.stdout or "").strip()
     try:
@@ -348,6 +367,11 @@ def main() -> None:
                     help="read a LOCAL inbox dir instead of ssh (staging)")
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--interval", type=float, default=0.0)
+    ap.add_argument("--idle-max", type=float, default=15.0,
+                    help="when the inbox has been empty, back off the poll up to "
+                         "this many seconds (snaps back to --interval the instant "
+                         "a crop arrives). Cuts idle ssh churn; a live drive is "
+                         "untouched. Set equal to --interval to disable.")
     ap.add_argument("--limit", type=int, default=0,
                     help="process at most N crops this run (0 = all)")
     ap.add_argument("--dry-run", action="store_true",
@@ -417,7 +441,8 @@ def main() -> None:
                 ["ssh", "-i", args.key, "-o", "ConnectTimeout=15",
                  "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
                  args.box, f"ls {args.remote}/*.json 2>/dev/null | wc -l"],
-                capture_output=True, text=True, timeout=40).stdout.strip()
+                capture_output=True, text=True, timeout=40,
+                creationflags=_NO_WINDOW).stdout.strip()
             if cnt == "0":
                 print(f"inbox empty at {time.strftime('%H:%M:%S')}; nothing to do")
                 return
@@ -454,14 +479,22 @@ def main() -> None:
     # quiet night, while the box's 12h inbox TTL quietly deleted the crops it
     # was failing to collect.
     if args.interval and not args.once:
-        print(f"polling the box every {args.interval:.0f}s; Ctrl-C to stop")
+        print(f"polling the box every {args.interval:.0f}s "
+              f"(backing off to {args.idle_max:.0f}s when idle); Ctrl-C to stop")
         fails = 0
+        idle = 0
         while True:
             try:
-                report(run_once(vid, args))
+                result = run_once(vid, args)
+                report(result)
                 fails = 0
+                # An empty pull means nobody is contributing right now. A crop
+                # resets this to 0 immediately, so a live drive always polls at
+                # the fast rate - only genuine quiet stretches slow down.
+                idle = 0 if result.get("pulled") else idle + 1
             except BoxUnreachable as exc:
                 fails += 1
+                idle = 0                      # a failure is not a quiet inbox
                 print(f"BOX UNREACHABLE ({fails} in a row): {exc}",
                       file=sys.stderr)
                 # A blip is not an outage; a run of them is. Keep polling either
@@ -471,7 +504,16 @@ def main() -> None:
                           "running. Crops on the box expire after 12 hours, so "
                           "contributions are being lost while this persists.",
                           file=sys.stderr)
-            time.sleep(args.interval)
+            # 🔌 ADAPTIVE BACKOFF, because SSH multiplexing is impossible here:
+            # both ssh clients on Windows (MSYS Cygwin sockets, native named
+            # pipes) refuse ControlMaster, so every cycle is a fresh connection.
+            # Polling an empty inbox every 2s opened ~10 ssh/min around the
+            # clock. Instead, double the wait each consecutive empty cycle up to
+            # --idle-max, and snap back to the fast rate the instant a crop
+            # lands. Idle connections drop several-fold; a live drive is
+            # untouched (its first crop waits at most --idle-max, then fast).
+            wait = min(args.idle_max, args.interval * (2 ** min(idle, 6)))
+            time.sleep(wait)
     else:
         try:
             report(run_once(vid, args))

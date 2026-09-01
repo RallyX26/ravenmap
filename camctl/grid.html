@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pick the police — SparrowMap</title>
+<style>
+  :root{--bg:#0a0d12;--panel:#111621;--line:#1e2733;--ink:#e7edf5;--dim:#9fb0c3;
+    --green:#3ddc97;--blue:#5cc8ff;--red:#ff3b47;}
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    -webkit-text-size-adjust:100%}
+  header{position:sticky;top:0;z-index:5;background:rgba(10,13,18,.96);
+    border-bottom:1px solid var(--line);backdrop-filter:blur(6px);
+    padding:10px 14px;display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center}
+  h1{font-size:17px;margin:0;font-weight:700}
+  .count{font:600 13px/1 ui-monospace,Consolas,monospace;color:var(--dim)}
+  .count b{color:var(--green);font-size:16px}
+  select{background:#0c1119;color:var(--ink);border:1px solid var(--line);
+    border-radius:8px;padding:7px 9px;font:13px inherit}
+  .spacer{flex:1}
+  button{border:0;border-radius:9px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer}
+  .save{background:var(--green);color:#08110b}
+  .skip{background:#141b26;color:var(--dim);border:1px solid var(--line)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .hint{padding:8px 14px;color:var(--dim);font-size:12.5px;border-bottom:1px solid var(--line)}
+  .hint b{color:var(--ink)}
+  .msg{padding:8px 14px;font-size:13px;display:none}
+  .msg.on{display:block}
+  .msg.good{color:var(--green)} .msg.err{color:var(--red)}
+  #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+    gap:8px;padding:12px 14px 120px}
+  .tile{position:relative;aspect-ratio:1/1;border-radius:10px;overflow:hidden;
+    border:2px solid var(--line);cursor:pointer;background:#0c1119}
+  .tile img{width:100%;height:100%;object-fit:cover;display:block;
+    -webkit-user-select:none;user-select:none;pointer-events:none}
+  .tile.on{border-color:var(--green);box-shadow:0 0 0 2px var(--green) inset}
+  .tile .tick{position:absolute;top:6px;left:6px;width:26px;height:26px;border-radius:50%;
+    background:var(--green);color:#08110b;font-weight:900;font-size:16px;
+    display:none;align-items:center;justify-content:center;line-height:1}
+  .tile.on .tick{display:flex}
+  .tile .tag{position:absolute;bottom:0;left:0;right:0;padding:3px 6px;font-weight:800;
+    font-size:12px;text-align:center;background:rgba(61,220,151,.92);color:#08110b;display:none}
+  .tile.on .tag{display:block}
+  .empty{padding:40px 14px;color:var(--dim);text-align:center}
+  .bar{position:fixed;left:0;right:0;bottom:0;background:rgba(10,13,18,.97);
+    border-top:1px solid var(--line);padding:10px 14px;display:flex;gap:10px;align-items:center;z-index:6}
+  .bar .n{color:var(--dim);font:600 13px/1 ui-monospace,monospace}
+  .bar .n b{color:var(--green)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Pick the police 🚔</h1>
+  <span class="count">gov vehicles: <b id="count">–</b></span>
+  <select id="mode" title="which crops to show">
+    <option value="likely">Likely gov — model's best guesses (fast)</option>
+    <option value="gap">Gap — CLIP says gov, head refused</option>
+    <option value="review_public">Public cams — random (grows the test set)</option>
+    <option value="patrol">Patrol — plant filtered out</option>
+  </select>
+  <div class="spacer"></div>
+</header>
+<div class="hint">Click every <b>police</b> vehicle. Everything you don't click is saved as <b>not-police</b>. &nbsp; <b>Enter</b> = save &amp; next grid &nbsp;·&nbsp; <b>S</b> = skip grid</div>
+<div class="msg" id="msg"></div>
+<div id="grid"></div>
+
+<div class="bar">
+  <button class="save" id="save">Save &amp; next ⏎</button>
+  <button class="skip" id="skip">Skip grid</button>
+  <span class="n"><b id="sel">0</b> marked police this grid</span>
+</div>
+
+<script>
+(function () {
+  var grid = document.getElementById('grid');
+  var msgEl = document.getElementById('msg');
+  var countEl = document.getElementById('count');
+  var selEl = document.getElementById('sel');
+  var saveBtn = document.getElementById('save');
+  var skipBtn = document.getElementById('skip');
+  var modeSel = document.getElementById('mode');
+  var items = [];            // {day, stem}
+  var picked = {};           // "day\tstem" -> true
+  var busy = false;
+  var nextGrid = null;       // prefetched next batch, so "next" is instant
+  var saved = {};            // crops already saved this session - the server
+                             // updates its index in the background, so filter
+                             // these out ourselves rather than re-show them
+
+  function key(it) { return it.day + '\t' + it.stem; }
+  function say(t, k) { msgEl.textContent = t; msgEl.className = 'msg on ' + (k || ''); }
+  function clearMsg() { msgEl.className = 'msg'; }
+  function updateSel() {
+    var n = 0; for (var k in picked) if (picked[k]) n++;
+    selEl.textContent = n;
+  }
+
+  function render() {
+    grid.innerHTML = '';
+    if (!items.length) {
+      grid.innerHTML = '<div class="empty">Nothing left in this queue. Try another mode above.</div>';
+      return;
+    }
+    items.forEach(function (it) {
+      var d = document.createElement('div');
+      d.className = 'tile' + (picked[key(it)] ? ' on' : '');
+      var url = '/api/bank/img/' + encodeURIComponent(it.day) + '/' + encodeURIComponent(it.stem);
+      d.innerHTML = '<img loading="lazy" src="' + url + '" alt="">' +
+                    '<div class="tick">✓</div><div class="tag">POLICE</div>';
+      d.addEventListener('click', function () {
+        var k = key(it);
+        picked[k] = !picked[k];
+        d.classList.toggle('on', picked[k]);
+        updateSel();
+      });
+      grid.appendChild(d);
+    });
+    updateSel();
+  }
+
+  function fetchBatch() {
+    return fetch('/api/bank/grid?mode=' + encodeURIComponent(modeSel.value) + '&n=24')
+      .then(function (r) { return r.json(); });
+  }
+  function prefetch() {
+    var m = modeSel.value;
+    fetchBatch().then(function (j) { if (modeSel.value === m) nextGrid = j; })
+                .catch(function () {});
+  }
+  function applyBatch(j) {
+    // Drop anything already saved this session (the server's index is updated
+    // in the background, so a fresh draw can still include them for a moment).
+    items = (j.items || []).filter(function (it) { return !saved[key(it)]; });
+    if (j.positive_passes != null) countEl.textContent = j.positive_passes;
+    clearMsg();
+    render();
+    // Always re-enable here: the instant-prefetch path returns through this
+    // function too, and if only the slow fetch path re-enabled, the buttons
+    // stayed dead after a save and the grid looked stuck until a refresh.
+    busy = false;
+    saveBtn.disabled = false;
+    skipBtn.disabled = false;
+    prefetch();                       // warm the next grid while he works
+  }
+  function load() {
+    if (busy) return;
+    picked = {};
+    if (nextGrid) {                   // instant: the next grid is already here
+      var j = nextGrid; nextGrid = null; applyBatch(j); return;
+    }
+    busy = true; saveBtn.disabled = true; skipBtn.disabled = true;
+    say('Loading…');
+    fetchBatch()
+      .then(function (j) { busy = false; saveBtn.disabled = false; skipBtn.disabled = false; applyBatch(j); })
+      .catch(function () { busy = false; saveBtn.disabled = false; skipBtn.disabled = false; say('Could not load the grid.', 'err'); });
+  }
+
+  function save() {
+    if (busy || !items.length) return;
+    busy = true; saveBtn.disabled = true; skipBtn.disabled = true;
+    var police = [], other = [];
+    items.forEach(function (it) {
+      (picked[key(it)] ? police : other).push({ day: it.day, stem: it.stem });
+      saved[key(it)] = true;   // never show this crop again this session
+    });
+    say('Saving ' + police.length + ' police, ' + other.length + ' not…');
+    fetch('/api/bank/grid_label', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: modeSel.value, police: police, other: other })
+    }).then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.positive_passes != null) countEl.textContent = j.positive_passes;
+        var pub = j.published ? ('  ·  ' + j.published + ' published to the map') : '';
+        var fail = j.failed ? ('  ·  ' + j.failed + ' failed') : '';
+        say('Saved ' + (j.police || 0) + ' police, ' + (j.civilian || 0) + ' not-police' + pub + fail, 'good');
+        busy = false;
+        load();
+      }).catch(function () { say('Save failed — nothing lost, try again.', 'err'); busy = false; saveBtn.disabled = false; skipBtn.disabled = false; });
+  }
+
+  saveBtn.addEventListener('click', save);
+  skipBtn.addEventListener('click', load);
+  modeSel.addEventListener('change', function () { nextGrid = null; load(); });
+  addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); save(); }
+    else if (e.key.toLowerCase() === 's' || e.key === 'Escape') { e.preventDefault(); load(); }
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

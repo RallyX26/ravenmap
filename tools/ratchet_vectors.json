@@ -1,0 +1,18 @@
+{
+  "A_pub": "BOtRM9yPs4ZdUBM0Os00HeTKu1R8topJhzA0lmzRJlkJC8uKenYZVYbxJDbqZy6I6ZZOAmFUzghkUwC9dVhFVWE=",
+  "B_priv": {
+    "key_ops": [
+      "deriveBits"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "VD6hiBMjpDunBto1pkdnvepc-lIyWV4Ru8XZjgOTOQk",
+    "y": "ivakgfxgp1ijK4Z67B2rnAdtqPv7HCZeBpvAZX_mWQQ",
+    "crv": "P-256",
+    "d": "TEXChRlKNPLCPm031nVSURpa_71RYtbFg15lG56SebQ"
+  },
+  "B_pub": "BFQ+oYgTI6Q7pwbaNaZHZ73qXPpSMlleEbvF2Y4DkzkJivakgfxgp1ijK4Z67B2rnAdtqPv7HCZeBpvAZX/mWQQ=",
+  "frame_b64": "UwEBAAAAAAAElZ8R5fJGeBUXaconLvgkyIa2camw/jw8/XpymQ+v2bq2+Qd2I4miX5vKvH0a3PHS4mGGjczkhIwB0+mnEOXYeV/lWx79RJYzdUxP8nnHMQlc7yWkXII4FS3RetNedoVblg==",
+  "expect_kind": 1,
+  "expect_text": "hello from A"
+}

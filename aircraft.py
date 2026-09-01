@@ -46,6 +46,49 @@ _TRACKS: dict = {}
 _WINDOW_S = 30 * 60
 _MAX_TRACKS = 4000
 
+# Aircraft pushed by LOCAL ADS-B receivers (a Pi running dump1090), keyed by
+# icao -> (lat, lon, alt, track, call, ts, node). These augment the OpenSky feed
+# with coverage it misses, and expire quickly since a plane out of local range
+# stops being pushed. See tools/sensors/adsb_feed.py and /api/aircraft/ingest.
+_LOCAL: dict = {}
+_LOCAL_TTL_S = 60.0
+_MAX_LOCAL = 4000
+
+
+def ingest_local(craft: list, node: str) -> int:
+    """Store aircraft a local receiver reports. Returns how many were accepted.
+    Each entry: {icao, lat, lon, alt_m?, track?, call?}. Bad rows are skipped
+    rather than failing the batch - a receiver should never be able to 400 the
+    whole push over one malformed line."""
+    now = time.time()
+    if len(_LOCAL) > _MAX_LOCAL:
+        _LOCAL.clear()
+    n = 0
+    for a in craft:
+        try:
+            icao = str(a.get("icao") or "").strip().lower()
+            lat = float(a["lat"]); lon = float(a["lon"])
+        except (AttributeError, TypeError, ValueError, KeyError):
+            continue
+        if not icao or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            continue
+        alt = a.get("alt_m")
+        try:
+            alt = float(alt) if alt is not None else None
+        except (TypeError, ValueError):
+            alt = None
+        _LOCAL[icao] = {"lat": lat, "lon": lon, "alt": alt,
+                        "track": a.get("track"), "call": str(a.get("call") or ""),
+                        "ts": now, "node": node}
+        # Feed the same track store OpenSky uses, so orbit detection works on
+        # locally-seen aircraft too.
+        t = _TRACKS.setdefault(icao, [])
+        if not t or now - t[-1][3] > 5:
+            t.append([lat, lon, alt, now])
+        _TRACKS[icao] = [p for p in t if now - p[3] <= _WINDOW_S]
+        n += 1
+    return n
+
 # Same thresholds as tools/orbit_watch.py, and deliberately conservative: a
 # missed orbit costs nothing, a false one sends somebody to look at a crop
 # duster and teaches them to ignore the next alert.
@@ -161,6 +204,36 @@ def live(box: list) -> dict:
             "orbit": orb.get("orbit", False),
             "orbit_detail": orb if orb.get("orbit") else None,
             "points": len(_TRACKS[icao]),
+        })
+
+    # Merge in locally-received aircraft the OpenSky snapshot did not include,
+    # inside the requested box and still fresh. Coverage a Pi caught that the
+    # aggregator missed.
+    seen = {a["icao"] for a in out}
+    lamin, lomin, lamax, lomax = box
+    for icao, a in list(_LOCAL.items()):
+        if now - a["ts"] > _LOCAL_TTL_S:
+            _LOCAL.pop(icao, None)
+            continue
+        if icao in seen:
+            continue
+        if not (lamin <= a["lat"] <= lamax and lomin <= a["lon"] <= lomax):
+            continue
+        who = gov.get(icao.upper())
+        orb = _orbit(_TRACKS.get(icao, []))
+        out.append({
+            "icao": icao, "call": a["call"],
+            "lat": a["lat"], "lon": a["lon"],
+            "alt_m": round(a["alt"]) if a["alt"] else None,
+            "speed": None, "track": a["track"],
+            "owner": who[0] if who else None,
+            "n_number": who[1] if who else None,
+            "gov": bool(who),
+            "law_enforcement": _is_le(who[0]) if who else False,
+            "orbit": orb.get("orbit", False),
+            "orbit_detail": orb if orb.get("orbit") else None,
+            "points": len(_TRACKS.get(icao, [])),
+            "local": True,
         })
 
     return {"aircraft": out,

@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Set up a sensor — SparrowMap</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<meta name="theme-color" content="#0B0E13">
+<style>
+  :root{ --bg:#0B0E13; --panel:#121722; --panel2:#0f1420; --ink:#e7edf5;
+         --muted:#93a3b3; --line:#22303f; --accent:#2ee08a; --warn:#f59e0b; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15.5px/1.65 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:10px;padding:12px 16px;
+         border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
+  header a.back{color:var(--accent);text-decoration:none;font-weight:600}
+  .tag{color:var(--muted);font-size:12px}
+  main{max-width:820px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:26px;margin:6px 0 4px}
+  h2{font-size:20px;margin:30px 0 8px;padding-top:14px;border-top:1px solid var(--line);scroll-margin-top:60px}
+  h3{font-size:15px;margin:16px 0 4px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+  p{margin:8px 0}
+  .lede{color:var(--muted);font-size:16px}
+  .muted{color:var(--muted)}
+  ol{margin:8px 0;padding-left:22px} li{margin:7px 0}
+  a.plain{color:var(--accent)}
+  pre{background:#0a0f18;border:1px solid var(--line);border-radius:10px;
+      padding:12px 14px;overflow-x:auto;font-size:13px;line-height:1.5}
+  code{background:#0a0f18;border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:13px}
+  pre code{border:0;padding:0;background:none}
+  .box{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:13px 16px;margin:14px 0;color:var(--muted);font-size:13.5px}
+  .box.warn{border-color:#5e4a1c}
+  .box b{color:var(--ink)}
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+  .toc a{background:var(--panel);border:1px solid var(--line);border-radius:20px;
+         padding:6px 12px;color:var(--ink);text-decoration:none;font-size:13.5px}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--line);color:var(--muted);margin-left:6px;vertical-align:middle}
+  .foot{color:var(--muted);font-size:12.5px;margin-top:30px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/guides">&larr; Guides</a>
+  <b>🧰 SET UP A SENSOR</b>
+  <span class="tag">step by step</span>
+</header>
+<main>
+  <h1>Set up a sensor</h1>
+  <p class="lede">Step‑by‑step setup for each hardware feed. For what to buy or
+     build first, see <a class="plain" href="/sensors">/sensors</a>. Already have
+     a camera? Those guides are <a class="plain" href="/guide">Add a camera</a>,
+     <a class="plain" href="/IPCamera">Add an IP camera</a>,
+     <a class="plain" href="/rfbeta">RF scanner</a>, and
+     <a class="plain" href="/contribute">the API</a>.</p>
+
+  <div class="toc">
+    <a href="#token">First: a node token</a>
+    <a href="#radar">📡 Radar</a>
+    <a href="#planes">✈️ Planes</a>
+    <a href="#drones">🛸 Drones</a>
+    <a href="#radio">📻 Police radio</a>
+  </div>
+
+  <h2 id="token">First: get a node token</h2>
+  <p>Every hardware feed is authenticated — a live dot on the map is always tied
+     to a node, never an anonymous tap. So each feeder needs your <b>node id</b>
+     and its <b>token</b>.</p>
+  <ol>
+    <li><a class="plain" href="/app">Enrol a node</a> (it can be the same Pi you're
+        using for sensors — a node is just an account here, it doesn't have to be
+        a camera).</li>
+    <li>Note the node id (<code>n_…</code>) and save its token to a file, e.g.
+        <code>mynode.token</code>. Keep it private.</li>
+    <li>Every command below takes <code>--node n_… --key mynode.token</code>.</li>
+  </ol>
+  <div class="box">All feeder scripts live under <code>tools/sensors/</code> in the
+     <a class="plain" href="https://github.com/SparrowMap/sparrowmap">source</a>
+     (radar is <code>tools/radar_bridge.py</code>). Run any of them with
+     <code>--simulate</code> first to watch the payloads without hardware.</div>
+
+  <!-- RADAR -->
+  <h2 id="radar">📡 Radar / speed traps <span class="pill">beta</span></h2>
+  <h3>You need</h3>
+  <p>A radar detector with <b>Bluetooth</b> output (Uniden R7/R8, Escort, or
+     Radenso), and a device to run the bridge (a phone hotspot + laptop, or a Pi
+     in the car). A USB GPS or gpsd gives position; otherwise pass a fixed one.</p>
+  <h3>Easiest: in your browser</h3>
+  <ol>
+    <li>Pair the detector to your phone or computer (it usually appears as a COM
+        port, or a Bluetooth LE device).</li>
+    <li>Open <a class="plain" href="/radarlink">the browser connect page</a>, paste
+        your node id + token, pick your location, and hit <b>Connect via Serial</b>
+        (or Bluetooth LE). That's it — no scripts.</li>
+  </ol>
+  <div class="box">Chrome/Edge on a computer or Android only — Apple blocks
+     browser‑to‑hardware on iPhone. There, use the PC bridge below.</div>
+  <h3>Or: the PC bridge (any detector, incl. iPhone users' setups)</h3>
+  <ol>
+    <li>Pair the detector so it shows up as a serial port (<code>COM5</code> on
+        Windows, <code>/dev/rfcomm0</code> on Linux).</li>
+    <li>Run the bridge (great for a fixed detector on an always‑on PC):
+      <pre><code>python tools/radar_bridge.py --hub https://map.sparrowmap.com \
+    --node n_abcd1234 --key mynode.token \
+    --serial COM5 --gpsd</code></pre>
+      For a fixed spot, drop <code>--gpsd</code> and pass <code>--lat/--lon</code>.</li>
+    <li>Watch it on the <a class="plain" href="/radar">radar screen</a>, or turn on
+        <b>Layers → radar / speed traps</b> on the map.</li>
+  </ol>
+  <div class="box warn"><b>Bands matter.</b> Ka (33–35 GHz) is police‑only and
+     reads red. K (24 GHz) also comes from cars' blind‑spot radar and X is mostly
+     doors, so those need a second reporter before they're trusted. Detecting is
+     legal in 48 states (not VA/DC, not commercial vehicles); jammers are illegal
+     everywhere — we only receive.</div>
+
+  <!-- PLANES -->
+  <h2 id="planes">✈️ Planes &amp; police aircraft <span class="pill">beta</span></h2>
+  <h3>You need</h3>
+  <p>An RTL‑SDR dongle + 1090 MHz antenna on a Raspberry Pi running
+     <b>dump1090</b> (or PiAware).</p>
+  <h3>Steps</h3>
+  <ol>
+    <li>Install dump1090‑fa; confirm it serves JSON at
+        <code>http://localhost:8080/data/aircraft.json</code>.</li>
+    <li>Run the feeder:
+      <pre><code>python tools/sensors/adsb_feed.py --hub https://map.sparrowmap.com \
+    --node n_abcd1234 --key mynode.token \
+    --dump1090 http://localhost:8080/data/aircraft.json</code></pre></li>
+    <li>Your locally‑received aircraft merge into the aircraft layer, and an
+        <b>orbit</b> over one spot is flagged automatically.</li>
+  </ol>
+  <div class="box">The aircraft layer is a staged preview, so the hub may return
+     404 on ingest until it's switched on for the network. The feeder is ready
+     either way. Receiving ADS‑B is legal — receive‑only, no transmitting.</div>
+
+  <!-- DRONES -->
+  <h2 id="drones">🛸 Drones (Remote ID) <span class="pill">beta</span></h2>
+  <h3>You need</h3>
+  <p>An <b>ESP32‑S3</b> flashed with open‑source OpenDroneID / WiFi‑RemoteID
+     firmware (it prints one JSON object per drone it hears), on USB. A phone app
+     like Drone Scanner works too if you'd rather pipe its output.</p>
+  <h3>Steps</h3>
+  <ol>
+    <li>Flash the ESP32 and confirm it prints Remote ID JSON over serial.</li>
+    <li>Run the feeder pointed at that port:
+      <pre><code>python tools/sensors/drone_feed.py --hub https://map.sparrowmap.com \
+    --node n_abcd1234 --key mynode.token --serial COM6</code></pre></li>
+    <li>Turn on <b>Layers → drones (Remote ID)</b>. Each drone shows as a live
+        point that fades when it stops broadcasting.</li>
+  </ol>
+  <div class="box">Local and state police drones must broadcast Remote ID;
+     federal can fly dark and home‑built ones may not comply — so this shows
+     "drones that announced themselves," not every drone.</div>
+
+  <!-- RADIO -->
+  <h2 id="radio">📻 Police radio activity <span class="pill">beta</span></h2>
+  <h3>You need</h3>
+  <p>An RTL‑SDR + <b>trunk‑recorder</b> following your county's P25 system, and
+     the receiver's fixed location.</p>
+  <h3>Steps</h3>
+  <ol>
+    <li>Get trunk‑recorder decoding calls (check your county isn't fully
+        encrypted first — many are).</li>
+    <li>Point the feeder at its call output and give your location:
+      <pre><code>python tools/sensors/p25_feed.py --hub https://map.sparrowmap.com \
+    --node n_abcd1234 --key mynode.token \
+    --lat 42.73 --lon -84.55 --calls /var/trunk-recorder/calls</code></pre></li>
+    <li>Turn on <b>Layers → police radio activity</b>. A soft pulse appears where
+        your scanner is hearing dispatch.</li>
+  </ol>
+  <div class="box warn"><b>This is an area, not a pinpoint.</b> Scanner audio
+     tells you a department is active near a receiver — it does not locate a
+     specific car. Encryption is spreading, so coverage varies a lot by county.</div>
+
+  <p class="foot">Every feed is receive‑only and node‑authenticated. Only
+     government/marked vehicles are ever published; a private vehicle's plate is
+     removed on the device before anything is uploaded. Questions? See
+     <a class="plain" href="/sensors">/sensors</a> or
+     <a class="plain" href="/guides">all guides</a>.</p>
+</main>
+</body>
+</html>

@@ -27,7 +27,12 @@ import privacy
 
 # What the camera may say. `unsure` is a real answer and deliberately does
 # nothing to the map: it is a training label about a crop nobody could call.
-VALID = {"police", "gov", "civilian", "fleet", "unsure"}
+VALID = {"police", "gov", "civilian", "fleet", "unsure", "screen"}
+# `screen` = a vehicle photographed off a screen/phone (a faked sighting). It is
+# never a publishable government vehicle, so it falls through to the demote
+# branch below and RETRACTS a fake that the classifier had already published,
+# exactly like `civilian`/`fleet`. Without it here the box would reject the
+# label and leave the spoof on the map.
 
 
 def _publishes(vclass: str) -> bool:
@@ -111,7 +116,8 @@ def apply(sid: int, row: dict, label: str, undo: str = "") -> dict:
             return {"did": f"reclassified:{vclass}", "published": True}
         return {"did": None, "published": True}
 
-    # civilian / fleet
+    # civilian / fleet / screen - anything a human says is not a publishable
+    # government vehicle. A `screen` fake retracts here just like an ordinary car.
     if tier == "public":
         db.review_sighting(sid, "retracted")
         return {"did": "retracted", "published": False}

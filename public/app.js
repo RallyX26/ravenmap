@@ -109,6 +109,11 @@ const state = {
   // not what the map should be doing before anybody asks. See the viewport
   // bound on /api/nodes, which is the other half of this.
   showPubCams: false,
+  showPolice: false,          // OpenStreetMap police-station overlay
+  showCameras: false,         // OpenStreetMap Flock/ALPR surveillance-camera overlay
+  showRadar: false,           // live radar / speed-trap sources from paired detectors
+  showDrones: false,          // drones broadcasting Remote ID (paired ESP32/Pi)
+  showRadio: false,           // police-radio activity heard by a paired scanner
   // 🚁 TWO AIRCRAFT SWITCHES, NOT ONE, AND THAT IS THE WHOLE POINT.
   //
   // "Government" is a registration category, and most of what falls in it is
@@ -211,6 +216,140 @@ L.tileLayer('/api/tile/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap contributors &copy; CARTO &middot; RavenMap',
   maxZoom: 20,
 }).addTo(map);
+/* 🗺️ OUR OWN vector basemap. We serve a full-planet Protomaps archive
+ * (planet.pmtiles, on the box via `pmtiles serve`) and render it with MapLibre
+ * GL through the Leaflet bridge - keeping every Leaflet marker/layer below,
+ * only the basemap changes. This ends the dependency on Carto, whose rate-limit
+ * "API KEY REQUIRED" placeholder was poisoning tile caches at three layers
+ * (see the tile-cache note). The viewer's IP and the streets they look at still
+ * never leave our origin. `?raster=1` falls back to the old Carto proxy as an
+ * escape hatch if the vector map ever misbehaves on a device. */
+// 🗺️ Self-hosted VECTOR basemap is now the DEFAULT. `?raster=1` is the escape
+// hatch to the old Carto proxy.
+//
+// 🚨 THE BLANK-BASEMAP ROOT CAUSE (finally found, 2026-08-27, and it was NEITHER
+// the worker NOR the resize the old notes chased): MapLibre gates its ENTIRE
+// initial style load behind ONE requestAnimationFrame -
+//   Style.loadJSON -> browser.frameAsync -> requestAnimationFrame -> _load(style)
+// A map built while the tab is NOT PAINTING - a backgrounded PWA/standalone
+// launch, a link opened in a background tab, the split second before first paint -
+// never receives that frame. So the style never loads: no sources are created, no
+// tile is ever requested, and CRUCIALLY no error and no event fire. It is silent,
+// and non-deterministic (any later repaint/resize delivers the missing frame and
+// rescues it - which is exactly why it "rendered the whole planet once"). Every
+// past console diagnosis that "proved" a bare direct maplibregl.Map fails too was
+// itself run in an occluded automation tab where rAF is paused - same trap.
+// PROVEN: shimming requestAnimationFrame to a timer renders the whole planet in
+// that same hidden tab, styleLoaded true, 15 tiles, zero errors.
+//
+// THE CURE: guarantee that one frame fires. startFramePump() wraps rAF so each
+// callback ALSO gets a short timer fallback (de-duped, so a healthy foreground
+// frame is untouched - native rAF wins the race and the timer is a no-op). It is
+// active ONLY from just before the map is built until its first frame is drawn,
+// then it restores the native rAF so the render loop keeps real vsync timing.
+// A watchdog falls back to raster if the vector map ever fails to load, because
+// keeping the map VISIBLE outranks the vector upgrade - it is never left blank.
+
+function startFramePump() {
+  const rAF = window.requestAnimationFrame.bind(window);
+  const cAF = window.cancelAnimationFrame.bind(window);
+  let active = true;
+  window.requestAnimationFrame = function (cb) {
+    let fired = false;
+    const once = (t) => { if (fired) return; fired = true; try { cb(t); } catch (e) { /* keep the loop alive */ } };
+    const r = rAF(once);
+    // 60ms ~ one very slow frame; only ever matters when the native frame is
+    // starved (hidden tab / no paint). When rAF is healthy `once` de-dupes it away.
+    const s = setTimeout(() => once(performance.now()), 60);
+    return { __pump: 1, r, s };
+  };
+  window.cancelAnimationFrame = function (h) {
+    if (h && h.__pump) { cAF(h.r); clearTimeout(h.s); } else { cAF(h); }
+  };
+  return function stop() {
+    if (!active) return;
+    active = false;
+    window.requestAnimationFrame = rAF;
+    window.cancelAnimationFrame = cAF;
+  };
+}
+
+function addRasterBasemap() {
+  L.tileLayer('/api/tile/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO &middot; SparrowMap',
+    maxZoom: 20,
+  }).addTo(map);
+}
+
+if (!new URLSearchParams(location.search).has('raster')) {
+  try {
+    // Pump frames across map construction so the rAF-gated style load always runs.
+    const stopPump = startFramePump();
+    // Never hold the global rAF override longer than a few seconds, whatever happens.
+    const hardStop = setTimeout(stopPump, 8000);
+
+    const glLayer = L.maplibreGL({
+      style: '/basemap/style.json?v=5',
+      attribution: '&copy; OpenStreetMap contributors &middot; SparrowMap',
+    }).addTo(map);
+
+    // The bridge builds its maplibregl.Map synchronously inside addTo(), so the
+    // handle is available now. Latch a ONE-SHOT "the basemap came up" flag off the
+    // first load/idle - and end the pump there. 'load' and 'idle' each fire once the
+    // first full frame is on screen; whichever comes first latches basemapUp. The 8s
+    // hardStop is the backstop if neither fires (e.g. a tab that stays hidden).
+    // ⚠️ Do NOT use isStyleLoaded() for this - it is false during ANY tile load,
+    // including a normal zoom, so sampling it later would wrongly declare failure.
+    const glMap = (glLayer.getMaplibreMap && glLayer.getMaplibreMap()) || glLayer._glMap;
+    // basemapUp latches TRUE the instant MapLibre's style DEFINITION has loaded - the
+    // moment the rAF gate we are fighting clears and the vector map is going to render.
+    // It never un-latches, so a later zoom (which reloads tiles and makes
+    // isStyleLoaded() briefly false) can never make the watchdog think we failed, and a
+    // slow phone still streaming tiles is not mistaken for a failure either.
+    let basemapUp = false;
+    const endPump = () => { clearTimeout(hardStop); stopPump(); };
+    if (glMap) {
+      glMap.on('styledata', () => { if (glMap.style && glMap.style._loaded) basemapUp = true; });
+      glMap.once('load', endPump);
+      glMap.once('idle', endPump);
+    }
+
+    // 🚨 THE BRIDGE'S resize GAP: leaflet-maplibre-gl's _resize only re-sizes the
+    // container DIV and jumpTo()s - it NEVER calls _glMap.resize(). So a container
+    // that lays out a beat after the GL map is built (flex column / first paint)
+    // leaves MapLibre's internal size stale. Re-size the container AND the GL map
+    // whenever #map actually has a size; a ResizeObserver re-syncs on first layout,
+    // rotate and panel toggles too.
+    const syncSize = () => {
+      try {
+        if (glLayer._resizeContainer) glLayer._resizeContainer();
+        const g = (glLayer.getMaplibreMap && glLayer.getMaplibreMap()) || glLayer._glMap;
+        if (g && g.resize) g.resize();
+      } catch (e) { /* never let a basemap hiccup take the whole map down */ }
+    };
+    const mapEl = document.getElementById('map');
+    if (window.ResizeObserver && mapEl) new ResizeObserver(syncSize).observe(mapEl);
+    map.whenReady(syncSize);
+
+    // 🛡️ WATCHDOG: keeping the map visible outranks the vector upgrade. If the
+    // basemap NEVER came up (basemapUp still false after 8s - some environment the
+    // pump did not foresee), drop it and fall back to the Carto raster proxy so it is
+    // never blank. Keyed off the latched basemapUp flag, NOT isStyleLoaded(), so a
+    // user zooming (which reloads tiles) can never trip it once the map is working.
+    setTimeout(() => {
+      if (basemapUp) return;
+      try {
+        if (glLayer && map.hasLayer(glLayer)) map.removeLayer(glLayer);
+        addRasterBasemap();
+      } catch (e) { try { addRasterBasemap(); } catch (_) { /* give up quietly */ } }
+    }, 8000);
+  } catch (e) {
+    // Anything at all goes wrong standing up the vector map -> raster, immediately.
+    addRasterBasemap();
+  }
+} else {
+  addRasterBasemap();
+}
 
 state.camLayer.addTo(map);
 // The camera layer is the only one whose SHAPE depends on the zoom - a span
@@ -354,7 +493,7 @@ function drawSighting(s) {
   if (!passes(s)) { state.markers.delete(s.id); return; }
 
   const m = L.circleMarker([s.lat, s.lon], pingStyle(s));
-  m.on('click', () => select(s.id));
+  m.on('click', () => snapTo(s.id));
   m.addTo(state.pingLayer);
   state.markers.set(s.id, m);
 }
@@ -401,9 +540,18 @@ const movingNow = () => state.traffic.size;
 function paintLive() {
   const dot = $('#live');
   if (!dot || state.online === null) return;   // still saying "connecting"
-  if (!state.online) { dot.lastChild.textContent = 'reconnecting'; return; }
+  // The passing count lives in its own #livecount span so the phone header can
+  // hide it (it is already shown in the traffic bar) and let LIVE share a row
+  // with the What's-new / Sign in / bug controls instead of pushing them down.
+  const msg = $('#livemsg'), cnt = $('#livecount');
+  if (!state.online) {
+    if (msg) msg.textContent = 'reconnecting';
+    if (cnt) cnt.textContent = '';
+    return;
+  }
+  if (msg) msg.textContent = 'live';
   const n = movingNow();
-  dot.lastChild.textContent = n ? `live · ${n} passing` : 'live';
+  if (cnt) cnt.textContent = n ? ` · ${n} passing` : '';
 }
 
 /* One timer fades and reaps every traffic dot. Per-dot timers would mean
@@ -525,9 +673,31 @@ function renderList() {
     return;
   }
 
-  $('#list').innerHTML = rows.slice(0, 300).map((s) => `
+  // 🚨 SKIP the rebuild when the visible rows and selection are unchanged.
+  // renderList runs on every ~4s poll; rebuilding innerHTML recreated every
+  // <img class="thumb">, so each poll re-fetched EVERY snapshot - a constant
+  // thumbnail-reload loop (visible flicker + network spam). The signature
+  // covers everything the markup depends on (id, snapshot, class, plate,
+  // selection); relative times refresh on the next real change, which is a fine
+  // trade for not reloading the whole list four times a minute.
+  const shown = rows.slice(0, 300);
+  // NOTE: relative time (ago) is deliberately NOT in the signature - including it
+  // would rebuild (and reload every thumbnail) every time a "2m" ticked to "3m".
+  // Times refresh whenever the row set, class, snapshot or selection changes.
+  // selection is NOT in the signature - moving the highlight (highlightSelected)
+  // must not trigger a rebuild, or every tap would reset the list scroll.
+  const sig = shown.map((s) => s.id + ':' + (s.snap || '') + ':' + s.vclass
+    + ':' + (s.plate_text || '')).join(',');
+  if (sig === renderList._sig) return;
+  renderList._sig = sig;
+
+  // preserve scroll across a rebuild so a new sighting doesn't jump you to the top
+  const _list = $('#list');
+  const _scroll = _list.scrollTop;
+  _list.innerHTML = shown.map((s) => `
     <li data-id="${s.id}" class="${s.id === state.selected ? 'sel' : ''}">
       <i class="sw" style="background:${COLOR[s.vclass] || COLOR.unknown}"></i>
+      ${s.snap ? `<img class="thumb" loading="lazy" src="/snap/${encodeURIComponent(s.snap)}" alt="">` : ''}
       <div class="who">
         <b class="${isPublic(s) ? '' : 'priv'}" style="${isPublic(s)
           ? 'color:' + (COLOR[s.vclass] || COLOR.unknown) : ''}">${
@@ -535,25 +705,49 @@ function renderList() {
         <span>${esc(s.color || '')} ${esc(s.body || '')} · ${esc(s.node_id)}</span>
       </div>
       <div class="when">${ago(s.ts)}</div>
+      <button class="li-detail" data-detail="${s.id}" aria-label="Open full details"
+        title="Open full details">&#10530;</button>
     </li>`).join('');
+  _list.scrollTop = _scroll;
 }
 
 $('#list').addEventListener('click', (e) => {
   const li = e.target.closest('li');
-  if (li) select(Number(li.dataset.id));
+  if (!li || li.classList.contains('note')) return;
+  const id = Number(li.dataset.id);
+  // the ⤢ button opens the full card; tapping the row just snaps the map + bubble
+  if (e.target.closest('[data-detail]')) openDetail(id);
+  else snapTo(id);
 });
+
+// 🚨 Move the selection highlight WITHOUT rebuilding the list. renderList sets
+// #list.innerHTML, which resets the scroll to the top - so selecting a sighting
+// far down the list (then closing it) used to throw you back to the top and you
+// lost your place. Toggling the .sel class in place leaves the scroll untouched.
+function highlightSelected() {
+  const list = $('#list');
+  if (!list) return;
+  list.querySelectorAll('li.sel').forEach((li) => li.classList.remove('sel'));
+  if (state.selected != null) {
+    const li = list.querySelector(`li[data-id="${state.selected}"]`);
+    if (li) li.classList.add('sel');
+  }
+}
 
 function closeDetail() {
   state.selected = null;
   $('#detail').classList.add('hidden');
+  const bg = $('#detailbg'); if (bg) bg.hidden = true;
   // A trail drawn from the detail panel belongs to the detail panel; leaving
   // it on the map after closing leaves a line nobody can explain or remove.
   if (state.trackHash) {
     state.trackHash = null;
     state.trailLayer.clearLayers();
   }
-  renderList();
+  highlightSelected();
 }
+// Tapping the scrim behind the popup closes it, same as Back.
+document.getElementById('detailbg')?.addEventListener('click', closeDetail);
 
 // Escape gets you out of anything.
 addEventListener('keydown', (e) => {
@@ -681,7 +875,80 @@ function openLightbox(s) {
   document.body.appendChild(ov);
 }
 
-async function select(id) {
+// 🚨 Clicking a sighting row (or a map dot) SNAPS the map to it and drops a
+// thumbnail bubble on the map - it does NOT open the big card. The bubble, or
+// the row's ⤢ button, opens the full detail (openDetail). Two levels of intent:
+// "show me where" vs "tell me everything".
+function snapTo(id) {
+  const s = state.sightings.get(id);
+  if (!s) { openDetail(id); return; }   // not cached - just open the card
+  state.selected = id;
+  highlightSelected();
+  const m = state.markers.get(id);
+  if (m) m.bringToFront();
+  // 🚨 CENTRE IT DETERMINISTICALLY. `{animate:true}` here + the bubble popup's
+  // own autoPan raced each other: the FIRST tap (which also changes zoom) landed
+  // centred, but every SUBSEQUENT same-zoom tap left the sighting ~half a map off
+  // to a corner (measured: 663px, then 0px after a plain setView). An instant,
+  // non-animated setView is the authoritative centre, and the popup below no
+  // longer pans, so nothing shoves it afterwards. Verified centred to the pixel.
+  map.setView([s.lat, s.lon], Math.max(map.getZoom(), 14), { animate: false });
+  showBubble(s);
+  bringMapIntoView();
+}
+
+// After tapping a row in the sightings list, make sure the map you just centred
+// is actually in front of you. On the phone layout the WHOLE PAGE scrolls (the
+// map is a 56vh band at the top, the list flows below it), so tapping a row far
+// down the list re-centres a map that has scrolled off the top - the sighting
+// moves to the map's centre, but the map isn't on screen, so it "shows but isn't
+// centred". Leaflet's own popup auto-pan only pans WITHIN the map div, which does
+// not help when that div is above the viewport. Scroll it back under the sticky
+// header. A no-op on desktop, where `main` is absolutely positioned and never
+// scrolls, so the map is always in view.
+function bringMapIntoView() {
+  const mapEl = document.getElementById('map');
+  if (!mapEl) return;
+  const headh = parseInt(getComputedStyle(document.documentElement)
+                  .getPropertyValue('--headh')) || 0;
+  const b = mapEl.getBoundingClientRect();
+  if (b.top >= headh - 1 && b.bottom <= innerHeight + 1) return;  // already fully visible
+  // scroll-margin-top so scrollIntoView lands the map BELOW the sticky header
+  // instead of behind it (the header covers the top --headh px when scrolled).
+  mapEl.style.scrollMarginTop = (headh + 4) + 'px';
+  mapEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function showBubble(s) {
+  const cap = esc(isPublic(s) && !s.plate_text ? label_for(s.vclass) : label(s));
+  // The thumbnail is ZOOMED (see .bubble .bub-img in shell.css) so the navy
+  // masked border the isolator paints around the vehicle is cropped out - the
+  // bubble shows the vehicle, not the frame.
+  const img = s.snap
+    ? `<span class="bub-img"><img src="/snap/${encodeURIComponent(s.snap)}" alt=""></span>`
+    : '';
+  const html = `<div class="bubble" data-detail="${s.id}" role="button" tabindex="0"
+      title="Open full details">${img}<span class="bub-cap">${cap}<em>tap for details</em></span></div>`;
+  // 🚨 autoPan:false — snapTo has ALREADY centred the sighting, and Leaflet's
+  // popup autoPan would pan the map again to fit the bubble, knocking the
+  // sighting off the centre it was just placed at (this was the "only the first
+  // click centres" bug). The bubble opens above an already-centred point, so it
+  // is on-screen without any auto-panning.
+  const p = L.popup({ className: 'sight-bubble', closeButton: true, maxWidth: 240,
+                      autoPan: false, offset: [0, -4] })
+    .setLatLng([s.lat, s.lon]).setContent(html).openOn(map);
+  const el = p.getElement && p.getElement();
+  const b = el && el.querySelector('.bubble[data-detail]');
+  if (b) {
+    const open = () => openDetail(Number(b.dataset.detail));
+    b.addEventListener('click', open);
+    b.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); }
+    });
+  }
+}
+
+async function openDetail(id) {
   state.selected = id;
   const s = state.sightings.get(id) || await (await fetch(`/api/sighting/${id}`)).json();
   state.sightings.set(id, s);
@@ -781,7 +1048,11 @@ async function select(id) {
 
   const m = state.markers.get(id);
   if (m) { m.bringToFront(); map.panTo([s.lat, s.lon]); }
-  renderList();
+  // The detail is a centered popup over a scrim now (not inline in the sidebar),
+  // so the list keeps its scroll and its place. Show the scrim, move the
+  // highlight without rebuilding the list.
+  const bg = $('#detailbg'); if (bg) bg.hidden = false;
+  highlightSelected();
 }
 
 /* ---------------------------------------------------------------- trail -- */
@@ -805,7 +1076,7 @@ async function showTrail(hash) {
     L.circleMarker([r.lat, r.lon], {
       radius: i === rows.length - 1 ? 6 : 3.5, color: col, fillColor: col,
       fillOpacity: 0.9, weight: 1,
-    }).on('click', () => select(r.id)).addTo(state.trailLayer);
+    }).on('click', () => openDetail(r.id)).addTo(state.trailLayer);
   });
   map.fitBounds(L.latLngBounds(pts).pad(0.25));
 
@@ -1356,6 +1627,352 @@ if (_showpubcams) {
   };
 }
 
+/* 🚔 POLICE-STATION OVERLAY (OpenStreetMap).
+ *
+ * Context behind the dots, NOT a sighting: fixed buildings a viewer can use to
+ * orient, drawn as a distinct navy "PD" badge so it can never be mistaken for a
+ * government-vehicle dot. Bounded to the viewport and gated on zoom for the same
+ * reason the traffic cameras are - there are ~15k nationwide, and dumping them
+ * at country zoom is both a huge draw and useless. The hub serves only the ones
+ * in the current box (/api/police?box=), so a phone gets the few dozen on screen.
+ */
+const POLICE_MIN_ZOOM = 0;       // always show (dots when far out), like cameras
+const POLICE_DETAIL_ZOOM = 12;   // navy PD badges at street level
+const POLICE_ICON = L.divIcon({
+  className: 'polstn-wrap',
+  html: '<div style="background:#16305c;color:#cfe3ff;border:1px solid #4f7fc7;'
+      + 'border-radius:5px;font:700 10px/16px ui-monospace,Consolas,monospace;'
+      + 'text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.55)">PD</div>',
+  iconSize: [26, 18], iconAnchor: [13, 9], popupAnchor: [0, -9],
+});
+let _policeBox = null;
+async function loadPolice() {
+  state.policeLayer = state.policeLayer || L.layerGroup().addTo(map);
+  // Clear FIRST so unticking (or zooming out) removes what is drawn instead of
+  // leaving stale badges until the next reload - the trap the pubcam layer names.
+  state.policeLayer.clearLayers();
+  if (!state.showPolice) { _policeBox = null; return; }
+  if (map.getZoom() < POLICE_MIN_ZOOM) return;
+  let data;
+  try { data = await (await fetch('/api/police?box=' + camBoxKey())).json(); }
+  catch (err) { return; }
+  // Dots when zoomed out (fast), navy PD badges up close.
+  const detail = map.getZoom() >= POLICE_DETAIL_ZOOM;
+  (data.stations || []).forEach((p) => {
+    if (!detail) {
+      L.circleMarker([p.lat, p.lon], { radius: 3.2, weight: 1.4,
+        color: '#4f7fc7', fillColor: '#16305c', fillOpacity: 0.9 })
+        .addTo(state.policeLayer);
+      return;
+    }
+    L.marker([p.lat, p.lon], { icon: POLICE_ICON, keyboard: false })
+      .bindPopup('<b>' + esc(p.name || 'Police station') + '</b><br>'
+        + '<span style="color:#93a3b3">A police station (OpenStreetMap). '
+        + 'Context, not a sighting.</span>')
+      .addTo(state.policeLayer);
+  });
+}
+const SHOWPOLICE_KEY = 'sparrow.showPolice';
+try {
+  const saved = localStorage.getItem(SHOWPOLICE_KEY);
+  if (saved !== null) state.showPolice = saved === '1';
+} catch (err) { /* default stands */ }
+const _showpolice = $('#showpolice');
+if (_showpolice) {
+  _showpolice.checked = state.showPolice;
+  _showpolice.onchange = (e) => {
+    state.showPolice = e.target.checked;
+    try { localStorage.setItem(SHOWPOLICE_KEY, state.showPolice ? '1' : '0'); }
+    catch (err) { /* not remembering is survivable */ }
+    _policeBox = null;
+    loadPolice();
+  };
+}
+// Refetch on pan/zoom, but only when the box actually changed - same grid-snap
+// discipline as the traffic cameras, so a nudge does not re-ask.
+map.on('moveend', () => {
+  if (!state.showPolice) return;
+  const k = map.getZoom() + ':' + camBoxKey();
+  if (k === _policeBox) return;
+  _policeBox = k;
+  loadPolice();
+});
+
+/* 📷 FLOCK / ALPR SURVEILLANCE-CAMERA OVERLAY (OpenStreetMap / DeFlock).
+ *
+ * The other side of "watching the watchers": where the automated plate readers
+ * are. Community-mapped, so it drifts - cities add and remove them - which is
+ * why every camera carries "still here" / "removed" buttons that park a report
+ * for review, and why the served layer drops the ones a review confirmed gone.
+ * A red eye, deliberately unlike the navy police badge and the vehicle dots.
+ * Bounded to the viewport and gated on zoom (there are tens of thousands).
+ */
+const CAMERA_MIN_ZOOM = 0;      // always show (dots when far out); he wants them visible zoomed all the way out
+const CAMERA_DETAIL_ZOOM = 14;  // full cones + report buttons at street level
+// A red camera VIEW CONE that points the way the camera faces (its OSM
+// `direction` bearing). The camera sits at the apex; the wedge fans out toward
+// what it is watching. A camera with no mapped direction gets just the red dot.
+function cameraIcon(dir) {
+  var d = parseFloat(dir);
+  var hasDir = !isNaN(d);
+  // border-top triangle: apex at the bottom-centre (the camera), base at the top
+  // (the view direction) before rotation. translucent red so overlaps still read.
+  var cone = hasDir
+    ? '<div style="position:absolute;top:0;left:50%;transform:translateX(-50%);width:0;height:0;'
+      + 'border-left:13px solid transparent;border-right:13px solid transparent;'
+      + 'border-top:24px solid rgba(255,77,94,.38)"></div>'
+    : '';
+  var dot = '<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);'
+      + 'width:9px;height:9px;border-radius:50%;background:#7a1220;border:2px solid #ff4d5e;'
+      + 'box-shadow:0 0 0 2px rgba(0,0,0,.45)"></div>';
+  var rot = hasDir ? ('transform:rotate(' + d + 'deg);transform-origin:24px 24px;') : '';
+  return L.divIcon({
+    className: 'alprcam',
+    html: '<div style="width:48px;height:48px;position:relative;' + rot + '">' + cone + dot + '</div>',
+    iconSize: [48, 48], iconAnchor: [24, 24], popupAnchor: [0, -12],
+  });
+}
+// Report a camera's status. Exposed globally so the popup buttons can call it.
+// 🚨 YOU MUST BE STANDING AT THE CAMERA. The report carries your live GPS, and
+// the server refuses it unless you are within a short distance of the camera -
+// so nobody can log on from anywhere and mass-report cameras gone (or present).
+window.smCamReport = function (id, kind, camLat, camLon, btn) {
+  const wrap = btn && btn.parentNode;
+  function msg(t, ok) {
+    if (!wrap) return;
+    let m = wrap.querySelector('.camrep-msg');
+    if (!m) { m = document.createElement('div'); m.className = 'camrep-msg';
+      m.style.cssText = 'font-size:12px;margin-top:6px'; wrap.appendChild(m); }
+    m.style.color = ok ? '#3ddc97' : '#ff8a95'; m.textContent = t;
+  }
+  if (!navigator.geolocation) { msg('Your device has no location — it is needed to prove you are at the camera.', false); return; }
+  if (wrap) wrap.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+  msg('Getting your location…', true);
+  navigator.geolocation.getCurrentPosition((pos) => {
+    fetch('/api/camera/report', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id, kind: kind, lat: camLat, lon: camLon,
+        at_lat: pos.coords.latitude, at_lon: pos.coords.longitude,
+        acc: Math.round(pos.coords.accuracy || 0) }),
+    }).then((r) => r.json().then((j) => ({ ok: r.ok, j: j })))
+      .then((res) => {
+        if (res.ok && res.j.ok) msg('Thanks — recorded for review.', true);
+        else { msg(res.j.error || 'Could not send.', false);
+          if (wrap) wrap.querySelectorAll('button').forEach((b) => { b.disabled = false; }); }
+      }).catch(() => { msg('Network error, try again.', false);
+        if (wrap) wrap.querySelectorAll('button').forEach((b) => { b.disabled = false; }); });
+  }, (err) => {
+    msg('Location needed to confirm you are at the camera: ' + err.message, false);
+    if (wrap) wrap.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+  }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
+};
+let _camBox2 = null;
+async function loadSurveillance() {
+  state.cameraLayer = state.cameraLayer || L.layerGroup().addTo(map);
+  state.cameraLayer.clearLayers();
+  if (!state.showCameras) { _camBox2 = null; return; }
+  if (map.getZoom() < CAMERA_MIN_ZOOM) return;   // below this it's just noise
+  let data;
+  try { data = await (await fetch('/api/cameras?box=' + camBoxKey())).json(); }
+  catch (err) { return; }
+  // Zoomed out: light canvas dots (thousands stay smooth). Zoomed in: the full
+  // cone + report buttons. So you can SEE the cameras from far out and act on
+  // one up close, without a phone-freezing pile of DOM markers at low zoom.
+  const detail = map.getZoom() >= CAMERA_DETAIL_ZOOM;
+  (data.cameras || []).forEach((c) => {
+    if (!detail) {
+      L.circleMarker([c.lat, c.lon], { radius: 3.2, weight: 1.4,
+        color: c.confirmed ? '#3ddc97' : '#ff4d5e',
+        fillColor: '#7a1220', fillOpacity: 0.9 }).addTo(state.cameraLayer);
+      return;
+    }
+    const dir = c.dir ? (' Faces about ' + esc(String(c.dir)) + '°.') : '';
+    const badge = c.confirmed
+      ? '<span style="color:#3ddc97"> ✓ RF-confirmed present.</span>' : '';
+    L.marker([c.lat, c.lon], { icon: cameraIcon(c.dir), keyboard: false })
+      .bindPopup(
+        '<b>Flock / ALPR camera</b><br>'
+        + '<span style="color:#93a3b3">An automated licence-plate reader '
+        + '(OpenStreetMap).' + dir + badge + '</span><br>'
+        + '<span style="color:#7f8ea0;font-size:11.5px">You must be standing at '
+        + 'the camera to report it — the buttons use your location.</span>'
+        + '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">'
+        + '<button type="button" style="flex:1;padding:7px;border:0;border-radius:7px;'
+        + 'background:#173a2a;color:#3ddc97;font-weight:700;cursor:pointer" '
+        + 'onclick="smCamReport(\'' + esc(c.id) + '\',\'present\',' + c.lat + ',' + c.lon + ',this)">'
+        + '✓ Still here</button>'
+        + '<button type="button" style="flex:1;padding:7px;border:0;border-radius:7px;'
+        + 'background:#3a1720;color:#ff8a95;font-weight:700;cursor:pointer" '
+        + 'onclick="smCamReport(\'' + esc(c.id) + '\',\'removed\',' + c.lat + ',' + c.lon + ',this)">'
+        + '✗ Removed</button></div>')
+      .addTo(state.cameraLayer);
+  });
+}
+const SHOWCAMERAS_KEY = 'sparrow.showCameras';
+try {
+  const saved = localStorage.getItem(SHOWCAMERAS_KEY);
+  if (saved !== null) state.showCameras = saved === '1';
+} catch (err) { /* default stands */ }
+const _showcameras = $('#showcameras');
+if (_showcameras) {
+  _showcameras.checked = state.showCameras;
+  _showcameras.onchange = (e) => {
+    state.showCameras = e.target.checked;
+    try { localStorage.setItem(SHOWCAMERAS_KEY, state.showCameras ? '1' : '0'); }
+    catch (err) { /* survivable */ }
+    _camBox2 = null;
+    loadSurveillance();
+  };
+}
+map.on('moveend', () => {
+  if (!state.showCameras) return;
+  const k = map.getZoom() + ':' + camBoxKey();
+  if (k === _camBox2) return;
+  _camBox2 = k;
+  loadSurveillance();
+});
+
+/* 📡 RADAR / SPEED-TRAP LAYER (beta).
+ *
+ * Live police-radar sources reported by PAIRED DETECTOR HARDWARE (see
+ * tools/radar_bridge.py). These are not sightings and not taps: a dot means "a
+ * radar emission of this band was detected near here in the last few minutes,"
+ * and it fades on its own. Ka band is police-only, so it reads red-hot; K/X are
+ * dimmer because a car's blind-spot radar also lives at 24 GHz. Because these
+ * are transient, the layer refreshes on a short timer while it is on. It stays
+ * empty until a detector is feeding the network - honest, like the RF layer. */
+function radarColor(band, conf) {
+  if (band === 'laser') return '#c026d3';       // laser/lidar: distinct violet
+  if (band === 'ka') return '#ef2b2b';          // police-only: red
+  if (band === 'k') return conf >= 0.5 ? '#f59e0b' : '#b8860b';  // amber, cars share it
+  return '#8a8a8a';                             // X band: mostly doors, grey
+}
+async function loadRadar() {
+  state.radarLayer = state.radarLayer || L.layerGroup().addTo(map);
+  state.radarLayer.clearLayers();
+  if (!state.showRadar) return;
+  let data;
+  try { data = await (await fetch('/api/radar?box=' + camBoxKey())).json(); }
+  catch (err) { return; }
+  (data.dots || []).forEach((d) => {
+    const col = radarColor(d.band, d.conf);
+    const r = 10 + Math.round(10 * (d.conf || 0));
+    const icon = L.divIcon({ className: 'radar-blip', iconSize: [r * 2, r * 2],
+      html: '<span class="radar-ring" style="width:' + (r * 2) + 'px;height:'
+        + (r * 2) + 'px;border-color:' + col + '"></span>'
+        + '<span class="radar-core" style="background:' + col + '"></span>' });
+    L.marker([d.lat, d.lon], { icon, keyboard: false })
+      .bindPopup('<b style="color:' + col + '">📡 ' + esc((d.band || '').toUpperCase())
+        + ' radar</b><br>' + Math.round((d.conf || 0) * 100) + '% confidence'
+        + ' · ' + d.reporters + ' report' + (d.reporters === 1 ? '' : 's')
+        + '<br><span style="color:#93a3b3">detected ' + d.age + 's ago, fades on its own.'
+        + (d.band === 'ka' ? ' Ka band is police-only.'
+          : d.band === 'laser' ? ' Laser = active lidar speed gun.'
+          : ' K/X band can also be a car’s own radar.') + '</span>')
+      .addTo(state.radarLayer);
+  });
+}
+let _radarBox = null, _radarTimer = null;
+const SHOWRADAR_KEY = 'sparrow.showRadar';
+try {
+  const saved = localStorage.getItem(SHOWRADAR_KEY);
+  if (saved !== null) state.showRadar = saved === '1';
+} catch (err) { /* default stands */ }
+function radarTimerSync() {
+  if (state.showRadar && !_radarTimer) {
+    _radarTimer = setInterval(loadRadar, 12000);   // transient, so refresh often
+  } else if (!state.showRadar && _radarTimer) {
+    clearInterval(_radarTimer); _radarTimer = null;
+  }
+}
+const _showradar = $('#showradar');
+if (_showradar) {
+  _showradar.checked = state.showRadar;
+  _showradar.onchange = (e) => {
+    state.showRadar = e.target.checked;
+    try { localStorage.setItem(SHOWRADAR_KEY, state.showRadar ? '1' : '0'); }
+    catch (err) { /* survivable */ }
+    _radarBox = null;
+    loadRadar();
+    radarTimerSync();
+  };
+}
+map.on('moveend', () => {
+  if (!state.showRadar) return;
+  const k = camBoxKey();
+  if (k === _radarBox) return;
+  _radarBox = k;
+  loadRadar();
+});
+
+/* 🛸 LIVE SENSOR LAYERS: drones (Remote ID) and police-radio activity.
+ *
+ * Both come from paired hardware via /api/sensor and are transient like radar -
+ * a drone is a moving point, radio activity is a soft pulse where a scanner is
+ * hearing dispatch. One small generic driver runs both: a state flag, a layer,
+ * a fetch, a refresh timer, and a draw function per kind. Empty until a feeder
+ * is running (tools/sensors/drone_feed.py, p25_feed.py). */
+function makeSensorLayer(opts) {
+  // opts: {kind, flag, key(storage), checkbox, draw, refreshMs}
+  let box = null, timer = null;
+  async function load() {
+    state[opts.layer] = state[opts.layer] || L.layerGroup().addTo(map);
+    state[opts.layer].clearLayers();
+    if (!state[opts.flag]) return;
+    let data;
+    try { data = await (await fetch('/api/sensor?kind=' + opts.kind + '&box=' + camBoxKey())).json(); }
+    catch (err) { return; }
+    (data.points || []).forEach((pt) => opts.draw(state[opts.layer], pt));
+  }
+  function timerSync() {
+    if (state[opts.flag] && !timer) timer = setInterval(load, opts.refreshMs);
+    else if (!state[opts.flag] && timer) { clearInterval(timer); timer = null; }
+  }
+  try {
+    const saved = localStorage.getItem(opts.key);
+    if (saved !== null) state[opts.flag] = saved === '1';
+  } catch (err) { /* default */ }
+  const cb = $(opts.checkbox);
+  if (cb) {
+    cb.checked = state[opts.flag];
+    cb.onchange = (e) => {
+      state[opts.flag] = e.target.checked;
+      try { localStorage.setItem(opts.key, state[opts.flag] ? '1' : '0'); } catch (err) {}
+      box = null; load(); timerSync();
+    };
+  }
+  map.on('moveend', () => {
+    if (!state[opts.flag]) return;
+    const k = camBoxKey();
+    if (k === box) return;
+    box = k; load();
+  });
+  return { load, timerSync };
+}
+const _droneLayer = makeSensorLayer({
+  kind: 'drone', flag: 'showDrones', layer: 'droneLayer',
+  key: 'sparrow.showDrones', checkbox: '#showdrones', refreshMs: 10000,
+  draw: (lyr, pt) => {
+    L.marker([pt.lat, pt.lon], { icon: L.divIcon({ className: 'drone-mk',
+      iconSize: [22, 22], html: '<span class="drone-dot">🛸</span>' }), keyboard: false })
+      .bindPopup('<b style="color:#38bdf8">🛸 Drone</b><br>'
+        + (pt.label ? esc(pt.label) + '<br>' : '')
+        + '<span style="color:#93a3b3">Broadcasting Remote ID · seen ' + pt.age + 's ago</span>')
+      .addTo(lyr);
+  } });
+const _radioLayer = makeSensorLayer({
+  kind: 'radio', flag: 'showRadio', layer: 'radioLayer',
+  key: 'sparrow.showRadio', checkbox: '#showradio', refreshMs: 20000,
+  draw: (lyr, pt) => {
+    L.circleMarker([pt.lat, pt.lon], { radius: 13, weight: 1.5, color: '#f59e0b',
+      fillColor: '#f59e0b', fillOpacity: 0.16 })
+      .bindPopup('<b style="color:#f59e0b">📻 Police radio active</b><br>'
+        + (pt.label ? esc(pt.label) + '<br>' : '')
+        + '<span style="color:#93a3b3">A scanner here is hearing dispatch · '
+        + pt.age + 's ago. Area, not a pinpoint.</span>')
+      .addTo(lyr);
+  } });
+
 /* 🚁 AIRCRAFT ON THE MAP.
  *
  * The detector has existed for a while and only /planes could see it, which is
@@ -1528,6 +2145,14 @@ map.on('moveend', () => {
   const open = (on) => {
     menu.hidden = !on;
     btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+    // Only one dropdown open at a time. Each button stopPropagation()s its own
+    // click, which blocks the OTHER menu's outside-click close handler, so
+    // opening one has to close the other explicitly.
+    if (on) {
+      const lp = $('#layers'), lb = $('#layerbtn');
+      if (lp) lp.setAttribute('hidden', '');
+      if (lb) lb.setAttribute('aria-expanded', 'false');
+    }
   };
   btn.addEventListener('click', (e) => { e.stopPropagation(); open(menu.hidden); });
   menu.addEventListener('click', (e) => {
@@ -1593,6 +2218,13 @@ _showcams.onchange = (e) => {
     const open = panel.hasAttribute('hidden');
     panel.toggleAttribute('hidden', !open);
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    // Close the View menu when opening this one (see the note in the View
+    // handler): stopPropagation blocks the other's outside-click close.
+    if (open) {
+      const fm = $('#filters'), vb = $('#viewbtn');
+      if (fm) fm.setAttribute('hidden', '');
+      if (vb) vb.setAttribute('aria-expanded', 'false');
+    }
   };
   // Tapping the map closes it, the same as the View menu - a panel that can
   // only be dismissed by the button that opened it traps a phone user.
@@ -1604,6 +2236,31 @@ _showcams.onchange = (e) => {
   });
   boxes().forEach((b) => b.addEventListener('change', count));
   count();
+})();
+
+/* 🚨 On a phone, reparent the OPEN View/Layers sheet to <body>. Nested under the
+ * fixed, z-indexed <main>, the fixed sheet was painting UNDER the map on some
+ * phones (a GPU-composited map layer can beat a nested z-index). As a direct
+ * child of <body> it sits in the root stacking context, unambiguously on top.
+ * Moved back to its home parent on close (desktop keeps it in place - it is
+ * absolutely positioned against its button there). Handlers bind by id and use
+ * .contains(), both of which survive the move. */
+(function () {
+  const isPhone = () => window.matchMedia('(max-width:820px)').matches;
+  ['filters', 'layers'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const home = el.parentNode;
+    const sync = () => {
+      const shown = !el.hasAttribute('hidden');
+      if (isPhone() && shown) {
+        if (el.parentNode !== document.body) document.body.appendChild(el);
+      } else if (el.parentNode !== home) {
+        home.appendChild(el);
+      }
+    };
+    new MutationObserver(sync).observe(el, { attributes: true, attributeFilter: ['hidden'] });
+  });
 })();
 
 /* 🚨 "A POSSIBLE PATROL CAR HERE IS WAITING ON A PERSON."
@@ -1964,6 +2621,12 @@ drawSnapshot();
 refresh();
 loadPending();
 loadCameras();
+loadPolice();   // draws only if the toggle was left on and we are zoomed in
+loadSurveillance();
+loadRadar();    // draws only if the toggle was left on; empty until a detector feeds it
+radarTimerSync();
+_droneLayer.load(); _droneLayer.timerSync();
+_radioLayer.load(); _radioLayer.timerSync();
 // Towns are independent of the watched-roads toggle: they are what the map
 // shows INSTEAD of spans when zoomed out, not a second copy of them, so they
 // load whether or not the bands are switched on.
@@ -2236,6 +2899,14 @@ setInterval(ageTraffic, 1000);    // the live traffic view
     if (bg) bg.addEventListener('click', closeModal);
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !modal.hidden) closeModal();
+    });
+    // Dismissing the keyboard (Done / tap away) closes the search. The short
+    // delay lets a tap on Search or a result register first - if focus then
+    // landed inside the dialog we keep it open; only a genuine keyboard-away closes.
+    if (input) input.addEventListener('blur', () => {
+      setTimeout(() => {
+        if (!modal.hidden && !modal.contains(document.activeElement)) closeModal();
+      }, 200);
     });
     /* Picking a result means "take me there", so the dialog gets out of the
      * way. Bound on the results list rather than inside the click handler

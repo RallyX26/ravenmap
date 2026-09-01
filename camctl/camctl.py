@@ -607,8 +607,21 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, f.read_bytes(), "text/html")
         if p == "/label":
             return self._send(200, (HERE / "label.html").read_bytes(), "text/html")
+        if p == "/grid":
+            return self._send(200, (HERE / "grid.html").read_bytes(), "text/html")
         if p == "/api/bank/stats":
             return self._json(labelbank.stats())
+        if p == "/api/bank/grid":
+            # A whole screen of crops to label at once. Click the police ones;
+            # the rest save as not-police. Far faster than one crop at a time
+            # for a class as rare as police.
+            mode = q.get("mode", ["likely"])[0]
+            try:
+                n = max(6, min(48, int(q.get("n", ["24"])[0])))
+            except (TypeError, ValueError):
+                n = 24
+            return self._json({"items": labelbank.next_batch(mode, n),
+                               "mode": mode, **labelbank.stats()})
         if p == "/api/bank/next":
             bank_mode = q.get("mode", ["review"])[0]
             it = labelbank.next_item(bank_mode)
@@ -727,7 +740,20 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if body.get("clear"):
                     undone = labelbank.clear_label(body["day"], body["stem"])
+                    # An undo must reverse the WHOLE action. When the label was
+                    # applied to a same-vehicle group (`also`), clearing only the
+                    # primary left the siblings mislabelled - the exact hole that
+                    # let two civilian cars keep a `police` label after an undo.
+                    also_cleared = 0
+                    for g in (body.get("also") or [])[:7]:
+                        try:
+                            labelbank.clear_label(g["day"], g["stem"])
+                            also_cleared += 1
+                        except (KeyError, ValueError, FileNotFoundError,
+                                TypeError):
+                            pass
                     return self._json({"ok": True, "undone": undone,
+                                       "also_cleared": also_cleared,
                                        **labelbank.stats()})
                 res = labelbank.set_label(body["day"], body["stem"],
                                           body["label"],
@@ -748,6 +774,69 @@ class Handler(BaseHTTPRequestHandler):
                                    **res, **labelbank.stats()})
             except (KeyError, ValueError, FileNotFoundError) as exc:
                 return self._json({"error": str(exc)}, 400)
+
+        if u.path == "/api/bank/grid_label":
+            # Batch label from the grid picker: the crops he clicked are police,
+            # the rest of the shown grid are not-police (civilian). One request
+            # instead of one per tile. Best-effort per crop - a single bad stem
+            # never loses the rest of the screen's work.
+            if not is_operator_addr(self.client_address[0]):
+                return self._json({"error": "not an operator address"}, 403)
+            mode = body.get("mode", "likely")
+            # ⚡ ONE shared index connection for the whole batch, sequential.
+            # The real cost was NOT the network: set_label opened a fresh
+            # bank_index connection per crop and connect() re-runs the schema
+            # executescript (~100 ms), so 24 crops = ~2 s of pure overhead. With
+            # one reused connection the not-police writes are a few ms each.
+            # Not-police labels also skip the box round-trip (sync=False) unless
+            # the crop was actually published, and police are few per grid, so a
+            # thread pool is no longer worth its foot-guns (a SQLite connection
+            # is not shareable across threads anyway).
+            # 🚀 SIDECARS NOW, INDEX LATER. Measured: a sidecar write is ~11 ms
+            # but one bank_index INSERT+commit is ~160 ms on the 260 MB index, so
+            # the index update - NOT the sidecar and NOT the network - was the
+            # whole 2-8 s of a grid save. The sidecar is the truth, so write all
+            # of them (fast, and police still sync to the map), return at once,
+            # and fold the slow index updates into a background thread. The page
+            # de-dups the crops it just saved, so a momentarily-stale index never
+            # re-shows them.
+            import bank_index
+            import threading as _th
+            jobs = ([(it, "police") for it in (body.get("police") or [])[:64]]
+                    + [(it, "civilian") for it in (body.get("other") or [])[:64]])
+            done = {"police": 0, "civilian": 0, "published": 0, "failed": 0}
+            written = []
+            for it, lab in jobs:
+                try:
+                    res = labelbank.set_label(it["day"], it["stem"], lab, mode,
+                                              sync=(lab == "police"),
+                                              defer_index=True)
+                    done[lab] += 1
+                    written.append((it["day"], it["stem"]))
+                    syn = str(res.get("synced") or "")
+                    if syn.startswith("promot") or syn.startswith("reclassif"):
+                        done["published"] += 1
+                except (KeyError, ValueError, FileNotFoundError, TypeError):
+                    done["failed"] += 1
+
+            def _reindex(rows):
+                try:
+                    db = bank_index.connect()
+                    try:
+                        for day, stem in rows:
+                            try:
+                                bank_index.update_one(db, day, stem)
+                            except Exception:
+                                pass
+                    finally:
+                        db.close()
+                except Exception:
+                    pass
+            if written:
+                _th.Thread(target=_reindex, args=(written,), daemon=True).start()
+            # stats() reads the index, which is a beat behind now - fine, it
+            # catches up. The client tracks its own saved crops for the queue.
+            return self._json({"ok": True, **done, **labelbank.stats()})
 
         if u.path == "/api/confirm":
             # Pushed by the node the moment a government-looking pass ends, so

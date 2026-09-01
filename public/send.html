@@ -1,0 +1,1434 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sparrow Send</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="manifest" href="/static/send.webmanifest">
+<meta name="theme-color" content="#0b0e13">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sparrow Send">
+<style>
+  :root{
+    --ink:#eef4fc; --muted:#8ea2b8; --accent:#2b86e0; --accent2:#48b0f5;
+    --glass:rgba(8,11,18,0.58); --glass2:rgba(11,15,24,0.72);
+    --line:rgba(120,170,235,0.12); --line2:rgba(120,170,235,0.20);
+    --me:linear-gradient(180deg,#2b7fd6,#134a86); --them:rgba(20,28,44,0.60);
+  }
+  *{box-sizing:border-box}
+  /* stop iOS Safari from auto-inflating text on rotate (it grew in landscape and
+     stayed big coming back to portrait) */
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+  html,body{height:100%;margin:0}
+  body{font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--ink);
+    background:#04060a;overflow:hidden}
+  /* deep black with SparrowMap-blue glows behind the glass */
+  .bg{position:fixed;inset:0;z-index:0;overflow:hidden;background:
+      radial-gradient(1100px 680px at 12% -12%,rgba(27,116,209,0.32) 0%,transparent 58%),
+      radial-gradient(1000px 760px at 112% 16%,rgba(20,84,158,0.30) 0%,transparent 56%),
+      radial-gradient(900px 900px at 50% 124%,rgba(14,44,92,0.34) 0%,transparent 56%),#04060a}
+
+  /* the floating black-glass window */
+  .app{position:fixed;z-index:1;inset:0;display:flex;align-items:center;justify-content:center;padding:22px}
+  .win{width:100%;max-width:440px;height:min(760px,92vh);display:flex;flex-direction:column;
+    background:var(--glass);backdrop-filter:blur(34px) saturate(1.6);-webkit-backdrop-filter:blur(34px) saturate(1.6);
+    border:1px solid var(--line2);border-radius:24px;overflow:hidden;
+    box-shadow:0 40px 100px rgba(0,0,0,.6),0 0 0 1px rgba(43,134,224,.08),inset 0 1px 0 rgba(120,170,235,.12)}
+  @media(max-width:520px){ .app{padding:0}
+    /* respect the notch / status bar / home indicator - without this, viewport-fit=cover
+       renders the top bar UNDER the status bar (overlap) and taps land offset from the finger */
+    .win{max-width:none;height:100%;border-radius:0;border:0;
+      padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)} }
+
+  .brandlogo{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:24px;height:24px;border-radius:7px;display:block;cursor:pointer}
+  .brandlogo img{width:100%;height:100%;display:block;border-radius:inherit}
+  .top{position:relative;display:flex;align-items:center;gap:10px;padding:6px 14px;
+    background:transparent}
+  /* one continuous black-glass surface behind BOTH the header and favorites */
+  .topwrap{background:rgba(5,8,14,0.5);backdrop-filter:blur(10px) saturate(1.3);-webkit-backdrop-filter:blur(10px) saturate(1.3)}
+  .top .brand{font-weight:750;letter-spacing:.3px;display:flex;align-items:center;gap:8px}
+  .top .brand .logo{width:22px;height:22px;border-radius:6px;display:block}
+  .grow{flex:1}
+  .iconbtn{width:38px;height:38px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.04);
+    color:var(--ink);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;-webkit-tap-highlight-color:transparent}
+  .iconbtn:hover{border-color:var(--line2);background:rgba(255,255,255,.08)}
+  .iconbtn.badge{position:relative}
+  .iconbtn .dot{position:absolute;top:-2px;right:-2px;width:9px;height:9px;border-radius:50%;background:var(--accent);display:none}
+  .pill{border:1px solid var(--line);background:rgba(255,255,255,.05);color:var(--ink);border-radius:11px;
+    padding:9px 12px;cursor:pointer;font:600 13px system-ui;display:flex;align-items:center;gap:7px}
+  .pill:hover{border-color:var(--line2)}
+
+  /* dropdown / popover panels */
+  .panel{position:absolute;top:56px;right:12px;z-index:20;width:300px;max-width:calc(100vw - 24px);
+    background:var(--glass2);backdrop-filter:blur(26px) saturate(1.5);-webkit-backdrop-filter:blur(26px) saturate(1.5);
+    border:1px solid var(--line2);border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,.55);
+    padding:12px;display:none;max-height:min(70vh,560px);overflow:auto}
+  .panel.open{display:block;animation:pop .14s ease}
+  @keyframes pop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+  .panel h4{margin:4px 2px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .panel .sub{color:var(--muted);font-size:12px;margin:2px}
+  /* collapsible help: explanations hide behind a small "?" so the panel reads
+     clean and compact; tap the "?" to reveal that section's help. */
+  .panel .sub.hint{display:none;margin:2px 2px 8px;padding:8px 10px;border-radius:9px;
+    background:rgba(255,255,255,.03);border:1px solid var(--line)}
+  .panel .sub.hint.show{display:block;animation:rvpop .12s ease}
+  .qbtn{margin-left:auto;flex:none;width:18px;height:18px;border-radius:50%;
+    border:1px solid var(--line2);background:rgba(255,255,255,.04);color:var(--muted);
+    font:700 11px system-ui;line-height:1;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .qbtn:hover,.qbtn.on{color:var(--accent);border-color:rgba(43,134,224,.45);background:rgba(43,134,224,.12)}
+  label{display:block;font-size:12px;color:var(--muted);margin:9px 2px 4px}
+  input,textarea{width:100%;background:rgba(0,0,0,.28);border:1px solid var(--line);border-radius:10px;
+    color:var(--ink);padding:10px 11px;font:inherit;
+    /* 🚨 16px MINIMUM: iOS Safari force-zooms the page when you focus an input
+       smaller than 16px, which left the composer half off-screen. Fixing it at
+       the control (not maximum-scale=1) keeps pinch-zoom for accessibility. */
+    font-size:16px}
+  textarea{resize:none}
+  .btn{width:100%;border:1px solid var(--line2);background:rgba(43,134,224,.12);color:var(--accent);
+    border-radius:11px;padding:10px;font:700 14px system-ui;cursor:pointer;margin-top:9px}
+  .btn.ghost{background:rgba(255,255,255,.04);color:var(--ink);font-weight:600}
+  .btn.ghost.danger{color:#ff9a9a;border-color:rgba(255,120,120,.35);background:rgba(255,80,80,.08)}
+  .addr{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;word-break:break-all;
+    background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:10px;padding:9px;color:#a9cdf5}
+  /* short fingerprint of your identity - the whole ADDRESS starts with the same
+     "eyJzIjoi..." for everyone, so this is the part that visibly changes on reset */
+  .myfp{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:19px;font-weight:800;
+    letter-spacing:2px;text-align:center;color:var(--accent);margin:4px 0;user-select:all}
+  .myhandle{font-weight:750;color:var(--accent);background:rgba(43,134,224,.1);
+    border:1px solid rgba(43,134,224,.35);border-radius:10px;padding:7px 10px;margin-top:8px;
+    text-align:center;user-select:all}
+  .qr{display:block;margin:10px auto 4px;width:232px;height:232px;border-radius:12px;background:#fff;padding:8px}
+  .row{display:flex;gap:8px} .row .btn{margin-top:0}
+  .status{font-size:12px;color:var(--muted);min-height:15px;margin-top:6px}
+
+  .contact{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:11px;cursor:pointer;border:1px solid transparent}
+  .contact:hover{background:rgba(255,255,255,.05)}
+  .contact .av{width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+    font-weight:700;background:rgba(10,14,20,0.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:inset 0 0 0 1px rgba(120,170,235,.22);color:#bcd6f5}
+  .contact .n{font-weight:650;display:flex;align-items:center;gap:6px}
+  .contact .a{font-size:11px;color:var(--muted);font-family:ui-monospace,monospace}
+  .vbadge{font-size:10px;color:var(--accent);border:1px solid rgba(43,134,224,.4);border-radius:20px;padding:0 6px}
+  .cmenu{margin-left:auto;color:var(--muted);padding:4px 6px;border-radius:8px}
+  .cmenu:hover{background:rgba(255,255,255,.08)}
+  /* the chat-header ⋯ is a <button>; give it an explicit blue style so iOS
+     doesn't paint its default white button chrome */
+  #chatmenu{margin-left:auto;width:38px;height:38px;padding:0;border-radius:11px;display:flex;align-items:center;justify-content:center;
+    background:rgba(43,134,224,.16);border:1px solid rgba(43,134,224,.45);color:#bcdcff;cursor:pointer}
+  #chatmenu:hover{background:rgba(43,134,224,.28)}
+
+  /* chat */
+  .chat{flex:1;display:flex;flex-direction:column;min-height:0}
+  .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted);text-align:center;padding:30px}
+  /* favorites bar: top 3 contacts as floating avatars, black glass, under header */
+  .favbar{display:none;gap:20px;justify-content:center;align-items:center;padding:2px 10px 8px;background:transparent}
+  /* your own identity in the header: @handle + fingerprint, tap for QR */
+  .meid{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;
+    padding:5px 16px;border-radius:13px;-webkit-tap-highlight-color:transparent;transition:background .12s}
+  .meid:hover{background:rgba(255,255,255,.04)} .meid:active{transform:scale(.98)}
+  .mehandle{font-weight:750;color:var(--accent);font-size:15px;letter-spacing:.2px}
+  .mefp{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--muted);letter-spacing:1.5px}
+  /* the tappable "You are @name" row in the contacts panel */
+  #myhandle{cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  #myhandle::after{content:"✎";font-size:12px;color:var(--muted)}
+  #myhandle:hover{filter:brightness(1.15)}
+  .fav{display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;width:62px}
+  .fav .fav-av{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:15px;color:#bcd6f5;background:rgba(10,14,20,0.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    box-shadow:0 6px 16px rgba(0,0,0,.4),0 0 0 1px rgba(120,170,235,.22);transition:transform .12s}
+  .fav:active .fav-av{transform:scale(.93)}
+  .fav .fav-nm{font-size:11px;color:var(--muted);max-width:66px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* conversation list (home view before a chat is opened) */
+  .convlist{flex:1;overflow:auto;display:none}
+  .conv{display:flex;align-items:center;gap:12px;padding:11px 14px 11px 20px;cursor:pointer;position:relative}
+  /* inset divider: starts at the text (past the avatar), stops short of the edge */
+  .conv:not(:last-child)::after{content:"";position:absolute;left:78px;right:16px;bottom:0;height:1px;background:var(--line)}
+  .conv:hover{background:rgba(255,255,255,.045)} .conv:active{background:rgba(255,255,255,.08)}
+  .conv .cav{width:46px;height:46px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:16px;background:rgba(10,14,20,0.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:inset 0 0 0 1px rgba(120,170,235,.22);color:#bcd6f5}
+  .conv .cmeta{flex:1;min-width:0}
+  .conv .crow1{display:flex;align-items:center;gap:6px}
+  .conv .cnm{font-weight:650;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+  .conv .ctime{font-size:11.5px;color:var(--muted);flex:none}
+  .conv .cprev{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+  .conv.unread .cprev{color:var(--ink)} .conv.unread .cnm{font-weight:750}
+  .conv .cunread{position:absolute;left:7px;top:50%;margin-top:-4px;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px rgba(43,134,224,.6)}
+  /* clickable links inside message bubbles */
+  .msg a.lnk{color:#bcdcff;text-decoration:underline;word-break:break-all}
+  .msg.in a.lnk{color:#8fe3ff}
+  .empty .big{font-size:40px;opacity:.6}
+  .chathead{display:none;position:relative;align-items:center;gap:10px;padding:8px 14px;
+    background:linear-gradient(180deg,rgba(5,8,14,0.6),rgba(5,8,14,0.25));backdrop-filter:blur(10px) saturate(1.3);-webkit-backdrop-filter:blur(10px) saturate(1.3)}
+  .chatwho-wrap{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;max-width:58%;pointer-events:none}
+  .chatwho-wrap .who{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chathead .who{font-weight:700}
+  .msgs{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:7px}
+  .msg{max-width:80%;padding:8px 12px;border-radius:16px;font-size:14.5px;word-wrap:break-word;white-space:pre-wrap;line-height:1.35;position:relative}
+  .msg.out{align-self:flex-end;background:var(--me);color:#eaf3ff;border-bottom-right-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+  .msg.in{align-self:flex-start;background:var(--them);border-bottom-left-radius:6px}
+  .msg.sys{align-self:center;background:rgba(245,158,11,.14);color:#f6c96b;font-size:12px;border-radius:20px;padding:5px 12px}
+  .msg img{max-width:100%;border-radius:11px;display:block;margin:2px 0}
+  .msg .t{display:block;font-size:10px;color:rgba(255,255,255,.5);margin-top:3px}
+  /* quoted (replied-to) snippet above a message */
+  .msg .quote{border-left:3px solid rgba(43,134,224,.7);padding:3px 8px;margin:0 0 5px;
+    background:rgba(0,0,0,.22);border-radius:6px;font-size:12.5px;color:var(--muted);
+    max-height:52px;overflow:hidden}
+  .msg .quote b{color:var(--accent);display:block;font-size:10.5px;font-weight:700}
+  /* per-bubble reply button (hover on desktop, long-press on touch) */
+  .msg .rbtn{position:absolute;top:50%;margin-top:-13px;opacity:0;transition:opacity .12s;cursor:pointer;
+    width:26px;height:26px;border-radius:50%;border:1px solid var(--line2);background:rgba(20,26,38,.92);
+    color:var(--muted);font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center}
+  .msg.out .rbtn{left:-34px} .msg.in .rbtn{right:-34px}
+  .msg:hover .rbtn{opacity:.9}
+  .replybar{display:none;align-items:center;gap:8px;padding:8px 12px;
+    background:rgba(0,0,0,.22);font-size:12.5px;color:var(--muted)}
+  .replybar .rq{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    border-left:3px solid var(--accent);padding-left:8px}
+  .replybar .rq b{color:var(--accent)}
+  .replybar .x{cursor:pointer;padding:2px 9px;border-radius:8px}
+  .replybar .x:hover{background:rgba(255,255,255,.08)}
+  .compose{display:none;gap:8px;padding:10px;align-items:flex-end}
+  .compose textarea{flex:1;max-height:120px;min-height:42px}
+  .send{width:44px;height:44px;flex:none;border-radius:50%;border:0;background:linear-gradient(180deg,var(--accent),#14508f);
+    color:#04121f;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .attach{width:42px;height:42px;flex:none;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center}
+  /* back + attach: no box, icon-blue glyph */
+  #backBtn,.attach{background:none!important;border:0!important;color:var(--accent)}
+  #backBtn:hover,.attach:hover{background:none}
+  #backBtn svg{width:27px;height:27px} .attach svg{width:25px;height:25px}
+  .scanwrap{position:fixed;inset:0;z-index:60;background:rgba(4,7,12,.94);display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px}
+  .scanwrap video{width:min(360px,86vw);border-radius:16px;border:1px solid var(--line2)}
+  .slider{width:100%}
+  a.plain{color:var(--accent);text-decoration:none}
+  .foot{color:var(--muted);font-size:10.5px;text-align:center;padding:6px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* custom SVG button icons (inherit color, crisp at any DPI) */
+  .iconbtn svg{width:23px;height:23px;display:block}
+  .send svg{width:23px;height:23px;display:block}
+  .attach svg{width:23px;height:23px;display:block}
+  .cmenu svg{width:20px;height:20px;display:block}
+  .conv .cmenu,.contact .cmenu{display:flex;align-items:center;justify-content:center}
+  .rbtn svg{width:15px;height:15px;display:block}
+  .replybar .x svg,.scanwrap .pill svg{width:16px;height:16px;display:block}
+  .btn svg{width:18px;height:18px;display:inline-block;vertical-align:-4px;margin-right:5px}
+  .iconbtn{overflow:visible}
+  /* invisible backdrop: catches an outside tap to close open dropdowns (iOS does
+     not bubble taps on non-interactive elements to document, so a scrim is the
+     reliable way to auto-close). */
+  .scrim{position:absolute;inset:0;z-index:15;display:none}
+  .scrim.on{display:block}
+  /* back-up-your-account nag */
+  .backup-nag{display:none;align-items:center;gap:8px;padding:9px 12px;font-size:12.5px;
+    background:rgba(43,134,224,.14);border-bottom:1px solid rgba(43,134,224,.35);color:#cfe6ff}
+  .backup-nag button{flex:none;border:1px solid var(--accent);background:var(--accent);color:#04121f;
+    font:700 12px system-ui;border-radius:8px;padding:5px 9px;cursor:pointer}
+  .backup-nag .later{flex:none;color:var(--muted);cursor:pointer;padding:4px}
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="app">
+  <div class="win">
+    <div class="scrim" id="scrim"></div>
+    <div class="backup-nag" id="backupNag">⚠️ Back up your account so a lost bookmark can't wipe it.
+      <div class="grow"></div><button id="nagBackup">Back up now</button><span class="later" id="nagLater">Later</span></div>
+    <div class="topwrap">
+      <div class="top">
+        <a class="brandlogo" href="/" title="Back to the map"><img src="/static/mark.png" alt="SparrowMap"></a>
+        <div class="grow"></div>
+        <button class="iconbtn" id="soundBtn" title="Sound &amp; app">🔔</button>
+        <button class="iconbtn badge" id="contactsBtn" title="Contacts">☰<span class="dot" id="cdot"></span></button>
+      </div>
+      <!-- Your identity, front and centre: @handle + fingerprint. Tap either for
+           the QR popup. (This replaced the top-3 favourite contacts.) -->
+      <div class="favbar" id="favbar">
+        <div class="meid" id="meid" title="Your address — tap to show the QR">
+          <div class="mehandle" id="meHandle">setting up…</div>
+          <div class="mefp" id="meFp">···· ····</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- sound / settings popover -->
+    <div class="panel" id="soundPanel">
+      <h4>Sound</h4>
+      <label>Chirp volume</label>
+      <input type="range" min="0" max="100" value="60" class="slider" id="vol">
+      <label style="display:flex;align-items:center;gap:8px;margin-top:10px"><input type="checkbox" id="mute" style="width:auto"> Mute</label>
+      <div class="row" style="margin-top:8px"><button class="btn ghost" id="testChirp">Test chirp</button></div>
+      <h4 style="margin-top:14px">Notifications</h4>
+      <button class="btn ghost" id="notifBtn">Enable notifications</button>
+      <h4 style="margin-top:14px">App</h4>
+      <button class="btn ghost" id="installBtn" style="display:none">Install Sparrow Send</button>
+      <div class="sub" id="installNote">Add to your home screen from the browser menu to install.</div>
+    </div>
+
+    <!-- ☰ menu: CONTACTS ONLY (add someone + your contacts). No account stuff. -->
+    <div class="panel" id="contactsPanel">
+      <h4>Add someone</h4>
+      <input id="peerAddr" placeholder="their @handle or full address" autocomplete="off" autocapitalize="none" spellcheck="false">
+      <input id="peerName" placeholder="Contact name" autocomplete="off" style="margin-top:7px">
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="addBtn" style="margin-top:0">Add</button>
+        <button class="btn ghost" id="scanBtn" style="margin-top:0;flex:none;width:auto">📷 Scan</button>
+      </div>
+      <div class="status" id="addstatus"></div>
+      <h4 style="margin-top:16px">Contacts</h4>
+      <div id="contacts"><div class="sub">No one yet.</div></div>
+    </div>
+
+    <!-- ACCOUNT popup — opened by tapping YOUR NAME on the home screen. Everything
+         about YOU lives here: name (top), fingerprint, QR/address, move-to-device.
+         None of it is in the ☰ contacts menu any more. -->
+    <div class="panel" id="accountPanel">
+      <!-- set / edit your name, at the very top -->
+      <h4>Your name</h4>
+      <div class="sub">A short @name lets people add you with a word instead of a long address.</div>
+      <div class="row" style="margin-top:10px">
+        <span style="align-self:center;color:var(--accent);font-weight:700">@</span>
+        <input id="handleIn" placeholder="yourname" maxlength="20" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" style="margin-top:0">
+        <button class="btn" id="claimBtn" style="margin-top:0;flex:none;width:auto">Save</button>
+      </div>
+      <div class="status" id="handleStatus"></div>
+
+      <h4 style="margin-top:16px">Fingerprint</h4>
+      <div class="myfp" id="myfp" title="A short fingerprint of your identity. Read it to a contact to confirm you have the right person. It changes if you reset.">···· ····</div>
+      <div class="sub">Read this to a contact (in person / another app) to confirm you're really you &mdash; a handle doesn't prove identity, this does.</div>
+
+      <h4 style="margin-top:16px">Full address &amp; QR</h4>
+      <div class="sub">If someone can't use your @handle, share this instead.</div>
+      <img class="qr" id="myqr" alt="your address QR">
+      <div class="addr" id="myaddr">generating…</div>
+      <div class="row" style="margin-top:9px">
+        <button class="btn ghost" id="copyBtn" style="margin-top:0">Copy</button>
+        <button class="btn ghost" id="resetIdBtn" style="margin-top:0">Reset ID</button>
+      </div>
+
+      <h4 style="margin-top:16px">Move to another device</h4>
+      <div class="sub">Carry your identity (and contacts) to a new phone or laptop. The key is like a seed phrase, anyone with it AND its password becomes you. One device at a time.</div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn ghost" id="exportBtn" style="margin-top:0">Export login key</button>
+        <button class="btn ghost" id="importBtn" style="margin-top:0">Use a login key</button>
+      </div>
+      <button class="btn ghost" id="logoutBtn" style="margin-top:8px">Log out this device</button>
+      <div class="sub" style="margin-top:4px">⚠️ Use ONE device at a time. If two are open, messages land on whichever grabs them first. Log the other one out.</div>
+      <div id="exportBox" hidden style="margin-top:10px">
+        <label>Set a password for the key</label>
+        <input id="exPass" type="password" placeholder="a strong password" autocomplete="new-password">
+        <button class="btn" id="exGo">Generate login key</button>
+        <div class="row" style="margin-top:8px"><button class="btn" id="exDownload" hidden style="margin-top:0">⬇ Download backup file</button><button class="btn ghost" id="exCopy" hidden style="margin-top:0">Copy key text</button></div>
+        <textarea id="exOut" readonly rows="4" hidden style="margin-top:8px;font-family:ui-monospace,monospace;font-size:11px"></textarea>
+        <div class="status" id="exStatus"></div>
+      </div>
+      <div id="importBox" hidden style="margin-top:10px">
+        <label>Upload your backup file</label>
+        <input type="file" id="imFile" accept=".txt,text/plain" style="font-size:13px">
+        <label style="margin-top:8px">…or paste your login key</label>
+        <textarea id="imKey" rows="3" placeholder="login key" style="font-family:ui-monospace,monospace;font-size:11px"></textarea>
+        <label>Password</label>
+        <input id="imPass" type="password" placeholder="the key's password" autocomplete="off">
+        <button class="btn" id="imGo">Sign in on this device</button>
+        <div class="status" id="imStatus"></div>
+      </div>
+    </div>
+
+    <!-- main area: empty state OR chat -->
+    <div class="chat">
+      <div class="chathead" id="chathead">
+        <button class="iconbtn" id="backBtn" title="Back">‹</button>
+        <div class="chatwho-wrap"><div class="who" id="chatwho"></div><div class="a" id="chatsub" style="font-size:11px;color:var(--muted)"></div></div>
+        <div class="grow"></div>
+        <button class="cmenu" id="chatmenu" title="Contact options">⋯</button>
+      </div>
+      <div class="empty" id="empty">
+        <div class="big">✦</div>
+        <div>No conversations yet.<br>Add someone with <b>☰</b>, everything is end‑to‑end encrypted.</div>
+      </div>
+      <div class="convlist" id="convlist"></div>
+      <div class="msgs" id="msgs" style="display:none"></div>
+      <div class="replybar" id="replybar"><div class="rq" id="replyq"></div><span class="x" id="replyx">✕</span></div>
+      <div class="compose" id="compose">
+        <button class="attach" id="attachBtn" title="Send a photo">📎</button>
+        <input type="file" id="fileIn" accept="image/*" hidden>
+        <textarea id="msgIn" rows="1" placeholder="Message…"></textarea>
+        <button class="send" id="sendBtn">➤</button>
+      </div>
+    </div>
+    <div class="foot">Forward‑secret · <a class="plain" href="/">SparrowMap</a></div>
+  </div>
+</div>
+
+<!-- contact ⋯ menu -->
+<div class="panel" id="cmenuPanel" style="top:auto">
+  <h4>Contact</h4>
+  <div class="sub" style="margin-bottom:2px;text-align:center">Fingerprint, should match theirs</div>
+  <div id="cmenuFp" style="text-align:center;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:16px;font-weight:700;letter-spacing:1px;color:var(--accent);user-select:all;margin:0 0 8px"></div>
+  <label>Rename</label>
+  <input id="renameIn" placeholder="name">
+  <button class="btn ghost" id="renameBtn">Save name</button>
+  <button class="btn ghost" id="verifyBtn" style="margin-top:8px">Mark verified</button>
+  <button class="btn ghost" id="resetSessBtn" style="margin-top:8px">Reset secure session</button>
+  <button class="btn ghost danger" id="deleteContactBtn" style="margin-top:8px">Delete contact</button>
+  <div class="sub" style="margin-top:8px">Verify by comparing addresses in person or over another channel.</div>
+</div>
+
+<!-- QR scanner -->
+<div class="scanwrap" id="scanwrap">
+  <div style="color:var(--muted)">Point at their address QR</div>
+  <video id="scanvid" playsinline></video>
+  <button class="pill" id="scanClose">Cancel</button>
+</div>
+
+<script src="/static/sparrowsend-ratchet.js?v=1"></script>
+<script src="/static/sparrowsend-pow.js?v=1"></script>
+<script src="/static/sparrowsend-air.js?v=1"></script>
+<script src="/static/sparrowsend-lora.js?v=2"></script>
+<script>
+(function(){
+  "use strict";
+  var $=function(s){return document.querySelector(s)};
+  /* ---------- custom SVG icons (Feather-style, currentColor) ---------- */
+  var _s='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+  var ICON={
+    menu:_s+'<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
+    bell:_s+'<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
+    back:_s+'<polyline points="15 18 9 12 15 6"/></svg>',
+    more:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>',
+    send:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.4l17.45-7.48a1 1 0 0 0 0-1.84L3.4 3.6a1 1 0 0 0-1.4.92L2 9.12a1 1 0 0 0 .82.98L15 12 2.82 13.9a1 1 0 0 0-.82.98l0 4.6a1 1 0 0 0 1.4.92z"/></svg>',
+    attach:_s+'<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
+    camera:_s+'<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>',
+    close:_s+'<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    reply:_s+'<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>'
+  };
+  function applyIcons(){
+    var b;
+    if((b=$('#soundBtn'))) b.innerHTML=ICON.bell;
+    if((b=$('#contactsBtn'))) b.innerHTML=ICON.menu+'<span class="dot" id="cdot"></span>';
+    if((b=$('#backBtn'))) b.innerHTML=ICON.back;
+    if((b=$('#chatmenu'))) b.innerHTML=ICON.more;
+    if((b=$('#sendBtn'))) b.innerHTML=ICON.send;
+    if((b=$('#attachBtn'))) b.innerHTML=ICON.attach;
+    if((b=$('#scanBtn'))) b.innerHTML=ICON.camera+'<span style="margin-left:6px">Scan</span>';
+    if((b=$('#replyx'))) b.innerHTML=ICON.close;
+  }
+  var LS=window.localStorage, R=window.SparrowRatchet;
+  var subtle=(window.crypto&&window.crypto.subtle);
+  if(!subtle||!R||!window.SparrowPow){ document.body.innerHTML='<div style="color:#eaf1fa;font:16px system-ui;padding:40px">This browser can’t run Sparrow Send (needs Web Crypto over https). Try current Chrome, Safari, Firefox or Edge.</div>'; return; }
+  var enc=new TextEncoder(), dec=new TextDecoder();
+  function b64u(b){var a=new Uint8Array(b),s='';for(var i=0;i<a.length;i++)s+=String.fromCharCode(a[i]);return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+  function ub64u(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';var x=atob(s),b=new Uint8Array(x.length);for(var i=0;i<x.length;i++)b[i]=x.charCodeAt(i);return b}
+  function hex(b){var a=new Uint8Array(b),o='';for(var i=0;i<a.length;i++)o+=('0'+a[i].toString(16)).slice(-2);return o}
+  // Short human-readable fingerprint of a mailbox id (which is a hash, so unlike
+  // the address it looks different for every identity). Used for "did my reset
+  // take?" and as a read-aloud verify aid.
+  function fp(mb){mb=(mb||'').toUpperCase();return mb.slice(0,4)+' '+mb.slice(4,8)+' '+mb.slice(8,12);}
+
+  /* ---------- identity: ECDSA (owns mailbox) + ECDH (encryption) ---------- */
+  var ID=null, ID_KEY='sparrow.send.id';
+  async function mkKeys(){
+    return {sign:await subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']),
+            dh:await subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits'])};
+  }
+  async function exportID(k){return JSON.stringify({
+    sPriv:await subtle.exportKey('jwk',k.sign.privateKey),sPub:await subtle.exportKey('jwk',k.sign.publicKey),
+    ePriv:await subtle.exportKey('jwk',k.dh.privateKey),ePub:await subtle.exportKey('jwk',k.dh.publicKey)});}
+  async function importID(js){var j=JSON.parse(js);return {
+    sign:{privateKey:await subtle.importKey('jwk',j.sPriv,{name:'ECDSA',namedCurve:'P-256'},true,['sign']),
+          publicKey:await subtle.importKey('jwk',j.sPub,{name:'ECDSA',namedCurve:'P-256'},true,['verify'])},
+    dh:{privateKey:await subtle.importKey('jwk',j.ePriv,{name:'ECDH',namedCurve:'P-256'},true,['deriveBits']),
+        publicKey:await subtle.importKey('jwk',j.ePub,{name:'ECDH',namedCurve:'P-256'},true,[])}};}
+  async function finishID(keys){
+    var sRaw=new Uint8Array(await subtle.exportKey('raw',keys.sign.publicKey));
+    var eRaw=new Uint8Array(await subtle.exportKey('raw',keys.dh.publicKey));
+    var mb=hex(await subtle.digest('SHA-256',sRaw)).slice(0,32);
+    var address=b64u(enc.encode(JSON.stringify({s:b64u(sRaw),e:b64u(eRaw)})));
+    // identity in the ratchet's own base64 form for initSender/initReceiver
+    var dhIdentity={priv:await subtle.exportKey('jwk',keys.dh.privateKey), pub:R.b64(eRaw)};
+    ID={sign:keys.sign, dh:keys.dh, sPubRaw:sRaw, ePubRaw:eRaw, mailbox:mb, address:address, dhIdentity:dhIdentity};
+  }
+  async function loadID(){
+    var s=null; try{s=LS.getItem(ID_KEY);}catch(e){}
+    if(s){ try{ await finishID(await importID(s)); return; }catch(e){} }
+    var k=await mkKeys(); try{ LS.setItem(ID_KEY,await exportID(k)); }catch(e){} await finishID(k);
+  }
+  function decodeAddress(a){var j=JSON.parse(dec.decode(ub64u(a.trim())));return {sRaw:ub64u(j.s),eRaw:ub64u(j.e)};}
+  async function mailboxOf(sRaw){return hex(await subtle.digest('SHA-256',sRaw)).slice(0,32);}
+
+  /* ---------- short handles (optional directory: @name -> address) ---------- */
+  var HANDLE_CLAIM_BITS=18;   // must match send_relay.HANDLE_CLAIM_BITS
+  function normHandle(h){ return (h||'').trim().toLowerCase().replace(/^@/,''); }
+  async function claimHandle(handle){
+    var h=normHandle(handle);
+    if(!/^[a-z0-9_]{3,20}$/.test(h)) throw new Error('3–20 characters: a–z, 0–9, _');
+    // Sign the claim (proves we own this identity) and stamp a PoW (anti-squat).
+    var sig=await subtle.sign({name:'ECDSA',hash:'SHA-256'}, ID.sign.privateKey, enc.encode('SPH1|'+h+'|'+ID.address));
+    var pow=await SparrowPow.stamp(ID.mailbox, 'CLAIM|'+h+'|'+ID.address, HANDLE_CLAIM_BITS);
+    var res=await fetch('/api/send/claim',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({handle:h, address:ID.address, sig:b64u(sig), pt:pow.ts, pn:pow.nonce})});
+    var j=await res.json().catch(function(){return{}});
+    if(!res.ok||!j.ok) throw new Error(j.error||('http '+res.status));
+    try{ LS.setItem('sparrow.send.handle', j.handle); }catch(e){}
+    return j.handle;
+  }
+  async function resolveHandle(h){
+    var res=await fetch('/api/send/handle?h='+encodeURIComponent(normHandle(h)));
+    if(!res.ok) return null;
+    var j=await res.json().catch(function(){return{}});
+    return j.address||null;
+  }
+  function showMyHandle(){
+    var h=null; try{ h=LS.getItem('sparrow.send.handle'); }catch(e){}
+    // The only place the name shows now is the home header (tap it for account).
+    var mh=$('#meHandle'); if(mh) mh.textContent = h ? ('@'+h) : 'tap to set a name';
+    var i=$('#handleIn'); if(i && document.activeElement!==i) i.value = h || '';
+  }
+  // Give up our handle (best-effort) so the name is free again - e.g. right
+  // before a Reset ID, while we still hold the key to sign the release.
+  async function releaseHandle(){
+    var h=null; try{ h=LS.getItem('sparrow.send.handle'); }catch(e){}
+    if(!h||!ID) return;
+    try{
+      var sig=await subtle.sign({name:'ECDSA',hash:'SHA-256'}, ID.sign.privateKey, enc.encode('SPHREL1|'+h+'|'+ID.address));
+      await fetch('/api/send/release',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({handle:h, address:ID.address, sig:b64u(sig)})});
+    }catch(e){}
+  }
+
+  /* ---------- portable login key: your identity, encrypted with a password ----
+   * The key is your PRIVATE keys (plus your contact list), sealed with a
+   * password via PBKDF2 + AES-GCM. It carries WHO you are to a new device - not
+   * your message history, which stays on the device it was on. One device at a
+   * time by design. Anyone holding the key AND the password becomes you. */
+  var KDF_ITERS=250000;
+  async function deriveKek(pass, salt, iters){
+    var base=await subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']);
+    return subtle.deriveKey({name:'PBKDF2', salt:salt, iterations:iters, hash:'SHA-256'},
+      base, {name:'AES-GCM',length:256}, false, ['encrypt','decrypt']);
+  }
+  async function exportLoginKey(pass){
+    // Carry the ratchet + seen ids too, so conversations CONTINUE on the new
+    // device (moving identity alone broke ongoing chats). History is left out to
+    // keep the key paste-able.
+    var rat={}, seen={};
+    try{ Object.keys(LS).forEach(function(k){ if(k.indexOf('sparrow.send.rat.')===0) rat[k]=LS.getItem(k); else if(k.indexOf('sparrow.send.seen.')===0) seen[k]=LS.getItem(k); }); }catch(e){}
+    var payload=JSON.stringify({id:LS.getItem(ID_KEY), contacts:(LS.getItem('sparrow.send.contacts')||'[]'), rat:rat, seen:seen});
+    var salt=crypto.getRandomValues(new Uint8Array(16)), iv=crypto.getRandomValues(new Uint8Array(12));
+    var kek=await deriveKek(pass, salt, KDF_ITERS);
+    var ct=await subtle.encrypt({name:'AES-GCM',iv:iv}, kek, enc.encode(payload));
+    var blob={v:1,it:KDF_ITERS,s:b64u(salt),i:b64u(iv),c:b64u(ct)};
+    return 'SS1.'+b64u(enc.encode(JSON.stringify(blob)));
+  }
+  async function importLoginKey(keyStr, pass){
+    var s=(keyStr||'').trim(); if(s.indexOf('SS1.')===0) s=s.slice(4);
+    var blob=JSON.parse(dec.decode(ub64u(s)));
+    var kek=await deriveKek(pass, ub64u(blob.s), blob.it||KDF_ITERS);
+    var pt=await subtle.decrypt({name:'AES-GCM',iv:ub64u(blob.i)}, kek, ub64u(blob.c));  // throws on wrong password
+    var payload=JSON.parse(dec.decode(pt));
+    JSON.parse(payload.id);   // validate it's a real identity bundle
+    // Replace everything local with what's in the key. History isn't carried, so
+    // clear it; ratchet + seen ARE carried so chats continue where they left off.
+    try{ Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);}); }catch(e){}
+    LS.setItem(ID_KEY, payload.id);
+    if(payload.contacts) LS.setItem('sparrow.send.contacts', payload.contacts);
+    if(payload.rat) Object.keys(payload.rat).forEach(function(k){ LS.setItem(k, payload.rat[k]); });
+    if(payload.seen) Object.keys(payload.seen).forEach(function(k){ LS.setItem(k, payload.seen[k]); });
+  }
+
+  /* ---------- contacts + history + ratchet state (all local) ---------- */
+  function getContacts(){try{return JSON.parse(LS.getItem('sparrow.send.contacts')||'[]');}catch(e){return[]}}
+  function setContacts(c){try{LS.setItem('sparrow.send.contacts',JSON.stringify(c));}catch(e){}}
+  function contactByMb(mb){return getContacts().filter(function(c){return c.mb===mb;})[0];}
+  function hKey(mb){return 'sparrow.send.hist.'+mb} function rKey(mb){return 'sparrow.send.rat.'+mb}
+  function getHist(mb){try{return JSON.parse(LS.getItem(hKey(mb))||'[]');}catch(e){return[]}}
+  function pushHist(mb,m){var h=getHist(mb);h.push(m);if(h.length>800)h=h.slice(-800);try{LS.setItem(hKey(mb),JSON.stringify(h));}catch(e){}}
+  function getRat(mb){try{var s=LS.getItem(rKey(mb));return s?JSON.parse(s):null;}catch(e){return null}}
+  function setRat(mb,st){try{LS.setItem(rKey(mb),JSON.stringify(st));}catch(e){}}
+  function delRat(mb){try{LS.removeItem(rKey(mb));}catch(e){}}
+  /* ---------- photo store (IndexedDB, NOT localStorage) ----------
+   * A downscaled photo is ~0.5MB. localStorage is tiny (~5MB), synchronous, and
+   * iOS evicts it under memory pressure - so a few photos blew the quota and a
+   * write could fail silently, making a sent photo vanish on reopen. Photos now
+   * live in IndexedDB (large + durable on an installed PWA); history keeps only a
+   * short id. Text is unaffected. Best-effort throughout: if IDB is unavailable
+   * the photo just won't persist locally, it never blocks sending. */
+  var _idb=null;
+  function idb(){ return _idb || (_idb=new Promise(function(res){
+    try{ var r=indexedDB.open('sparrowsend',1);
+      r.onupgradeneeded=function(){ try{ r.result.createObjectStore('img'); }catch(e){} };
+      r.onsuccess=function(){ res(r.result); }; r.onerror=function(){ res(null); };
+    }catch(e){ res(null); } })); }
+  function idbPut(id,dataUrl){ return idb().then(function(db){ if(!db)return false; return new Promise(function(res){
+    try{ var tx=db.transaction('img','readwrite'); tx.objectStore('img').put(dataUrl,id); tx.oncomplete=function(){res(true)}; tx.onerror=function(){res(false)}; tx.onabort=function(){res(false)}; }catch(e){res(false)} }); }); }
+  function idbGet(id){ return idb().then(function(db){ if(!db)return null; return new Promise(function(res){
+    try{ var tx=db.transaction('img','readonly'); var q=tx.objectStore('img').get(id); q.onsuccess=function(){res(q.result||null)}; q.onerror=function(){res(null)}; }catch(e){res(null)} }); }); }
+  function idbDel(id){ idb().then(function(db){ if(!db)return; try{ db.transaction('img','readwrite').objectStore('img').delete(id); }catch(e){} }); }
+  // Keep the newest ~300 photos; drop the oldest so IDB can't grow without bound.
+  function noteImgId(id){ try{ var k='sparrow.send.imgids', a=JSON.parse(LS.getItem(k)||'[]'); a.push(id); while(a.length>300){ idbDel(a.shift()); } LS.setItem(k,JSON.stringify(a)); }catch(e){} }
+  // Store a photo's bytes and return the history object that references them.
+  async function storeImg(dataUrl){ var id=b64u(crypto.getRandomValues(new Uint8Array(9))); var ok=await idbPut(id,dataUrl); if(!ok) return {t:'img',d:dataUrl}; noteImgId(id); return {t:'img',id:id}; }
+
+  /* ---------- ratchet-backed send / receive ---------- */
+  async function ratForSend(ct){
+    var st=getRat(ct.mb);
+    if(!st){ st=await R.initSender(ID.dhIdentity, R.b64(ub64u(ct.eRaw))); setRat(ct.mb,st); }
+    return st;
+  }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
+  // POST an already-sealed envelope, auto-retrying the transient failures (rate
+  // limit, network, 5xx). A 4xx that isn't 429 is permanent (bad/too-big) - don't
+  // retry it. 🚨 The envelope is encrypted ONCE by the caller and reused across
+  // retries: re-encrypting would burn a new ratchet key each try and desync.
+  async function postEnv(mb, envStr, mid, pow){
+    var last='could not reach the relay', delays=[0,700,1800,3500], escalations=0;
+    function body(){ return JSON.stringify({to:mb, env:envStr, mid:mid||'', pt:pow&&pow.ts, pn:pow&&pow.nonce}); }
+    for(var i=0;i<delays.length;i++){
+      if(delays[i]) await sleep(delays[i]);
+      try{
+        var res=await fetch('/api/send/put',{method:'POST',headers:{'Content-Type':'application/json'},body:body()});
+        if(res.ok) return;
+        var j=await res.json().catch(function(){return{}}); last=j.error||('http '+res.status);
+        // Progressive PoW: the target mailbox is backed up and wants more work.
+        // Re-stamp harder and retry WITHOUT spending the transient-retry budget.
+        if(res.status===400 && j.need_bits && escalations<5){
+          escalations++; pow=await SparrowPow.stamp(mb, envStr, j.need_bits); i--; continue;
+        }
+        if(res.status!==429 && res.status<500) throw new Error(last);   // permanent
+      }catch(e){ last=e.message||String(e); if(/too large|bad mailbox/i.test(last)) throw new Error(last); }
+    }
+    throw new Error(last);
+  }
+  async function sendTo(ct, obj){
+    var st=await ratForSend(ct);
+    var msg=await R.encrypt(st, enc.encode(JSON.stringify(obj)));
+    setRat(ct.mb, st);   // ratchet advanced ONCE; postEnv reuses this exact envelope
+    // A stable message id so a lost-response retry never duplicates (relay dedups
+    // by it, and the receiver ignores a mid it has already processed).
+    var mid=b64u(crypto.getRandomValues(new Uint8Array(12)));
+    var envStr=JSON.stringify({from:ID.address, mid:mid, r:msg});
+    // Stamp a proof-of-work over this exact envelope (a few hundred ms). Reused
+    // across postEnv retries - the ts window is minutes, retries are seconds.
+    var pow=await SparrowPow.stamp(ct.mb, envStr, SparrowPow.POW_BITS);
+    await postEnv(ct.mb, envStr, mid, pow);
+    // Also mirror TEXT onto the air for a contact recently heard there, so an
+    // off-grid reply reaches them. Two lanes: the contact's pairwise send-tag
+    // (internet peer) and/or the shared LoRa mesh lane (off-grid peer via the
+    // bridge). Photos stay mailbox-only (the air is text-sized).
+    if(obj && obj.t!=='img'){
+      if(airRecent(ct.mb))  { try{ await airSend(ct, envStr); }catch(e){} }               // internet peer, pairwise tag
+      if(meshRecent(ct.mb)) {                                                              // off-grid peer, LoRa frame
+        if(obj.t==='rekey'){ try{ await meshSendRekey(ct); }catch(e){} }                   // a marker, not a text: send K_REKEY
+        else { try{ await meshSendText(ct, obj.x||'', null, mid); }catch(e){} }   // reuse the mailbox mid so both lanes de-dupe as one
+      }
+    }
+  }
+  // Duplicate guard on the receiving side: never process the same mid twice
+  // (would double-display AND desync the ratchet). Bounded per contact.
+  function seenMid(mb,id){ try{ return JSON.parse(LS.getItem('sparrow.send.seen.'+mb)||'[]').indexOf(id)>=0; }catch(e){ return false; } }
+  function markMid(mb,id){ try{ var k='sparrow.send.seen.'+mb, a=JSON.parse(LS.getItem(k)||'[]'); if(a.indexOf(id)<0){ a.push(id); if(a.length>500)a=a.slice(-500); LS.setItem(k,JSON.stringify(a)); } }catch(e){} }
+  // ONE message can reach you on BOTH the mailbox (keyed by the 12-byte env.mid)
+  // AND the mesh LoRa lane (keyed by its own 4-byte frame mid) - two ids in two
+  // namespaces, so without this it shows twice. The mesh sender reuses the FIRST
+  // 4 BYTES of the mailbox mid as its frame mid (see meshSendText), so both lanes
+  // derive the SAME shared key here and either one collapses the other's copy.
+  function meshDupKey(midB64){ try{ return LORA ? ('X'+LORA.midHex(ub64u(midB64).subarray(0,4))) : null; }catch(e){ return null; } }
+  // Fallback collapse for the transition window, when the SENDER is still on an
+  // old build and stamps its mesh frame with a random mid (so meshDupKey can't
+  // link the two copies). Every mesh TEXT is, by construction, the twin of a
+  // mailbox send from the same sendTo(), so if the identical (contact, text)
+  // already showed on the OTHER lane within a short window it IS that twin -
+  // suppress the second. Same-lane repeats are NOT touched (a real "ok"/"ok"
+  // stays two), and whichever copy lands first is the one shown, so nothing is
+  // ever lost. Session-only; a reload clears it.
+  var _shown={};
+  function crossLaneShown(mb,text,lane){ try{ var a=_shown[mb]; if(!a) return false; var now=Date.now();
+    _shown[mb]=a=a.filter(function(e){return now-e.ts<360000;});
+    return a.some(function(e){return e.l!==lane && e.t===text;}); }catch(e){ return false; } }
+  function noteShown(mb,text,lane){ try{ var a=_shown[mb]||(_shown[mb]=[]); a.push({t:text,l:lane,ts:Date.now()}); if(a.length>40)_shown[mb]=a.slice(-40); }catch(e){} }
+
+  /* ---------- the MESH air: an unlinkable, cross-transport delivery lane ----------
+   * Alongside the mailbox, a message can ride the tag-routed AIR (air_relay on the
+   * hub, the internet twin of the LoRa gateway). A frame is routed by a rotating
+   * ROUTING TAG derived from the pairwise secret two identities share, so the hub
+   * never learns the recipient - which also means it works with an off-grid LoRa
+   * peer who reaches you through a bridge. The air frame is the SAME sealed
+   * envelope the mailbox carries, so ingest() handles it unchanged and its mid
+   * de-dupe collapses a message that arrives both ways.
+   *
+   * The mailbox stays the reliable default (14-day offline, photos). The air is
+   * ADDITIVE: you always LISTEN on it (one batched poll a cycle, cost-free for
+   * pure-internet chats), and you also SEND a text over it only to a contact you
+   * have recently HEARD from on the air - i.e. someone demonstrably on the mesh -
+   * so an off-grid reply gets through without every chat paying double work.
+   * Honest cost: within an hour the hub can see two anonymous tags share traffic;
+   * it never sees who, and the tag rotates hourly so nothing links across time. */
+  var AIR = (typeof SparrowAir !== 'undefined') ? SparrowAir : null;
+  // The shared LoRa MESH lane: a fixed hub tag the off-grid bridge mirrors the
+  // radio air onto (sha256("sparrow-lora-mesh-v1")[:16]). A contact reachable
+  // only over LoRa has no internet mailbox and no pairwise tag we can poll, so we
+  // also listen on this one lane and trial-route by the envelope's own `from`.
+  // MUST match MESH_TAG in tools/hub_air_link.py.
+  var MESH_TAG = '46405a125e36f24591546321b6ec0ec3';
+  function getAirCur(){ try{ return JSON.parse(LS.getItem('sparrow.send.aircur')||'{}'); }catch(e){ return {}; } }
+  function setAirCur(m){ try{ LS.setItem('sparrow.send.aircur', JSON.stringify(m)); }catch(e){} }
+  function getAirSeen(){ try{ return JSON.parse(LS.getItem('sparrow.send.airseen')||'{}'); }catch(e){ return {}; } }
+  function markAirSeen(mb){ try{ var m=getAirSeen(); m[mb]=Date.now(); LS.setItem('sparrow.send.airseen', JSON.stringify(m)); }catch(e){} }
+  function airRecent(mb){ var m=getAirSeen(); return !!(m[mb] && (Date.now()-m[mb] < 7*86400*1000)); }
+  // A contact last HEARD over the LoRa mesh lane (so a reply should ride it too).
+  function getMeshSeen(){ try{ return JSON.parse(LS.getItem('sparrow.send.meshseen')||'{}'); }catch(e){ return {}; } }
+  function markMeshSeen(mb){ try{ var m=getMeshSeen(); m[mb]=Date.now(); LS.setItem('sparrow.send.meshseen', JSON.stringify(m)); }catch(e){} }
+  function meshRecent(mb){ var m=getMeshSeen(); return !!(m[mb] && (Date.now()-m[mb] < 7*86400*1000)); }
+  // PUT one already-base64 frame onto the air under a tag, restamping PoW if the
+  // hub asks. Best-effort: the mailbox has already delivered, so failure is silent.
+  async function airPutFrame(tag, frame){
+    var pow=await SparrowPow.stamp(tag, frame, SparrowPow.POW_BITS);
+    function body(p){ return JSON.stringify({tag:tag, frame:frame, pt:p.ts, pn:p.nonce}); }
+    var res=await fetch('/api/air/put',{method:'POST',headers:{'Content-Type':'application/json'},body:body(pow)});
+    if(res.status===400){ var j=await res.json().catch(function(){return{};}); if(j.need_bits){ pow=await SparrowPow.stamp(tag, frame, j.need_bits);
+      await fetch('/api/air/put',{method:'POST',headers:{'Content-Type':'application/json'},body:body(pow)}); } }
+  }
+  async function airPut(tag, envStr){ return airPutFrame(tag, R.b64(enc.encode(envStr))); }
+  async function airSend(ct, envStr){ if(!AIR||!ct||!ct.eRaw) return;
+    try{ await airPut(await AIR.sendTag(ID.dh.privateKey, ct.eRaw, AIR.epochNow()), envStr); }catch(e){} }
+
+  /* ---------- the LoRa MESH lane speaks the board's compact BINARY format ----------
+   * A LoRa packet is <=250 B, too small for the {from,mid,r} JSON envelope, so on
+   * the mesh we use the SAME binary frame the off-grid board app uses and BOTH ends
+   * trial-decrypt it against their contacts. This is how a message from someone on
+   * a LoRa board (running their Sparrow Send account via a login key) reaches an
+   * internet contact and back. sparrowsend-lora.js keeps the bytes identical. */
+  var LORA = (typeof SparrowLora !== 'undefined') ? SparrowLora : null;
+  function ctPubStd(ct){ return R.b64(ub64u(ct.eRaw)); }   // contact ECDH pub, std base64 for the ratchet
+
+  /* ---------- auto-rekey: self-heal a desynced session, no manual tap ----------
+   * A contact's web app and off-grid page are two devices on ONE identity, so the
+   * ratchet can fork and decrypt starts failing. The X3DH-lite root is derived from
+   * the two long-term identity keys ALONE (symmetric, no handshake), so either side
+   * can spin up a fresh session from stored keys at any time - the heal primitive.
+   *  - ADOPT (safe on ANY lane): on a miss from a known contact, a fresh initReceiver
+   *    reads ONLY a frame that contact produced with a matching fresh initSender - the
+   *    AEAD tag authenticates the identity-derived root, so an outsider can never
+   *    trigger it. Safe even on the broadcast mesh.
+   *  - INITIATE (addressed lanes only): if adoption fails too, the peer is behind;
+   *    start our own fresh session + send a sealed REKEY marker, rate-limited so it
+   *    can never loop. Never initiate on a broadcast lane (a miss there is usually
+   *    just 'not for us'). The manual Reset stays as the final fallback. */
+  var REKEY_MIN_MS = 30000;
+  function rekeyOk(mb){ try{ var k='sparrow.send.rekey.'+mb, t=+(LS.getItem(k)||0);
+    if(Date.now()-t < REKEY_MIN_MS) return false; LS.setItem(k, ''+Date.now()); return true; }catch(e){ return true; } }
+  // Resend our most recent outgoing TEXT (last 5 min) so the message that triggered
+  // the heal isn't lost; the receiver's mid de-dupe drops it if they already had it.
+  async function resendLast(ct){ try{ var h=getHist(ct.mb);
+    for(var i=h.length-1;i>=0;i--){ var m=h[i];
+      if(m.dir==='out' && (Date.now()-m.ts)>=300000) return;      // nothing recent enough to resend
+      if(m.dir==='out' && m.o && m.o.t==='text'){ await sendTo(ct, m.o); return; } } }catch(e){} }
+  // Addressed-lane heal: ADOPT their re-key if we can, else INITIATE our own.
+  // Returns {text} if adoption decrypted real content, {rekey:true}/{initiated:true}
+  // if it healed silently, or null if it could do nothing (keep the escape hatch).
+  async function autoHealAddressed(ct, rmsg){
+    if(!ct || !ct.eRaw) return null;
+    try{ var fresh=await R.initReceiver(ID.dhIdentity, ctPubStd(ct));
+      var pt=await R.decrypt(fresh, rmsg); setRat(ct.mb, fresh);         // ADOPT: they re-keyed
+      var obj=JSON.parse(dec.decode(pt));
+      if(obj && obj.t==='rekey'){ try{ await resendLast(ct); }catch(e){} return {rekey:true}; }
+      var stored=obj;
+      if(obj&&obj.t==='img'&&typeof obj.d==='string'&&/^data:image\//.test(obj.d)){ stored=await storeImg(obj.d); if(obj.re) stored.re=obj.re; }
+      pushHist(ct.mb,{dir:'in',o:stored,ts:Date.now()});
+      return {text:(obj.t==='img'?'📷 photo':(obj.x||''))};
+    }catch(e){}
+    if(!rekeyOk(ct.mb)) return null;                                     // rate-limited: fall back to the soft message
+    try{                                                                 // INITIATE a fresh session
+      var st=await R.initSender(ID.dhIdentity, ctPubStd(ct));
+      var msg=await R.encrypt(st, enc.encode(JSON.stringify({t:'rekey'})));
+      var mid=b64u(crypto.getRandomValues(new Uint8Array(12)));
+      var envStr=JSON.stringify({from:ID.address, mid:mid, r:msg});
+      var pow=await SparrowPow.stamp(ct.mb, envStr, SparrowPow.POW_BITS);
+      await postEnv(ct.mb, envStr, mid, pow);                            // throws if it can't send
+      setRat(ct.mb, st);                                                 // commit the fresh session ONLY once the marker is on its way
+      if(airRecent(ct.mb))  { try{ await airSend(ct, envStr); }catch(e){} }
+      if(meshRecent(ct.mb)) { try{ await meshSendRekey(ct); }catch(e){} }
+      try{ await resendLast(ct); }catch(e){}
+      return {initiated:true};
+    }catch(e){ return null; }
+  }
+  // Seal a REKEY marker as a binary LoRa frame (the mesh twin of {t:'rekey'}).
+  async function meshSendRekey(ct){
+    if(!LORA||!ct||!ct.eRaw) return;
+    var st=getRat(ct.mb); if(!st){ st=await R.initSender(ID.dhIdentity, ctPubStd(ct)); }
+    var msg=await R.encrypt(st, LORA.packPlain(LORA.K_REKEY, crypto.getRandomValues(new Uint8Array(4)), new Uint8Array(0))); setRat(ct.mb, st);
+    await airPutFrame(MESH_TAG, R.b64(LORA.msgToFrame(msg)));
+  }
+
+  // Trial-decrypt a base64 binary frame off the mesh against every contact; on a
+  // hit, decrypt on a CLONE so a not-for-us frame can never desync the session.
+  async function meshRecvFrame(frameB64){
+    if(!LORA) return null;
+    var bytes; try{ bytes=R.ub64(frameB64); }catch(e){ return null; }
+    var msg=LORA.frameToMsg(bytes); if(!msg) return null;
+    var contacts=getContacts();
+    for(var i=0;i<contacts.length;i++){
+      var ct=contacts[i]; if(!ct.eRaw) continue;
+      var st=getRat(ct.mb); if(!st){ try{ st=await R.initReceiver(ID.dhIdentity, ctPubStd(ct)); }catch(e){ continue; } }
+      var clone=JSON.parse(JSON.stringify(st)), pt;
+      try{ pt=await R.decrypt(clone, msg); }catch(e){ continue; }   // not ours - try the next contact
+      setRat(ct.mb, clone); markMeshSeen(ct.mb);
+      var p=LORA.parsePlain(pt), midk='L'+LORA.midHex(p.mid);
+      if(p.kind===LORA.K_REKEY){ try{ await resendLast(ct); }catch(e){} return {mb:ct.mb}; }  // they re-keyed; adopt + resend, never display
+      if(p.kind===LORA.K_ACK){
+        var ackh='L'+LORA.midHex(p.body.subarray(0,4)); markDelivered(ct.mb, ackh); return {mb:ct.mb};
+      }
+      if(p.kind!==LORA.K_TEXT) return {mb:ct.mb};
+      var xk='X'+LORA.midHex(p.mid);
+      if(seenMid(ct.mb,midk)||seenMid(ct.mb,xk)) return {mb:ct.mb};   // saw this frame, or its mailbox twin
+      markMid(ct.mb,midk); markMid(ct.mb,xk);
+      var text=dec.decode(p.body);
+      try{ await meshSendAck(ct, p.mid); }catch(e){}     // let their board show ✓✓ (ack even if we suppress a twin)
+      if(crossLaneShown(ct.mb,text,'mesh')) return {mb:ct.mb};   // its mailbox twin already showed
+      noteShown(ct.mb,text,'mesh');
+      pushHist(ct.mb,{dir:'in',o:{t:'text',x:text},ts:Date.now()});
+      return {mb:ct.mb, name:(ct.name||('Someone ('+ct.mb.slice(0,6)+'…)')), text:text};
+    }
+    // No live session read it. Before giving up, see if a known contact RE-KEYED: a
+    // fresh initReceiver from their identity keys reads the first message of their new
+    // session and NOTHING a stranger could forge - so ADOPT is safe on this broadcast.
+    for(var j=0;j<contacts.length;j++){
+      var c2=contacts[j]; if(!c2.eRaw) continue;
+      var fresh; try{ fresh=await R.initReceiver(ID.dhIdentity, ctPubStd(c2)); }catch(e){ continue; }
+      var fpt; try{ fpt=await R.decrypt(fresh, msg); }catch(e){ continue; }   // not a fresh session from them
+      setRat(c2.mb, fresh); markMeshSeen(c2.mb);
+      var q=LORA.parsePlain(fpt);
+      if(q.kind===LORA.K_REKEY){ try{ await resendLast(c2); }catch(e){} return {mb:c2.mb}; }
+      if(q.kind===LORA.K_ACK){ var ah='L'+LORA.midHex(q.body.subarray(0,4)); markDelivered(c2.mb, ah); return {mb:c2.mb}; }
+      if(q.kind!==LORA.K_TEXT) return {mb:c2.mb};
+      var mk='L'+LORA.midHex(q.mid), xk2='X'+LORA.midHex(q.mid); if(seenMid(c2.mb,mk)||seenMid(c2.mb,xk2)) return {mb:c2.mb}; markMid(c2.mb,mk); markMid(c2.mb,xk2);
+      var t2=dec.decode(q.body);
+      try{ await meshSendAck(c2, q.mid); }catch(e){}
+      if(crossLaneShown(c2.mb,t2,'mesh')) return {mb:c2.mb};   // its mailbox twin already showed
+      noteShown(c2.mb,t2,'mesh');
+      pushHist(c2.mb,{dir:'in',o:{t:'text',x:t2},ts:Date.now()});
+      return {mb:c2.mb, name:(c2.name||('Someone ('+c2.mb.slice(0,6)+'…)')), text:t2};
+    }
+    return null;
+  }
+  // Seal a text as a binary LoRa frame and put it on the mesh (fits one packet).
+  async function meshSendText(ct, text, midHexOut, linkMid){
+    if(!LORA||!ct||!ct.eRaw) return;
+    var body=enc.encode(text); if(body.length>150) return;   // one radio packet; longer stays mailbox-only
+    var st=getRat(ct.mb); if(!st){ st=await R.initSender(ID.dhIdentity, ctPubStd(ct)); }
+    // Reuse the mailbox envelope's first 4 bytes as this frame's mid when given,
+    // so the receiver collapses the mailbox and mesh copies of one message.
+    var mid = linkMid ? ub64u(linkMid).subarray(0,4) : crypto.getRandomValues(new Uint8Array(4));
+    var msg=await R.encrypt(st, LORA.packPlain(LORA.K_TEXT, mid, body)); setRat(ct.mb, st);
+    if(midHexOut) midHexOut.v='L'+LORA.midHex(mid);
+    await airPutFrame(MESH_TAG, R.b64(LORA.msgToFrame(msg)));
+  }
+  async function meshSendAck(ct, ackedMid4){
+    var st=getRat(ct.mb); if(!st) return;
+    var ackBody=new Uint8Array(5); ackBody.set(ackedMid4,0); ackBody[4]=0;   // no radio RSSI on this side
+    var msg=await R.encrypt(st, LORA.packPlain(LORA.K_ACK, crypto.getRandomValues(new Uint8Array(4)), ackBody)); setRat(ct.mb, st);
+    await airPutFrame(MESH_TAG, R.b64(LORA.msgToFrame(msg)));
+  }
+  // Mark an outgoing mesh message delivered (✓✓) when its ACK comes back.
+  function markDelivered(mb, midk){ try{ var h=getHist(mb); for(var i=h.length-1;i>=0;i--){ if(h[i].midk===midk){ h[i].delivered=true; LS.setItem(hKey(mb),JSON.stringify(h)); break; } } }catch(e){} }
+  // LISTEN on the air for every contact's recv-tag (this epoch + last), in ONE
+  // batched request, and ingest anything heard. Returns {any, incoming} so the
+  // caller refreshes the UI once for the mailbox and air together.
+  async function airPoll(){
+    if(!AIR||!ID) return {any:false, incoming:null};
+    try{
+      var contacts=getContacts();
+      var ep=AIR.epochNow(), cur=getAirCur(), tags=[];
+      for(var i=0;i<contacts.length;i++){ var ct=contacts[i]; if(!ct.eRaw) continue;
+        for(var d=0; d<2; d++){
+          var t=await AIR.recvTag(ID.dh.privateKey, ct.eRaw, ID.ePubRaw, ep-d);
+          tags.push({tag:t, since:(cur[t]||0)}); } }
+      // The shared LoRa mesh lane - always listen, even with no contacts, so an
+      // off-grid peer we already know can reach us through the bridge.
+      tags.push({tag:MESH_TAG, since:(cur[MESH_TAG]||0)});
+      var any=false, incoming=null, next={};
+      for(var c=0;c<tags.length;c+=64){
+        var chunk=tags.slice(c,c+64);
+        var res=await (await fetch('/api/air/get',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({tags:chunk})})).json();
+        var results=res.results||{};
+        for(var tg in results){ var r=results[tg]; next[tg]=r.seq;
+          var isMesh=(tg===MESH_TAG);
+          for(var k=0;k<r.m.length;k++){
+            if(isMesh){
+              // The mesh lane carries the compact BINARY LoRa frame - trial-decrypt it.
+              var mgot=await meshRecvFrame(r.m[k].b);
+              if(mgot && mgot.text!=null){ any=true; incoming=mgot; }
+            } else {
+              var envStr; try{ envStr=dec.decode(R.ub64(r.m[k].b)); }catch(e){ continue; }
+              var got=await ingest(envStr, false); if(got){ any=true; incoming=got; markAirSeen(got.mb); }
+            } } }
+      }
+      // Cursors rotate away with the epoch: keep only tags polled this cycle.
+      var merged={}; for(var i2=0;i2<tags.length;i2++){ var k2=tags[i2].tag; merged[k2]=(next[k2]!=null?next[k2]:(cur[k2]||0)); }
+      setAirCur(merged);
+      return {any:any, incoming:incoming};
+    }catch(e){ return {any:false, incoming:null}; }
+  }
+  var _polling=false;
+  async function poll(){
+    if(_polling||!ID) return;   // one poll at a time - concurrent gets would race the read-then-delete
+    _polling=true;
+    try{
+      var c=await (await fetch('/api/send/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mb:ID.mailbox})})).json();
+      if(!c.challenge) return;
+      var sig=await subtle.sign({name:'ECDSA',hash:'SHA-256'},ID.sign.privateKey,enc.encode(c.challenge));
+      var res=await (await fetch('/api/send/get',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({mb:ID.mailbox,pk:b64u(ID.sPubRaw),ch:c.challenge,sig:b64u(sig)})})).json();
+      var got=res.msgs||[], any=false, incoming=null;
+      for(var i=0;i<got.length;i++){ var r=await ingest(got[i]); if(r){ any=true; incoming=r; } }
+      // Listen on the mesh air too (known contacts' recv-tags), and refresh once.
+      var air=await airPoll();
+      if(air.any){ any=true; incoming=air.incoming||incoming; }
+      if(any){ if(cur){ drawMsgs(); markRead(cur.mb); renderContacts(); } else { showHome(); } notifyIncoming(incoming); }
+    }catch(e){ /* offline; retry next tick */ }
+    finally{ _polling=false; }
+  }
+  async function ingest(envStr, trial){
+    var env; try{env=JSON.parse(envStr);}catch(e){return null}
+    if(!env.from||!env.r) return null;
+    var from; try{from=decodeAddress(env.from);}catch(e){return null}
+    var mb=await mailboxOf(from.sRaw);
+    var contacts=getContacts(), ct=contacts.filter(function(x){return x.mb===mb;})[0];
+    // 🚨 TRIAL frames come off the SHARED mesh lane, where you hear EVERYONE's
+    // sealed broadcast and only the ones for you decrypt. So a trial frame from
+    // someone who is NOT a contact is dropped in silence - never auto-add a
+    // stranger from a broadcast, and never surface a decrypt failure (most frames
+    // simply are not yours). Only mailbox / pairwise-tag frames are addressed to
+    // you and may auto-add or report a genuine failure.
+    if(trial && !ct) return null;
+    if(env.mid){ var _xk=meshDupKey(env.mid);   // drop a duplicate before it touches the ratchet - mailbox mid OR its mesh twin
+      if(seenMid(mb,env.mid)||(_xk&&seenMid(mb,_xk))) return null;
+      markMid(mb,env.mid); if(_xk) markMid(mb,_xk); }
+    if(!ct){
+      // Bound auto-added strangers. Anyone who has your address can drop mail
+      // from throwaway identities; without a cap that grows the contact list
+      // (and localStorage) without limit. Evict the oldest UNKNOWN, un-named,
+      // history-less contacts to make room - named/known ones are never touched.
+      var UNKNOWN_CAP=40;
+      var unknowns=contacts.filter(function(x){return x.unknown && !x.name && getHist(x.mb).length===0;});
+      while(unknowns.length>=UNKNOWN_CAP){
+        var victim=unknowns.shift();
+        contacts=contacts.filter(function(x){return x.mb!==victim.mb;});
+        try{ LS.removeItem(hKey(victim.mb)); delRat(victim.mb); LS.removeItem('sparrow.send.seen.'+victim.mb); }catch(e){}
+      }
+      ct={name:'',mb:mb,sRaw:b64u(from.sRaw),eRaw:b64u(from.eRaw),verified:false,unknown:true};
+      contacts.push(ct); setContacts(contacts); }
+    var st=getRat(mb);
+    if(!st){ st=await R.initReceiver(ID.dhIdentity, R.b64(from.eRaw)); }
+    // On the mesh a frame from this contact may actually be addressed to someone
+    // else (it is a broadcast), so decrypt against a CLONE and only commit the
+    // advanced ratchet if it verifies - a failed trial must never desync the
+    // real session. R.decrypt mutates before it authenticates, hence the clone.
+    var attempt = trial ? JSON.parse(JSON.stringify(st)) : st;
+    var text=null;
+    try{ var pt=await R.decrypt(attempt, env.r); setRat(mb, attempt);
+      var obj=JSON.parse(dec.decode(pt));
+      if(obj && obj.t==='rekey'){ try{ await resendLast(ct); }catch(e){} return {mb:mb, name:(ct.name||''), text:null}; }  // control marker, never shown
+      var stored=obj;                                    // move a photo's bytes into IDB, keep an id in history
+      if(obj&&obj.t==='img'&&typeof obj.d==='string'&&/^data:image\//.test(obj.d)){ stored=await storeImg(obj.d); if(obj.re) stored.re=obj.re; }
+      if(obj.t!=='img' && crossLaneShown(mb,(obj.x||''),'mb')) return {mb:mb, name:(ct.name||''), text:null};  // mesh twin already shown
+      pushHist(mb,{dir:'in',o:stored,ts:Date.now()});
+      if(obj.t!=='img') noteShown(mb,(obj.x||''),'mb');
+      text=obj.t==='img'?'📷 photo':(obj.x||'');
+    }catch(e){
+      if(trial) return null;   // a broadcast frame that simply is not ours - silent
+      // Addressed frame from a known contact that won't decrypt = a real desync.
+      // Self-heal it (ADOPT their re-key, else INITIATE ours) instead of alerting.
+      var healed=await autoHealAddressed(ct, env.r);
+      if(healed && healed.text!=null){ text=healed.text; }             // adoption decrypted real content
+      else if(!healed){                                                // rate-limited / not healable: keep the escape hatch
+        pushHist(mb,{dir:'sys',o:{t:'text',x:'A message could not be decrypted. Reconnecting the secure session automatically… if it keeps happening, tap “Reset secure session”.'},ts:Date.now()});
+      }
+    }
+    return {mb:mb, name:(ct.name||('Someone ('+mb.slice(0,6)+'…)')), text:text};
+  }
+
+  /* ---------- UI: contacts + chat ---------- */
+  function initials(n){n=(n||'').trim();return n?n.slice(0,2).toUpperCase():'✦';}
+  function renderContacts(){
+    var box=$('#contacts'), c=getContacts();
+    $('#cdot').style.display = c.some(function(x){return (getHist(x.mb).slice(-1)[0]||{}).dir==='in' && x.mb!==(cur&&cur.mb);}) ? 'block':'none';
+    if(!c.length){ box.innerHTML='<div class="sub">No one yet.</div>'; return; }
+    box.innerHTML='';
+    c.forEach(function(ct){
+      var el=document.createElement('div'); el.className='contact';
+      el.innerHTML='<div class="av"></div><div style="min-width:0"><div class="n"></div><div class="a">'+fp(ct.mb)+'</div></div><div class="cmenu" title="options">'+ICON.more+'</div>';
+      el.querySelector('.av').textContent=initials(ct.name);
+      var nm=el.querySelector('.n'); nm.textContent=ct.name||'(unnamed)';
+      if(ct.verified){var b=document.createElement('span');b.className='vbadge';b.textContent='✓ verified';nm.appendChild(b);}
+      el.onclick=function(){ openChat(ct); };
+      var mbtn=el.querySelector('.cmenu'); mbtn.onclick=function(ev){ ev.stopPropagation(); openCmenu(ct, ev.currentTarget); };
+      box.appendChild(el);
+    });
+    // keep the home conversation list in sync whenever contacts change
+    if(!cur){ var has=c.length>0; $('#empty').style.display=has?'none':'flex'; $('#convlist').style.display=has?'block':'none'; if(has) renderConvList(); renderFavorites(); }
+  }
+  var cur=null;
+  function readKey(mb){return 'sparrow.send.read.'+mb;}
+  function markRead(mb){ try{ var h=getHist(mb), t=h.length?h[h.length-1].ts:0; LS.setItem(readKey(mb), String(t)); }catch(e){} }
+  function isUnread(mb){ try{ var h=getHist(mb); if(!h.length) return false; var last=h[h.length-1]; if(last.dir!=='in') return false; return last.ts > (parseInt(LS.getItem(readKey(mb))||'0',10)); }catch(e){ return false; } }
+  function shortTime(ts){ if(!ts) return ''; var d=new Date(ts), now=new Date();
+    if(d.toDateString()===now.toDateString()) return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    var y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString([], {month:'numeric',day:'numeric'}); }
+  // Favorites: the 3 most-recent contacts as floating avatar buttons.
+  // The header now shows YOUR OWN identity (@handle + fingerprint), not the top
+  // three contacts. Keep the function name so every call site still works.
+  function renderFavorites(){
+    var box=$('#favbar'); if(!box) return;
+    box.style.display='flex';
+    var h=null; try{ h=LS.getItem('sparrow.send.handle'); }catch(e){}
+    var mh=$('#meHandle'); if(mh) mh.textContent = h ? ('@'+h) : 'tap to set a name';
+    var mf=$('#meFp'); if(mf && window.ID && ID.mailbox) mf.textContent = fp(ID.mailbox);
+  }
+  // Home view: an iMessage-style conversation list, newest first, with previews.
+  function renderConvList(){
+    var box=$('#convlist');
+    var rows=getContacts().map(function(ct){ var h=getHist(ct.mb), last=h.length?h[h.length-1]:null; return {ct:ct, last:last, ts:last?last.ts:0}; })
+      .sort(function(a,b){ return b.ts-a.ts; });
+    box.innerHTML='';
+    rows.forEach(function(row){
+      var ct=row.ct, last=row.last, unread=isUnread(ct.mb);
+      var el=document.createElement('div'); el.className='conv'+(unread?' unread':'');
+      if(unread){ var u=document.createElement('div'); u.className='cunread'; el.appendChild(u); }
+      var av=document.createElement('div'); av.className='cav'; av.textContent=initials(ct.name); el.appendChild(av);
+      var meta=document.createElement('div'); meta.className='cmeta';
+      var r1=document.createElement('div'); r1.className='crow1';
+      var nm=document.createElement('span'); nm.className='cnm'; nm.textContent=ct.name||('Unknown ('+ct.mb.slice(0,6)+'…)'); r1.appendChild(nm);
+      if(ct.verified){ var vb=document.createElement('span'); vb.className='vbadge'; vb.textContent='✓'; r1.appendChild(vb); }
+      var tm=document.createElement('span'); tm.className='ctime'; tm.textContent=last?shortTime(last.ts):''; r1.appendChild(tm);
+      meta.appendChild(r1);
+      var pv=document.createElement('div'); pv.className='cprev';
+      pv.textContent = last ? ((last.dir==='out'?'You: ':'')+(last.o&&last.o.t==='img'?'📷 Photo':(last.o&&last.o.x)||'')) : 'Say hello 👋';
+      meta.appendChild(pv); el.appendChild(meta);
+      el.onclick=function(){ openChat(ct); };
+      addLongPress(el, function(){ openCmenu(ct, el); });   // long-press = rename/verify/delete
+      box.appendChild(el);
+    });
+  }
+  // Show the home (list) view - no chat open.
+  function showHome(){
+    cur=null; clearReply();
+    $('#msgs').style.display='none'; $('#compose').style.display='none'; $('#chathead').style.display='none';
+    var has=getContacts().length>0;
+    $('#empty').style.display=has?'none':'flex';
+    $('#convlist').style.display=has?'block':'none';
+    if(has) renderConvList();
+    renderContacts();
+  }
+  function openChat(ct){
+    cur=ct; closePanels(); clearReply();
+    $('#empty').style.display='none'; $('#convlist').style.display='none'; $('#favbar').style.display='none'; $('#msgs').style.display='flex';
+    $('#compose').style.display='flex'; $('#chathead').style.display='flex';
+    $('#chatwho').textContent=ct.name||('Unknown ('+ct.mb.slice(0,8)+'…)');
+    $('#chatsub').textContent=ct.verified?'✓ verified':'unverified'; $('#chatsub').style.color=ct.verified?'var(--accent)':'var(--muted)';
+    drawMsgs(); markRead(ct.mb); renderContacts();   // no auto-focus: don't pop the keyboard on open
+    requestAnimationFrame(scrollBottom); setTimeout(scrollBottom,80); setTimeout(scrollBottom,250);  // land at the newest message
+  }
+  function closeChat(){ showHome(); }
+  // Split text into text nodes + clickable links (safe: no innerHTML).
+  function appendText(el, text){
+    text=text||''; var re=/(https?:\/\/[^\s]+)/g, last=0, m;
+    while((m=re.exec(text))){
+      if(m.index>last) el.appendChild(document.createTextNode(text.slice(last,m.index)));
+      var url=m[0].replace(/[.,!?)]+$/,''); // don't swallow trailing punctuation
+      var a=document.createElement('a'); a.className='lnk'; a.href=url; a.textContent=url; a.target='_blank'; a.rel='noopener noreferrer nofollow';
+      el.appendChild(a); last=m.index+url.length;
+    }
+    if(last<text.length) el.appendChild(document.createTextNode(text.slice(last)));
+  }
+  function scrollBottom(){ var m=$('#msgs'); if(m) m.scrollTop=m.scrollHeight; }
+  function bubbleContent(el,o){
+    // Only render a self-contained data:image. A peer must never be able to make
+    // your browser fetch a REMOTE url (that would leak your IP + read-receipt to
+    // them, out of band from the relay). CSP already blocks it on the live site;
+    // this refuses it even on a mirror without that header.
+    if(o&&o.t==='img'&&o.id){ var im=document.createElement('img'); im.onload=scrollBottom; el.appendChild(im);
+      idbGet(o.id).then(function(d){ if(d&&/^data:image\//.test(d)){ im.src=d; } else { var tn=document.createTextNode('📷 photo (not on this device)'); if(im.parentNode) im.parentNode.replaceChild(tn,im); } }); }
+    else if(o&&o.t==='img'&&typeof o.d==='string'&&/^data:image\//.test(o.d)){ var im2=document.createElement('img'); im2.onload=scrollBottom; im2.src=o.d; el.appendChild(im2); }
+    else if(o&&o.t==='img'){ el.appendChild(document.createTextNode('📷 photo (blocked: not an inline image)')); }
+    else { appendText(el, (o&&o.x)||''); }
+  }
+  // Long-press = reply, on touch devices (desktop uses the hover ↩ button).
+  function addLongPress(el, cb){
+    var t=null;
+    el.addEventListener('touchstart',function(){ t=setTimeout(function(){ if(navigator.vibrate)navigator.vibrate(12); cb(); },480); },{passive:true});
+    ['touchend','touchmove','touchcancel'].forEach(function(ev){ el.addEventListener(ev,function(){ if(t){clearTimeout(t);t=null;} },{passive:true}); });
+  }
+  function drawMsgs(){
+    if(!cur) return; var box=$('#msgs'), h=getHist(cur.mb); box.innerHTML='';
+    h.forEach(function(m){
+      var el=document.createElement('div'); el.className='msg '+(m.dir==='out'?'out':m.dir==='sys'?'sys':'in');
+      // a quoted (replied-to) snippet, if this message is a reply
+      if(m.dir!=='sys' && m.o && m.o.re){
+        var q=document.createElement('div'); q.className='quote';
+        var who=(m.dir==='out')?(m.o.re.m?'You':(cur.name||'Them')):(m.o.re.m?(cur.name||'Them'):'You');
+        var b=document.createElement('b'); b.textContent='↩ '+who; q.appendChild(b);
+        q.appendChild(document.createTextNode(m.o.re.t||''));
+        el.appendChild(q);
+      }
+      bubbleContent(el,m.o);
+      if(m.dir!=='sys'){
+        var t=document.createElement('span');t.className='t';t.textContent=new Date(m.ts).toLocaleString([], {hour:'2-digit',minute:'2-digit'});el.appendChild(t);
+        var rb=document.createElement('div'); rb.className='rbtn'; rb.innerHTML=ICON.reply; rb.title='Reply';
+        rb.onclick=function(e){ e.stopPropagation(); setReply(m); };
+        el.appendChild(rb);
+        addLongPress(el, function(){ setReply(m); });
+      }
+      box.appendChild(el);
+    });
+    box.scrollTop=box.scrollHeight;
+  }
+  /* ---------- reply-to-a-message ---------- */
+  var replyTo=null;
+  function setReply(m){
+    replyTo={ m:(m.dir==='out'), t:(m.o&&m.o.t==='img'?'📷 photo':((m.o&&m.o.x)||'').slice(0,90)) };
+    var who = replyTo.m ? 'You' : (cur&&cur.name||'Them');
+    var bar=$('#replybar'); $('#replyq').innerHTML='<b>↩ '+esc(who)+'</b> '+esc(replyTo.t);
+    bar.style.display='flex'; $('#msgIn').focus();
+  }
+  function clearReply(){ replyTo=null; var b=$('#replybar'); if(b) b.style.display='none'; }
+  function esc(s){ return (s||'').replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  async function doSend(){
+    if(!cur) return; var inp=$('#msgIn'), t=inp.value.trim(); if(!t) return;
+    inp.value=''; inp.style.height='auto'; inp.blur();   // drop the keyboard on send
+    var obj={t:'text',x:t}; if(replyTo) obj.re=replyTo; clearReply();
+    pushHist(cur.mb,{dir:'out',o:obj,ts:Date.now()}); drawMsgs(); chirp(true);
+    try{ await sendTo(cur,obj); }catch(e){ pushHist(cur.mb,{dir:'sys',o:{t:'text',x:'Not delivered: '+e.message},ts:Date.now()}); drawMsgs(); }
+  }
+  async function sendImage(file){
+    if(!cur||!file) return;
+    var d=await downscale(file); if(!d){ return; }
+    var wire={t:'img',d:d}; if(replyTo) wire.re=replyTo;        // full bytes go to the peer (encrypted)
+    var local=await storeImg(d); if(replyTo) local.re=replyTo; // local history keeps just an IDB id
+    clearReply();
+    pushHist(cur.mb,{dir:'out',o:local,ts:Date.now()}); drawMsgs(); chirp(true);
+    try{ await sendTo(cur,wire); }catch(e){ pushHist(cur.mb,{dir:'sys',o:{t:'text',x:'Photo not delivered: '+e.message},ts:Date.now()}); drawMsgs(); }
+  }
+  // Shrink a photo until the data URL fits comfortably in one envelope. Starts
+  // large and only steps down if needed, so it never fails with a "too large"
+  // relay error the way a fixed size sometimes did.
+  var IMG_FIT=520000;   // data-URL chars; leaves room under the 1MB relay cap
+  function downscale(file){ return new Promise(function(res){
+    var fr=new FileReader(); fr.onload=function(){ var im=new Image(); im.onload=function(){
+      var steps=[[1600,0.82],[1280,0.72],[1024,0.62],[820,0.55],[640,0.45],[480,0.4]];
+      for(var i=0;i<steps.length;i++){
+        var sc=Math.min(1,steps[i][0]/Math.max(im.width,im.height));
+        var cv=document.createElement('canvas'); cv.width=Math.max(1,Math.round(im.width*sc)); cv.height=Math.max(1,Math.round(im.height*sc));
+        cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);
+        var d=cv.toDataURL('image/jpeg',steps[i][1]);
+        if(d.length<IMG_FIT || i===steps.length-1){ res(d); return; }
+      }
+    }; im.onerror=function(){res(null)}; im.src=fr.result; }; fr.readAsDataURL(file); }); }
+
+  /* ---------- contact ⋯ menu: rename / verify / reset ---------- */
+  var menuCt=null;
+  function openCmenu(ct, anchor){
+    menuCt=ct; closePanels(); var p=$('#cmenuPanel');
+    $('#cmenuFp').textContent=fp(ct.mb);
+    $('#renameIn').value=ct.name||'';
+    $('#verifyBtn').textContent=ct.verified?'Unverify':'Mark verified';
+    var r=anchor.getBoundingClientRect();
+    p.style.top=Math.min(window.innerHeight-330, r.bottom+6)+'px';
+    p.style.right=Math.max(12, window.innerWidth-r.right)+'px'; p.style.left='auto';
+    p.classList.add('open'); showScrim(true);
+  }
+  $('#renameBtn').onclick=function(){ if(!menuCt) return; var c=getContacts(); c.forEach(function(x){if(x.mb===menuCt.mb){x.name=$('#renameIn').value.trim();x.unknown=false;}}); setContacts(c); if(cur&&cur.mb===menuCt.mb){cur.name=$('#renameIn').value.trim();$('#chatwho').textContent=cur.name;} renderContacts(); closePanels(); };
+  $('#verifyBtn').onclick=function(){ if(!menuCt) return; var c=getContacts(); c.forEach(function(x){if(x.mb===menuCt.mb){x.verified=!x.verified;}}); setContacts(c); renderContacts(); if(cur&&cur.mb===menuCt.mb){ var vv=contactByMb(cur.mb).verified; $('#chatsub').textContent=vv?'✓ verified':'unverified'; $('#chatsub').style.color=vv?'var(--accent)':'var(--muted)'; } closePanels(); };
+  $('#resetSessBtn').onclick=function(){ if(!menuCt) return; if(!confirm('Reset the secure session? BOTH of you should tap this, then ONLY ONE sends the next message (the other receives it, then replies). Old messages stay.')) return;
+    var mb=menuCt.mb; delRat(mb); try{ LS.removeItem('sparrow.send.seen.'+mb); }catch(e){}   // full clear, like a fresh session
+    pushHist(mb,{dir:'sys',o:{t:'text',x:'🔒 Secure session reset. Now ONE of you sends the next message, the other receives it, then replies. If it stays stuck, both Delete contact and re-add.'},ts:Date.now()});
+    if(cur&&cur.mb===mb)drawMsgs(); closePanels(); };
+  $('#deleteContactBtn').onclick=function(){ if(!menuCt) return; var mb=menuCt.mb;
+    if(!confirm('Delete '+(menuCt.name||'this contact')+' and your message history with them? This cannot be undone.')) return;
+    setContacts(getContacts().filter(function(x){return x.mb!==mb;}));
+    try{ LS.removeItem(hKey(mb)); delRat(mb); LS.removeItem('sparrow.send.seen.'+mb); LS.removeItem(readKey(mb)); }catch(e){}
+    closePanels(); if(cur&&cur.mb===mb) closeChat(); else showHome(); };
+
+  /* ---------- add contact + QR ---------- */
+  $('#addBtn').onclick=async function(){
+    var a=$('#peerAddr').value.trim(), name=$('#peerName').value.trim();
+    if(!a){ $('#addstatus').textContent='Enter their @handle or full address, or Scan.'; return; }
+    $('#addstatus').textContent='Adding…';
+    try{
+      // Full address? use it. Otherwise resolve it as a handle.
+      var addr=a, looksAddr=true; try{ decodeAddress(a); }catch(e){ looksAddr=false; }
+      if(!looksAddr){
+        var r=await resolveHandle(a);
+        if(!r){ $('#addstatus').textContent='No @handle by that name (and not an address).'; return; }
+        addr=r;
+      }
+      var d=decodeAddress(addr), mb=await mailboxOf(d.sRaw);
+      if(mb===ID.mailbox){ $('#addstatus').textContent='That is your own address.'; return; }
+      var c=getContacts().filter(function(x){return x.mb!==mb;});
+      c.push({name:name,mb:mb,sRaw:b64u(d.sRaw),eRaw:b64u(d.eRaw),verified:false});
+      setContacts(c); $('#peerAddr').value=''; $('#peerName').value=''; $('#addstatus').textContent='Added.'; renderContacts();
+    }catch(e){ $('#addstatus').textContent='That is not a Sparrow address or @handle.'; }
+  };
+  $('#claimBtn').onclick=async function(){
+    var v=$('#handleIn').value; if(!v.trim()){ $('#handleStatus').textContent='Pick a short name.'; return; }
+    var cur=null; try{ cur=LS.getItem('sparrow.send.handle'); }catch(e){}
+    // "Are you sure?" — changing releases the old name, so confirm first.
+    var msg = cur ? ('Change your name to @'+normHandle(v)+'?\n\nYour old @'+cur+' is released and anyone can then take it.')
+                  : ('Claim @'+normHandle(v)+' as your name?');
+    if(!confirm(msg)) return;
+    $('#handleStatus').textContent='Saving… (a few seconds of proof-of-work)';
+    try{ var h=await claimHandle(v);
+         $('#handleStatus').textContent='✓ Saved. People can add you as @'+h+'.';
+         showMyHandle(); renderFavorites(); }
+    catch(e){ $('#handleStatus').textContent=e.message||'Could not save that name.'; }
+  };
+  // Tap YOUR NAME on the home header -> the account popup (name, fingerprint,
+  // QR/address, move-to-device). This is the ONLY route to account settings now;
+  // the ☰ menu is contacts-only.
+  function openAccount(){
+    var cur=null; try{ cur=LS.getItem('sparrow.send.handle'); }catch(e){}
+    var i=$('#handleIn'); if(i) i.value=cur||''; $('#handleStatus').textContent='';
+    if(window.ID){ $('#myqr').src='/api/send/qr?d='+encodeURIComponent(ID.address); $('#myaddr').textContent=ID.address; }
+    toggle($('#accountPanel'));
+  }
+  var _meid=$('#meid'); if(_meid) _meid.onclick=function(e){ e.stopPropagation(); openAccount(); };
+  // Compact the panels: hide each section's explanation behind a small "?".
+  // A section's help = the .sub paragraphs that follow its <h4> up to the next.
+  (function(){
+    ['#accountPanel','#contactsPanel','#soundPanel'].forEach(function(sel){
+      var p=$(sel); if(!p) return;
+      p.querySelectorAll('h4').forEach(function(h){
+        var subs=[], n=h.nextElementSibling;
+        while(n && n.tagName!=='H4'){ if(n.classList && n.classList.contains('sub')) subs.push(n); n=n.nextElementSibling; }
+        if(!subs.length) return;
+        subs.forEach(function(s){ s.classList.add('hint'); });
+        var b=document.createElement('button'); b.type='button'; b.className='qbtn'; b.textContent='?'; b.title='What is this?';
+        b.onclick=function(e){ e.stopPropagation(); var open=!subs[0].classList.contains('show');
+          subs.forEach(function(s){ s.classList.toggle('show', open); }); b.classList.toggle('on', open); };
+        h.appendChild(b);
+      });
+    });
+  })();
+  $('#copyBtn').onclick=function(){ if(navigator.clipboard) navigator.clipboard.writeText(ID.address); };
+  $('#resetIdBtn').onclick=async function(){ if(!confirm('Delete this identity and all messages? People will need your new address, and your @handle (if any) is released.')) return; await releaseHandle(); try{Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);});}catch(e){} location.reload(); };
+  $('#logoutBtn').onclick=function(){
+    if(!confirm('Log out of Sparrow Send on THIS device? Make sure you exported your login key first, this removes your identity from this device so it stops receiving your messages.')) return;
+    try{ Object.keys(LS).filter(function(k){return k.indexOf('sparrow.send.')===0;}).forEach(function(k){LS.removeItem(k);}); }catch(e){}
+    location.reload();
+  };
+  // portable login key
+  $('#exportBtn').onclick=function(){ var b=$('#exportBox'); b.hidden=!b.hidden; $('#importBox').hidden=true; };
+  $('#importBtn').onclick=function(){ var b=$('#importBox'); b.hidden=!b.hidden; $('#exportBox').hidden=true; };
+  $('#exGo').onclick=async function(){
+    var p=$('#exPass').value; if(p.length<8){ $('#exStatus').textContent='Use at least 8 characters, longer is much stronger.'; return; }
+    $('#exStatus').textContent='Generating…';
+    try{ var key=await exportLoginKey(p); var out=$('#exOut'); out.value=key; out.hidden=false; $('#exCopy').hidden=false; $('#exDownload').hidden=false;
+      $('#exStatus').textContent='⚠️ Save the file (or copy the text) somewhere safe. With the password, it IS your account.'; }
+    catch(e){ $('#exStatus').textContent='Could not generate: '+e.message; }
+  };
+  function markedUp(){ try{LS.setItem('sparrow.send.backed_up','1');}catch(e){} updateBackupNag(); }
+  $('#exCopy').onclick=function(){ if(navigator.clipboard) navigator.clipboard.writeText($('#exOut').value); $('#exStatus').textContent='Copied. Paste it into your notes or password manager.'; markedUp(); };
+  $('#exDownload').onclick=function(){
+    var blob=new Blob([$('#exOut').value], {type:'text/plain'});
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='sparrow-send-backup.txt';
+    document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    $('#exStatus').textContent='Saved. Keep this file safe, it restores your account.'; markedUp();
+  };
+  $('#imFile').onchange=function(){ var f=this.files&&this.files[0]; if(!f) return; var r=new FileReader(); r.onload=function(){ $('#imKey').value=(r.result||'').toString().trim(); $('#imStatus').textContent='File loaded, enter the password and sign in.'; }; r.readAsText(f); };
+  $('#imGo').onclick=async function(){
+    var k=$('#imKey').value, p=$('#imPass').value;
+    if(!k||!p){ $('#imStatus').textContent='Paste your key and its password.'; return; }
+    if(!confirm('Sign in as the account in this key on THIS device? It replaces the current identity here. Existing chats may need “Reset secure session”.')) return;
+    $('#imStatus').textContent='Signing in…';
+    try{ await importLoginKey(k,p); try{LS.setItem('sparrow.send.backed_up','1');}catch(e){} $('#imStatus').textContent='Success, reloading…'; setTimeout(function(){ location.reload(); },600); }
+    catch(e){ $('#imStatus').textContent='Wrong password or invalid key.'; }
+  };
+
+  // QR scan (jsqr + camera)
+  var scanStream=null, jsqrP=null;
+  function loadJsqr(){ if(window.jsQR) return Promise.resolve(); if(jsqrP) return jsqrP;
+    jsqrP=new Promise(function(res,rej){var s=document.createElement('script');s.src='/vendor/jsqr.min.js';s.onload=res;s.onerror=rej;document.head.appendChild(s);}); return jsqrP; }
+  $('#scanBtn').onclick=async function(){
+    try{ await loadJsqr(); var v=$('#scanvid'); $('#scanwrap').style.display='flex';
+      scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+      v.srcObject=scanStream; await v.play(); scanLoop();
+    }catch(e){ $('#scanwrap').style.display='none'; $('#addstatus').textContent='Camera unavailable.'; }
+  };
+  function stopScan(){ $('#scanwrap').style.display='none'; if(scanStream){scanStream.getTracks().forEach(function(t){t.stop()});scanStream=null;} }
+  $('#scanClose').onclick=stopScan;
+  function scanLoop(){
+    if(!scanStream) return; var v=$('#scanvid');
+    if(v.readyState===v.HAVE_ENOUGH_DATA){
+      var cv=document.createElement('canvas'); cv.width=v.videoWidth; cv.height=v.videoHeight;
+      var cx=cv.getContext('2d'); cx.drawImage(v,0,0,cv.width,cv.height);
+      var img=cx.getImageData(0,0,cv.width,cv.height); var q=window.jsQR(img.data,cv.width,cv.height);
+      if(q&&q.data){ try{ decodeAddress(q.data); $('#peerAddr').value=q.data; stopScan(); $('#addstatus').textContent='Scanned, tap Add.'; return; }catch(e){} }
+    }
+    requestAnimationFrame(scanLoop);
+  }
+
+  /* ---------- chirp sounds + notifications ---------- */
+  var actx=null, _reverb=null, _wet=null;
+  // iOS suspends the AudioContext when the screen locks or the app backgrounds,
+  // and can drop it into an 'interrupted' state that resume() will NOT recover -
+  // that is why the sounds died until you closed and reopened. Rebuild the
+  // context in that case (the reverb is bound to the old one, so drop it too).
+  function getCtx(){
+    try{
+      if(!actx || actx.state==='closed'){ actx=new (window.AudioContext||window.webkitAudioContext)(); _reverb=null; }
+      if(actx.state!=='running'){
+        actx.resume();
+        if(actx.state!=='running' && actx.state!=='suspended'){   // iOS 'interrupted': rebuild
+          try{ actx.close(); }catch(e){} actx=new (window.AudioContext||window.webkitAudioContext)(); _reverb=null; actx.resume();
+        }
+      }
+      return actx;
+    }catch(e){ return null; }
+  }
+  // Nudge the context back on any tap and when the app returns to the foreground.
+  document.addEventListener('pointerdown', function(){ if(actx && actx.state!=='running') getCtx(); }, {passive:true});
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden && actx && actx.state!=='running') getCtx(); });
+  function ensureReverb(){
+    if(_reverb) return; var len=Math.floor(actx.sampleRate*0.9), buf=actx.createBuffer(2,len,actx.sampleRate);
+    for(var ch=0;ch<2;ch++){ var d=buf.getChannelData(ch); for(var i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.2); }
+    _reverb=actx.createConvolver(); _reverb.buffer=buf; _wet=actx.createGain(); _wet.gain.value=0.6; _reverb.connect(_wet); _wet.connect(actx.destination);
+  }
+  function vol(){ try{ if($('#mute').checked) return 0; return (parseInt(LS.getItem('sparrow.send.vol')||'60',10)/100); }catch(e){ return .6; } }
+  function chirp(sent){
+    var v=vol(); if(v<=0) return;
+    try{ actx=getCtx(); if(!actx) return;
+      var t0=actx.currentTime, notes= sent ? [[2600,3200,0.05]] : [[3200,5200,0.06],[3000,4800,0.05],[3400,5600,0.05]];
+      var t=t0;
+      notes.forEach(function(n,i){
+        var o=actx.createOscillator(), g=actx.createGain();
+        o.type='sine'; o.frequency.setValueAtTime(n[0],t); o.frequency.exponentialRampToValueAtTime(n[1],t+n[2]);
+        g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.28*v,t+0.012); g.gain.exponentialRampToValueAtTime(0.0001,t+n[2]+0.03);
+        o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t+n[2]+0.05);
+        t += n[2]+ (sent?0:0.045);
+      });
+    }catch(e){}
+  }
+  // Euphoric UI sounds: 'key' plays a soft glassy bell on a random pentatonic
+  // note (so typing becomes a gentle melody); 'tap' is a warm chime. Mid-range
+  // so phone speakers actually reproduce it. Gated by volume/mute.
+  var _penta=[587.33,659.25,783.99,880.00,1046.50,1174.66,1318.51];  // D5 E5 G5 A5 C6 D6 E6
+  function _bell(f, peak, dur, t){
+    // fundamental + shimmering upper partial through a gentle reverb = blissful
+    var o=actx.createOscillator(), o2=actx.createOscillator(), g=actx.createGain(), g2=actx.createGain();
+    o.type='sine'; o.frequency.value=f; o2.type='sine'; o2.frequency.value=f*2.005; g2.gain.value=0.35;
+    o.connect(g); o2.connect(g2); g2.connect(g); g.connect(actx.destination); if(_reverb) g.connect(_reverb);
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(peak,t+0.006); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.start(t); o2.start(t); o.stop(t+dur+0.05); o2.stop(t+dur+0.05);
+  }
+  function blip(kind){
+    var v=vol(); if(v<=0) return;
+    try{ actx=getCtx(); if(!actx) return;
+      ensureReverb(); var t=actx.currentTime;
+      if(kind==='key'){ _bell(_penta[(Math.random()*_penta.length)|0], 0.55*v, 0.5, t); }
+      else {
+        // tap = a short, dry, muted 'pop' (no bell/reverb, so it doesn't sound
+        // like a notification) - just a soft UI tick.
+        var o=actx.createOscillator(), g=actx.createGain(), lp=actx.createBiquadFilter();
+        lp.type='lowpass'; lp.frequency.value=900;
+        o.type='sine'; o.frequency.setValueAtTime(360,t); o.frequency.exponentialRampToValueAtTime(230,t+0.05);
+        o.connect(lp); lp.connect(g); g.connect(actx.destination);      // dry: no reverb send
+        g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.22*v,t+0.004); g.gain.exponentialRampToValueAtTime(0.0001,t+0.09);
+        o.start(t); o.stop(t+0.11);
+      }
+    }catch(e){}
+  }
+  function notifyIncoming(info){
+    chirp(false);
+    if(!info) return;
+    var focusedThis = !document.hidden && cur && cur.mb===info.mb;
+    if(focusedThis) return;
+    // If Web Push is on, the hub's (content-free) push already shows the banner.
+    // Firing an in-page Notification too made every message appear TWICE.
+    try{ if(LS.getItem('sparrow.send.push')==='1') return; }catch(e){}
+    try{ if('Notification' in window && Notification.permission==='granted'){
+      var n=new Notification(info.name||'Sparrow Send',{body:info.text||'New message',icon:'/static/apple-touch-icon.png',tag:'sparrowsend-'+info.mb});
+      n.onclick=function(){ window.focus(); var c=contactByMb(info.mb); if(c) openChat(c); n.close(); };
+    }}catch(e){}
+  }
+  function urlB64ToU8(s){ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; var raw=atob(s), a=new Uint8Array(raw.length); for(var i=0;i<raw.length;i++)a[i]=raw.charCodeAt(i); return a; }
+  // Real Web Push: works when the app is CLOSED (iOS needs this - the in-page
+  // Notification API only fires while open). iPhone requires the app be added to
+  // the Home Screen first (PushManager only exists in an installed PWA).
+  async function enablePush(){
+    if(!('Notification' in window)) throw new Error('Notifications not supported here');
+    var perm = await Notification.requestPermission();
+    if(perm!=='granted') throw new Error('Blocked, allow in settings');
+    if(!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('On iPhone: Add to Home Screen first, then enable');
+    var reg = await navigator.serviceWorker.ready;
+    var vk = (await (await fetch('/api/send/vapid')).json()).key;
+    if(!vk) throw new Error('push not configured');
+    var sub = await reg.pushManager.getSubscription();
+    if(!sub) sub = await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey: urlB64ToU8(vk)});
+    var r = await fetch('/api/send/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mb:ID.mailbox, sub:sub.toJSON()})});
+    if(!r.ok) throw new Error('could not register on the hub');
+    try{ LS.setItem('sparrow.send.push','1'); }catch(e){}
+  }
+  $('#notifBtn').onclick=async function(){ var btn=this; btn.textContent='Enabling…';
+    try{ await enablePush(); btn.textContent='🔔 Notifications on'; }
+    catch(e){ btn.textContent=e.message||'Could not enable'; } };
+  $('#vol').oninput=function(){ try{LS.setItem('sparrow.send.vol',this.value);}catch(e){} };
+  $('#testChirp').onclick=function(){ chirp(false); };
+
+  /* ---------- PWA install ---------- */
+  var deferredPrompt=null;
+  window.addEventListener('beforeinstallprompt',function(e){ e.preventDefault(); deferredPrompt=e; $('#installBtn').style.display='block'; $('#installNote').style.display='none'; });
+  $('#installBtn').onclick=async function(){ if(!deferredPrompt) return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $('#installBtn').style.display='none'; };
+  if('serviceWorker' in navigator){ navigator.serviceWorker.register('/send-sw.js',{scope:'/send'}).catch(function(){}); }
+
+  /* ---------- panels / wiring ---------- */
+  function showScrim(on){ var s=$('#scrim'); if(s) s.classList.toggle('on', !!on); }
+  // Nag to back up (export a login key) until they have - the account-loss fix.
+  function updateBackupNag(){ var n=$('#backupNag'); if(!n) return; var need=true; try{ need=LS.getItem('sparrow.send.backed_up')!=='1'; }catch(e){ need=false; } n.style.display=(need && !window.__nagOff)?'flex':'none'; }
+  function closePanels(){ document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('open');}); showScrim(false); }
+  function toggle(p){ var was=p.classList.contains('open'); closePanels(); if(!was){ p.classList.add('open'); showScrim(true); } }
+  $('#contactsBtn').onclick=function(e){ e.stopPropagation(); toggle($('#contactsPanel')); };
+  $('#soundBtn').onclick=function(e){ e.stopPropagation(); toggle($('#soundPanel')); };
+  $('#chatmenu').onclick=function(e){ e.stopPropagation(); if(cur) openCmenu(cur, e.target); };
+  document.addEventListener('click',function(e){ if(!e.target.closest('.panel')&&!e.target.closest('.iconbtn')&&!e.target.closest('.cmenu')&&!e.target.closest('#chatmenu')) closePanels(); });
+  $('#scrim').onclick=closePanels;
+  $('#nagBackup').onclick=function(ev){ ev.stopPropagation(); closePanels(); $('#contactsPanel').classList.add('open'); showScrim(true); $('#exportBox').hidden=false; $('#importBox').hidden=true; var e=$('#exPass'); if(e){ try{e.scrollIntoView({block:'center'});}catch(_){} e.focus(); } };
+  $('#nagLater').onclick=function(ev){ ev.stopPropagation(); window.__nagOff=true; updateBackupNag(); };
+  $('#backBtn').onclick=closeChat;
+  $('#replyx').onclick=clearReply;
+  $('#sendBtn').onclick=doSend;
+  $('#attachBtn').onclick=function(){ $('#fileIn').click(); };
+  $('#fileIn').onchange=function(){ if(this.files&&this.files[0]) sendImage(this.files[0]); this.value=''; };
+  var mi=$('#msgIn');
+  mi.addEventListener('keydown',function(e){
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend();return;}
+  });
+  // Play the note on 'input' (not keydown) so autocomplete, emoji, predictive
+  // text and paste all chime too - those never fire keydown.
+  mi.addEventListener('input',function(){ blip('key'); });
+  mi.addEventListener('focus',function(){ blip('tap'); });   // chime when you tap into the box
+  // Button/tap sounds. CAPTURE phase so it fires even for buttons that
+  // stopPropagation (the top-right menu/bell). Skip send (it already chirps).
+  document.addEventListener('click',function(e){ var t=e.target.closest('button,.iconbtn,.cmenu,.conv,.contact,.pill,.rbtn,.later,.x'); if(t&&t.id!=='sendBtn') blip('tap'); }, true);
+  mi.addEventListener('input',function(){ this.style.height='auto'; this.style.height=Math.min(120,this.scrollHeight)+'px'; });
+
+  (async function init(){
+    applyIcons();
+    await loadID();
+    $('#myaddr').textContent=ID.address;
+    $('#myfp').textContent=fp(ID.mailbox);
+    $('#meFp').textContent=fp(ID.mailbox);
+    showMyHandle();
+    renderFavorites();   // fill the header identity (@handle + fingerprint)
+    try{ if(LS.getItem('sparrow.send.push')==='1') $('#notifBtn').textContent='🔔 Notifications on'; }catch(e){}
+    $('#myqr').src='/api/send/qr?d='+encodeURIComponent(ID.address);
+    try{ $('#vol').value=LS.getItem('sparrow.send.vol')||'60'; }catch(e){}
+    showHome();
+    updateBackupNag();
+    await poll(); setInterval(poll, 4000);
+    document.addEventListener('visibilitychange',function(){ if(!document.hidden) poll(); });
+  })();
+})();
+</script>
+</body>
+</html>

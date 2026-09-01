@@ -401,8 +401,13 @@ const VEHICLE_LABEL = 'VEHICLE';
    Behind is a lag; ahead is a lie, and the second is worse. */
 const PREDICT_MAX_S = 0.8;
 const VEL_SMOOTH = 0.55;      // EMA on velocity: 0 = frozen, 1 = no smoothing
+// Time constant for easing the DRAWN box toward its predicted target. Between
+// looks the box leads forward, then a fresh detection would teleport it back;
+// low-passing the rendered position turns that snap into a glide. Small enough
+// (~70ms) that the box still sits on the car rather than trailing it.
+const SMOOTH_TAU = 0.07;
 
-const tracks = new Map();     // id -> {x,y,w,h,vx,vy,t,cls,conf,plates,seen}
+const tracks = new Map();     // id -> {x,y,w,h,vx,vy,t,rx,ry,rw,rh,cls,conf,plates,seen}
 let lastPayload = null, lastRx = 0;
 
 function ingestBoxes(d){
@@ -420,8 +425,13 @@ function ingestBoxes(d){
       const vy = ((b.y + b.h / 2) - (p.y + p.h / 2)) / dt;
       b.vx = p.vx + (vx - p.vx) * VEL_SMOOTH;
       b.vy = p.vy + (vy - p.vy) * VEL_SMOOTH;
+      // Carry the smoothed render position across the detection so drawBoxes
+      // eases from where the box already IS, not from the raw new detection.
+      b.rx = p.rx ?? b.x; b.ry = p.ry ?? b.y;
+      b.rw = p.rw ?? b.w; b.rh = p.rh ?? b.h;
     } else {
       b.vx = 0; b.vy = 0;      // a brand new track has no history to go on
+      b.rx = b.x; b.ry = b.y; b.rw = b.w; b.rh = b.h;
     }
     b.t = now;
     tracks.set(b.id, b);
@@ -466,13 +476,29 @@ function drawBoxes(){
 
   g.font = '600 11px ui-monospace,Consolas,monospace';
   g.lineJoin = 'round';
+  // Frame-rate-independent smoothing factor for the rendered-position low-pass:
+  // k = 1 - e^(-dt/tau).
+  const nowT = performance.now();
+  const fdt = Math.min(0.05, Math.max(0.001, (nowT - (drawBoxes._last || nowT)) / 1000));
+  drawBoxes._last = nowT;
+  const K = 1 - Math.exp(-fdt / SMOOTH_TAU);
   for (const b of tracks.values()){
-    // Advance the box to where the vehicle should be now. Capped, because this
-    // is a prediction and a car that brakes hard should cost us a fraction of
-    // a second of overshoot rather than a box halfway down the street.
+    // Where the vehicle should be NOW: the last detection advanced by its
+    // velocity. Capped, because this is a prediction and a car that brakes hard
+    // should cost a fraction of a second of overshoot, not a box down the road.
     const ahead = Math.min(age, PREDICT_MAX_S);
-    const x = (b.x + b.vx * ahead) * w, y = (b.y + b.vy * ahead) * h;
-    const bw = b.w*w, bh = b.h*h;
+    const tx = b.x + b.vx * ahead, ty = b.y + b.vy * ahead;
+    // Ease the DRAWN box toward that target instead of snapping to it. On a big
+    // jump (a new or re-identified track) snap, so it does not crawl in from
+    // wherever the previous box sat.
+    if (b.rx == null || Math.abs(tx - b.rx) > 0.15 || Math.abs(ty - b.ry) > 0.15){
+      b.rx = tx; b.ry = ty; b.rw = b.w; b.rh = b.h;
+    } else {
+      b.rx += (tx - b.rx) * K; b.ry += (ty - b.ry) * K;
+      b.rw += (b.w - b.rw) * K; b.rh += (b.h - b.rh) * K;
+    }
+    const x = b.rx * w, y = b.ry * h;
+    const bw = b.rw * w, bh = b.rh * h;
     const gov = !!b.gov;
     const col = gov ? GOV_COLOR : (BOXCOLOR[b.cls] || '#3ddc97');
     g.strokeStyle = col; g.lineWidth = gov ? 3 : 2;

@@ -114,6 +114,7 @@ EXCLUDE_FROM_TRAINING = {"handheld", "scraped"}
 # because press-style photographs teach photography rather than policing.
 APPROVED_FOR_TRAINING = {
     "review",      # random draw, his
+    "review_public",  # random draw restricted to public/other-node cameras
     "likely",      # highest-government-confidence queue, his
     "hunt",        # CLIP's hardest cases, his
     "split",       # police-vs-gov re-ask, his
@@ -136,7 +137,7 @@ APPROVED_FOR_TRAINING = {
 # But only a RANDOM sample can measure anything, so this is his random draw plus
 # the community's random stratified slice - never the patrol queue, whose whole
 # purpose is to be biased toward the model's mistakes.
-MEASURABLE = {"review", "community_random"}
+MEASURABLE = {"review", "review_public", "community_random"}
 
 
 def _trainable(src):
@@ -170,10 +171,29 @@ CLIP_CLASSES = ("police", "emergency", "gov_dot", "fleet", "civilian")
 _WITH_CLIP = os.environ.get("SPARROW_NO_CLIP_FEATURES") != "1"
 
 
+def _labelled_paths() -> list:
+    """Image paths of every crop that carries a usable label.
+
+    🚨 EMBED ONLY THESE, NOT THE WHOLE BANK. embed_dir used to walk all 655k
+    crops and embed every unlabelled one - hours on the GPU, and it deadlocked
+    box_puller's CLIP. The measurement only ever uses labelled crops, so ask the
+    index which those are (fast) and hand embed_dir exactly that list.
+    """
+    from tools import bank_index
+    db = bank_index.read()
+    try:
+        rows = db.execute(
+            "SELECT day, stem FROM crops WHERE label IN "
+            "('police','gov','civilian','fleet')").fetchall()
+    finally:
+        db.close()
+    return [BANK / r["day"] / f"{r['stem']}.jpg" for r in rows]
+
+
 def load() -> tuple[np.ndarray, np.ndarray, np.ndarray, list]:
     """Embeddings, labels, and which distribution each row came from."""
     from train.embed import embed_dir
-    e = embed_dir(BANK)
+    e = embed_dir(BANK, only=_labelled_paths())
     by_rel = {rel: vec for vec, rel in zip(e["vecs"], e["paths"])}
 
     X, y, src, meta = [], [], [], []
@@ -465,13 +485,13 @@ def main() -> None:
     thrs = [x for x in thrs if x is not None]
     thr = float(np.median(thrs)) if thrs else None
 
-    if a.no_save:
+    if args.no_save:
         print()
         print(f"--no-save: the live head was NOT touched "
               f"(would have been threshold {thr if thr else 'UNREACHABLE'}).")
         return
 
-    out_path = Path(a.out) if a.out else MODEL_OUT
+    out_path = Path(args.out) if args.out else MODEL_OUT
     out_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(out_path, w=clf.coef_, b=clf.intercept_,
              mean=scaler.mean_, scale=scaler.scale_,

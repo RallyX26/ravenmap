@@ -49,6 +49,9 @@ import review_api
 import review_auth
 import reviewer_mutation
 import reviewer_read
+import send_relay
+import send_push
+import air_relay
 import snapshot
 import static
 import tiles
@@ -86,6 +89,213 @@ TILE_UPSTREAM = tiles.TILE_UPSTREAM
 TILE_SUBDOMAINS = tiles.TILE_SUBDOMAINS
 TILE_MAX_ZOOM = tiles.TILE_MAX_ZOOM
 TILE_CACHE_MAX = tiles.TILE_CACHE_MAX
+TILES = DATA / "tiles"
+
+# US police-station points [lat, lon, name], fetched from OpenStreetMap on the
+# desktop and scp'd here (the box cannot reach Overpass, same as road snapping).
+# Loaded once and served bounded by viewport, so the nationwide ~15k points
+# never reach a phone at once. Static data; refresh with tools/police_fetch.py.
+_POLICE_CACHE = None
+def _police_stations():
+    global _POLICE_CACHE
+    if _POLICE_CACHE is None:
+        try:
+            _POLICE_CACHE = json.loads(
+                (DATA / "police_stations.json").read_text(encoding="utf-8"))
+        except Exception:
+            _POLICE_CACHE = []
+    return _POLICE_CACHE
+
+# Flock/ALPR surveillance cameras from OpenStreetMap (the DeFlock dataset),
+# fetched on the desktop and scp'd here. Each row is [osm_id, lat, lon, dir].
+# Served bounded by viewport at /api/cameras, minus the ones confirmed removed.
+_CAMERAS_CACHE = None
+def _surveillance_cameras():
+    global _CAMERAS_CACHE
+    if _CAMERAS_CACHE is None:
+        try:
+            _CAMERAS_CACHE = json.loads(
+                (DATA / "surveillance_cameras.json").read_text(encoding="utf-8"))
+        except Exception:
+            _CAMERAS_CACHE = []
+    return _CAMERAS_CACHE
+
+# osm_ids of cameras a review has confirmed REMOVED (a city took the camera
+# down), so the map stops asserting a camera that is not there any more. Curated
+# from the public /api/camera/report queue - a report never hides a camera by
+# itself. Re-read each call (it is tiny) so a new verdict shows without a
+# restart; the camera list itself is big and static, so that stays cached.
+def _cameras_removed():
+    try:
+        return set(json.loads(
+            (DATA / "cameras_removed.json").read_text(encoding="utf-8")))
+    except Exception:
+        return set()
+
+# osm_ids an RF-beta detection has confirmed still present (a Flock camera heard
+# on WiFi next to a mapped one). Written by tools/camera_rf_confirm.py; re-read
+# each call because it is small and changes as the network reports in.
+def _cameras_confirmed():
+    try:
+        return set(json.loads(
+            (DATA / "cameras_confirmed.json").read_text(encoding="utf-8")))
+    except Exception:
+        return set()
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in metres. Used to prove a camera report was filed
+    while standing at the camera."""
+    import math
+    r = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = (math.sin(dp / 2) ** 2
+         + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2)
+    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
+
+
+# ---------------------------------------------------------------------------
+# RADAR / speed-trap layer (beta). A police speed-radar emission is physical
+# evidence, unlike the tap-a-coordinate "patrol here" that was withdrawn on
+# 2026-08-15 (see /api/drive/report) - so a hit MUST come from real detector
+# hardware, authenticated with a node token, never an anonymous tap. Hits are
+# ephemeral live signals: kept in memory, decayed in minutes, clustered on read
+# into "a radar source is active near here" dots whose confidence follows the
+# BAND. Ka (33-35 GHz) is essentially police-only; K (24 GHz) now fires on cars'
+# blind-spot radar and X on automatic doors, so those need corroboration.
+_radar_hits = []                       # [{ts,lat,lon,heading,band,strength,node}]
+_radar_lock = threading.Lock()
+RADAR_TTL_S = 300.0                    # a trap the network stops seeing fades in 5 min
+RADAR_CLUSTER_M = 250.0               # hits this close, same band = one source
+# Base trust per band. A lone Ka hit is already meaningful; K/X are not, and only
+# climb when independent reporters agree.
+RADAR_BAND_BASE = {"ka": 0.70, "laser": 0.85, "k": 0.30, "x": 0.18}
+
+
+def _radar_add(lat, lon, band, heading, strength, node):
+    now = time.time()
+    with _radar_lock:
+        _radar_hits.append({"ts": now, "lat": lat, "lon": lon, "band": band,
+                            "heading": heading, "strength": strength, "node": node})
+        # Prune here so the list never grows unbounded between reads.
+        cut = now - RADAR_TTL_S
+        _radar_hits[:] = [h for h in _radar_hits if h["ts"] >= cut]
+
+
+def _radar_dots(box=None):
+    """Cluster live hits into active radar sources. Each dot is the reporter-
+    weighted centre of a cluster (more independent reporters -> the circles
+    overlap and the centre tightens onto the real emitter), with a confidence
+    from the band, the number of DISTINCT reporters, and how fresh it is."""
+    now = time.time()
+    cut = now - RADAR_TTL_S
+    with _radar_lock:
+        hits = [dict(h) for h in _radar_hits if h["ts"] >= cut]
+    if box:
+        try:
+            s, w, n, e = box
+            hits = [h for h in hits if s <= h["lat"] <= n and w <= h["lon"] <= e]
+        except (TypeError, ValueError):
+            pass
+    dots = []
+    for h in hits:
+        placed = False
+        for d in dots:
+            if (h["band"] == d["band"]
+                    and _haversine_m(h["lat"], h["lon"], d["lat"], d["lon"])
+                    <= RADAR_CLUSTER_M):
+                d["_hits"].append(h)
+                # Running reporter-weighted centroid.
+                k = len(d["_hits"])
+                d["lat"] += (h["lat"] - d["lat"]) / k
+                d["lon"] += (h["lon"] - d["lon"]) / k
+                placed = True
+                break
+        if not placed:
+            dots.append({"lat": h["lat"], "lon": h["lon"], "band": h["band"],
+                         "_hits": [h]})
+    out = []
+    for d in dots:
+        hs = d["_hits"]
+        reporters = len({h["node"] for h in hs})
+        newest = max(h["ts"] for h in hs)
+        age = int(now - newest)
+        base = RADAR_BAND_BASE.get(d["band"], 0.2)
+        conf = min(0.98, base + 0.15 * (reporters - 1))
+        conf *= max(0.25, 1.0 - age / RADAR_TTL_S)     # fades as it goes stale
+        out.append({"lat": round(d["lat"], 5), "lon": round(d["lon"], 5),
+                    "band": d["band"], "conf": round(conf, 2),
+                    "reporters": reporters, "age": age})
+    out.sort(key=lambda x: -x["conf"])
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Generic live-sensor layer for the OTHER hardware feeds - drones (Remote ID)
+# and police-radio activity. Same shape as radar: ephemeral, node-token-written,
+# publicly read, decayed on read. Kept separate from radar so that working code
+# is untouched. Each event carries its kind; TTL and dedup differ per kind:
+#   drone  a moving aircraft - short life, deduped by its Remote ID so a trail
+#          collapses to one current position.
+#   radio  activity heard AT a receiving node - lingers, deduped by node so one
+#          scanner is one pulse, not a stream of them.
+_live_events = []               # {ts,kind,lat,lon,label,key,node}
+_live_lock = threading.Lock()
+LIVE_TTL = {"drone": 180.0, "radio": 300.0}
+LIVE_KINDS = set(LIVE_TTL)
+
+
+def _live_add(kind, lat, lon, label, key, node):
+    now = time.time()
+    with _live_lock:
+        # Replace any prior event with the same (kind,key) so a moving drone or a
+        # chatty scanner is one point, not hundreds.
+        _live_events[:] = [e for e in _live_events
+                           if not (e["kind"] == kind and e["key"] == key)]
+        _live_events.append({"ts": now, "kind": kind, "lat": lat, "lon": lon,
+                             "label": label, "key": key, "node": node})
+        # Global prune by each kind's TTL.
+        _live_events[:] = [e for e in _live_events
+                           if now - e["ts"] < LIVE_TTL.get(e["kind"], 300.0)]
+
+
+def _live_points(kind, box=None):
+    now = time.time()
+    ttl = LIVE_TTL.get(kind, 300.0)
+    with _live_lock:
+        evs = [dict(e) for e in _live_events
+               if e["kind"] == kind and now - e["ts"] < ttl]
+    if box:
+        try:
+            s, w, n, e = box
+            evs = [x for x in evs if s <= x["lat"] <= n and w <= x["lon"] <= e]
+        except (TypeError, ValueError):
+            pass
+    out = []
+    for x in evs:
+        out.append({"lat": round(x["lat"], 5), "lon": round(x["lon"], 5),
+                    "label": x["label"] or "", "age": int(now - x["ts"])})
+    out.sort(key=lambda z: z["age"])
+    return out
+
+
+TILE_UPSTREAM = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+TILE_SUBDOMAINS = "abcd"
+# When Carto rate-limits our single proxy IP it returns an "API KEY REQUIRED"
+# placeholder PNG with HTTP 200. It is one fixed image, so we recognise it by
+# hash and NEVER cache it - caching pinned "API KEY REQUIRED" across the map for
+# the 7-day max-age. Add new hashes here if Carto changes the placeholder.
+TILE_PLACEHOLDER_MD5 = {"0434b598b6a4b3bf56bbc8c295046381"}
+TILE_MAX_ZOOM = 20
+# Tiles are ~5-15 KB. 20k of them is a few hundred MB and covers a town at
+# every zoom a viewer will use.
+TILE_CACHE_MAX = 20000
+_tile_count = None
+
+
+_tile_prune_lock = threading.Lock()
 
 
 def _tile_prune() -> None:
@@ -203,6 +413,171 @@ FEED = Feed()
 # reaching into hub._TILE_FETCH still observes the real semaphore.
 _TILE_FETCH = tiles._TILE_FETCH
 
+_HITS: dict = {}
+_HIT_LOCK = threading.Lock()
+# Per-IP request budgets: (count, window_seconds).
+# /api/tile is here because each hit triggers one UPSTREAM fetch that holds a
+# worker thread up to 15s - an anonymous amplification lever. A human panning
+# the map pulls tens of tiles a minute; 600/5min is generous for that and still
+# caps a scraper walking the whole tile pyramid.
+# 🚨 EVERY LIMIT HERE IS GLOBAL, NOT PER-VISITOR, AND THE NUMBERS MUST REFLECT
+# THAT. Caddy proxies this hub with `header_up -X-Forwarded-For` - the client
+# IP is stripped on purpose, and correctly, because a hub that never learns
+# visitor addresses cannot leak them. The consequence is that client_ip is
+# 127.0.0.1 for everyone on earth, so these buckets are shared by the whole
+# network.
+#
+# /api/enroll sat at 5/hour, written as a per-person guard. It behaved as a cap
+# of five new cameras per hour ACROSS THE ENTIRE PROJECT. During the wave that
+# followed the video, one person registering five cameras in a single minute
+# locked out every other volunteer for the rest of the hour - and the message
+# blamed their address, so nobody could tell. He hit it himself trying to place
+# the only camera in an area.
+#
+# Sized as what it actually is: a flood guard against a script, not a guard
+# against a person. A runaway loop still gets stopped; a viral hour does not.
+# ⚠️ `/api/sightings` IS NOW PER CAMERA (see rate_ok's `who`), so this number
+# changed meaning: it is what ONE camera may post in an hour, not what the
+# whole project may. A busy street node runs a few hundred passes an hour, so
+# 900 is generous for a real camera and still stops a runaway loop.
+# `_all_sightings` is the network-wide ceiling that used to be the only bucket.
+# Sized from measurement rather than habit: the busiest hour on the live box
+# carried 1,267 sightings, so a global cap of 600 was already refusing real
+# work. 20,000/hour is roughly 5.5 a second, which is about what 2 vCPUs will
+# ingest before the tile path starts to suffer.
+# 🚨 RAISED 2026-08-15 DURING A SECOND VIRAL WAVE, BEFORE THEY BIT.
+#
+# Both of these are GLOBAL buckets - client_ip is 127.0.0.1 for everyone, see
+# the note above - so they are not "per person" in any sense. Measured while a
+# post from a large account was spreading: 15 new cameras in the busiest hour
+# against a cap of 120, and 168 in a day.
+#
+# 120/hour is 2 a minute for the entire project. That is fine on an ordinary
+# day and it is the exact thing that failed last time: "one person registering
+# five cameras in a single minute locked out every other volunteer for the rest
+# of the hour". A wave eight times the current rate is not a stretch when a
+# verified account posts, and the cost of being wrong is asymmetric - a
+# volunteer who cannot register during the one hour they were motivated does
+# not come back, whereas a few junk rows are swept.
+#
+# 600/hour still stops a runaway script (a loop managing ten a minute sustained
+# is refused) and no longer refuses a crowd.
+RATE = {"/api/enroll": (600, 3600), "/api/sightings": (900, 3600),
+        "_all_sightings": (20000, 3600),
+        # RF scans post a whole batch of nearby surveillance devices at once,
+        # not one row at a time, so the per-node ceiling is lower than sightings.
+        "/api/rf": (300, 3600),
+        "/api/drive/report": (40, 3600), "/api/drive/vote": (120, 3600),
+        # 🚨 TILES: 600/300s WAS 2 A SECOND FOR THE WHOLE WORLD.
+        # One map load pulls roughly twenty tiles, so that bucket allowed about
+        # six people to open the map per minute before the rest got 429s and a
+        # grey rectangle. Cloudflare hides this most of the time - tiles are
+        # cached for seven days and measured HIT today - but a viral wave is
+        # precisely the case it does NOT hide: everybody arrives looking at a
+        # DIFFERENT street, and a first look at a new area is a cache miss by
+        # definition.
+        # The real protection for the upstream tile CDN is _TILE_FETCH, the
+        # semaphore that bounds concurrent origin fetches to 12. This bucket
+        # only needs to stop somebody scraping the basemap, and 10/s does that
+        # while leaving a crowd alone.
+        "/api/tile": (3000, 300), "/api/report": (20, 3600),
+        # Public camera-spot reports from the no-install /spot page. Each carries
+        # a full JPEG and parks for review, so the ceiling is low: a flood is a
+        # flood of pictures a human must wade through, not a map defacement.
+        "/api/spot": (12, 3600),
+        # Reports that an OSM camera is gone / still there. Cheap (no photo, no
+        # map change without review), so a looser bucket than /spot.
+        "/api/camera/report": (60, 3600),
+        # Radar-detector hits from paired hardware. A detector on a highway
+        # fires often, and several drivers feed at once, so the bucket is
+        # generous - but every hit is node-token authenticated, so this is a
+        # flood guard, not the anti-abuse control (the token is).
+        "/api/radar/hit": (1200, 3600),
+        # Drone / police-radio events from paired hardware. Also node-token
+        # authenticated; generous bucket, same reasoning as radar.
+        "/api/sensor/hit": (1200, 3600),
+        # Sparrow Send (E2EE messages). All network-wide (Caddy strips IPs), so
+        # these are flood guards, not per-user caps. Sending is generous (a chat
+        # is bursty); fetching and challenges cheaper. The relay's own per-mailbox
+        # and global queue caps are the real backstop.
+        "/api/send/put": (3000, 3600),
+        "/api/send/get": (3000, 3600),
+        "/api/send/challenge": (3000, 3600),
+        "/api/send/claim": (120, 3600),
+        "/api/send/release": (120, 3600),
+        "/api/send/handle": (3000, 3600),
+        "/api/send/subscribe": (300, 3600),
+        # The tag-routed air relay (air_relay): the internet twin of the LoRa
+        # gateway, so any user of the encrypted messenger can reach any other by
+        # a rotating routing tag without the hub ever naming a recipient. Puts
+        # carry proof-of-work like a mailbox send; gets poll a cursor, so both
+        # sides poll steadily - roomy like the mailbox routes.
+        "/api/air/put": (3000, 3600),
+        "/api/air/get": (6000, 3600),
+        # Local ADS-B receivers pushing aircraft they see. A busy sky is a lot of
+        # aircraft per push but one push every few seconds, so this is roomy.
+        "/api/aircraft/ingest": (1800, 3600),
+        # Network-wide (client_ip is 127.0.0.1 for everyone), so this is
+        # a flood guard on the whole site rather than a per-person cap.
+        # bugs.py enforces its own per-hour ceiling as well.
+        "/api/bug": (120, 3600),
+        # Reading back your own placement. Not brute-forceable (the token is
+        # 24 random bytes), but a wrong-token loop should still cost something.
+        "/api/node/me": (120, 3600),
+        # Network-wide (see the note above RATE), and it protects a free
+        # third-party service as much as this one.
+        "/api/geocode": (300, 3600)}
+
+
+# How many tile MISSES may be fetching from the upstream CDN at once.
+#
+# Sized against what the box is: 2 vCPUs whose tile work is almost entirely
+# WAITING, so this can be well above the CPU count - but it must exist. With no
+# bound at all a purged Cloudflare cache turned every tile into an origin fetch
+# and hundreds ran together, which is how a map went 502 while the machine sat
+# idle waiting on somebody else's network.
+_TILE_FETCH = threading.Semaphore(12)
+
+
+def rate_ok(path: str, ip: str, who: str = "") -> bool:
+    """Is this caller allowed another request on this route?
+
+    🚨 `who` IS THE FIX FOR A CAP THAT WAS NEVER PER-PERSON.
+    Caddy strips X-Forwarded-For on purpose, so `ip` is 127.0.0.1 for every
+    caller on earth and every bucket keyed on it is really ONE bucket shared by
+    the whole network. That is tolerable for a cheap public route and wrong for
+    the route cameras post through: measured on the live box, the busiest hour
+    carried 1,267 sightings against a 600/hour "per caller" cap, and 40 requests
+    were refused in a day - volunteers losing real passes, on a project with no
+    node outbox to retry them.
+
+    Pass an authenticated identity - a node id - and the bucket becomes that
+    node's own. It is a BETTER key than an address as well as a working one: a
+    camera keeps its identity across a reconnect, a new address, and a phone
+    moving between wifi and cellular mid-drive.
+
+    ⚠️ IT MUST BE AUTHENTICATED FIRST. Keying on an id taken straight from an
+    unauthenticated body would let anyone empty a chosen camera's bucket by
+    naming it - a targeted denial of service against one volunteer, which is
+    worse than the shared cap it replaces.
+    """
+    limit = RATE.get(path)
+    if not limit:
+        return True
+    n, window = limit
+    bucket = int(now() // window)
+    key = (path, who or ip, bucket)
+    with _HIT_LOCK:
+        # 🚨 EVICT BY AGE, NEVER `clear()`. Wiping the whole table on overflow
+        # reset every counter in it, so the limiter quietly stopped limiting
+        # exactly when it was busiest - a pressure valve that opened under
+        # pressure. With per-node keys the table is also much larger, which
+        # would have made that far easier to trip.
+        if len(_HITS) > 20000:
+            for k in [k for k in _HITS if k[2] < bucket]:
+                del _HITS[k]
+        _HITS[key] = _HITS.get(key, 0) + 1
+        return _HITS[key] <= n
 
 # Anonymous viewers get a rolling daily alias instead of the real plate hash so
 # a track is followable on screen but not archivable across days. We keep the
@@ -398,6 +773,47 @@ class Handler(BaseHTTPRequestHandler):
         # Moved to response_policy.security_headers in Stage 1B (step 4).
         for k, v in response_policy.security_headers(self._nonce):
             self.send_header(k, v)
+        # 🚨 REFERRER POLICY IS AN ANONYMITY CONTROL HERE, NOT A FORMALITY.
+        # Without it, every outbound click - the OpenStreetMap attribution
+        # link at the bottom of the map, for one - tells the destination that
+        # the visitor came from sparrowmap.com, and carries the full URL
+        # including any plate they searched for.
+        self.send_header("Referrer-Policy", "no-referrer")
+        # Stops a browser from second-guessing a declared content type, which
+        # is how a stored file gets executed as script.
+        self.send_header("X-Content-Type-Options", "nosniff")
+        # Nobody frames this map. Clickjacking a "retract" button would be a
+        # quiet way to vandalise the record.
+        self.send_header("X-Frame-Options", "DENY")
+        # Everything this site loads, it ships. Leaflet is vendored, there is
+        # no CDN and no analytics, so the policy can be strict enough to
+        # actually contain an injection rather than decorate the response.
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; img-src 'self' data: blob:; style-src 'self' "
+            # 🚨 'wasm-unsafe-eval' IS REQUIRED OR THE DETECTOR CANNOT LOAD.
+            # Compiling a WebAssembly module counts as script generation, so a
+            # script-src without it refuses the ONNX runtime outright - which
+            # broke the camera on every device, with the map and every other
+            # page still working perfectly. I had verified the model loading
+            # BEFORE this header existed and never re-tested after, so the
+            # regression shipped invisibly.
+            #
+            # It is far narrower than 'unsafe-eval': it permits WebAssembly
+            # compilation and nothing else - no eval, no new Function, no
+            # inline string execution. The policy stays meaningful.
+            f"'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval' "
+            f"'nonce-{self._nonce}'; "
+            # 🚨 worker-src 'self' blob: OR MAPLIBRE CANNOT RENDER THE BASEMAP.
+            # MapLibre GL runs its tile decoder in a Web Worker it creates from a
+            # blob: URL. Without an explicit worker-src that falls back to
+            # default-src 'self', which forbids blob:, so the worker is blocked -
+            # the style loads on the main thread but no tile is ever processed and
+            # the map is a silent blank. (The camera model's wasm is covered by
+            # 'wasm-unsafe-eval' above; this is the map's equivalent.)
+            "worker-src 'self' blob:; "
+            "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
+            "form-action 'self'")
 
         # The public map is meant to be embeddable and mirrorable by anyone.
         # Operator JSON is not, and a wildcard on it is needless surface even
@@ -442,6 +858,22 @@ class Handler(BaseHTTPRequestHandler):
     def _tile(self, path: str) -> None:
         """Moved to tiles.serve in Stage 1B (tile substage)."""
         return tiles.serve(self, path)
+        # Never cache (or serve with a long TTL) Carto's "API KEY REQUIRED"
+        # placeholder - drop it as a short-lived 404 so Leaflet leaves the square
+        # blank and retries, and the real tile lands once Carto stops throttling.
+        import hashlib
+        if hashlib.md5(raw).hexdigest() in TILE_PLACEHOLDER_MD5:
+            return self._send(404, b"", "text/plain", {"Cache-Control": "no-store"})
+
+        try:
+            cached.parent.mkdir(parents=True, exist_ok=True)
+            cached.write_bytes(raw)
+            _tile_prune()
+        except Exception:
+            # Caching is an optimisation. If the disk says no, still serve.
+            pass
+        return self._send(200, raw, "image/png",
+                          {"Cache-Control": "public, max-age=604800"})
 
     def _json(self, obj, code: int = 200) -> None:
         return transport.send_json(self, obj, code)
@@ -662,6 +1094,75 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/transparency":     return pages.transparency(self)
             if p == "/status":          return pages.status_page(self)
             if p == "/checksums":       return pages.checksums(self)
+            if p == "/":                 return self._file(PUBLIC / "index.html")
+            if p == "/about":            return self._file(PUBLIC / "about.html")
+            if p == "/contribute":       return self._file(PUBLIC / "contribute.html")
+            if p == "/guides":           return self._file(PUBLIC / "guides.html")
+            if p == "/tor":              return self._file(PUBLIC / "tor.html")
+            if p == "/spot":             return self._file(PUBLIC / "spot.html")
+            if p == "/guide":            return self._file(PUBLIC / "guide.html")
+            if p == "/rfbeta":           return self._file(PUBLIC / "rfbeta.html")
+            if p == "/radar":            return self._file(PUBLIC / "radar.html")
+            if p == "/send":             return self._file(PUBLIC / "send.html")
+            if p == "/send-sw.js":
+                # Sparrow Send's service worker. Served from the ROOT path so it
+                # can scope itself to /send (a script at /send-sw.js may control
+                # any scope under /). Coexists with the map's own /sw.js - the
+                # narrower /send scope wins for the messenger page.
+                return self._file(PUBLIC / "send-sw.js")
+            if p == "/api/send/qr":
+                # A QR PNG of a Sparrow address (a public key - nothing secret),
+                # so a contact can be added by scanning instead of pasting.
+                _q = parse_qs(urlparse(self.path).query)
+                d = (_q.get("d", [""])[0] or "")[:4096]
+                if not d:
+                    return self._err(400, "no data")
+                try:
+                    return self._send(200, qr.png(d, scale=8), "image/png")
+                except Exception:
+                    return self._err(400, "could not render")
+            if p == "/api/send/vapid":
+                # The public VAPID key the client needs to subscribe to push.
+                return self._json({"key": send_push.public_key()})
+            if p == "/api/send/handle":
+                # Resolve a short handle -> address (an opt-in directory). The
+                # address is a public key, so this leaks nothing a shared address
+                # would not; only claimed handles resolve. No enumeration route.
+                _q = parse_qs(urlparse(self.path).query)
+                h = (_q.get("h", [""])[0] or "")[:32]
+                addr = send_relay.resolve_handle(h)
+                if not addr:
+                    return self._err(404, "no such handle")
+                return self._json({"handle": send_relay._norm_handle(h), "address": addr})
+            if p == "/sensors":          return self._file(PUBLIC / "sensors.html")
+            if p == "/setup":            return self._file(PUBLIC / "setup.html")
+            if p == "/buy":              return self._file(PUBLIC / "buy.html")
+            if p == "/radarlink":        return self._file(PUBLIC / "radarlink.html")
+            # The phone beta scanner, served as plain text so a tester can
+            # `curl` it straight onto their phone. Read-only, single known file
+            # (no path from the request), so this cannot serve anything else.
+            if p == "/rf/phone_scan.py":
+                return self._file(PUBLIC.parent / "rf" / "phone_scan.py")
+            if p == "/rf/rf_scan.py":
+                return self._file(PUBLIC.parent / "rf" / "rf_scan.py")
+            if p == "/rf/esp32_sparrow.ino":
+                return self._file(PUBLIC.parent / "rf" / "esp32_sparrow.ino")
+            if p == "/transparency":     return self._file(PUBLIC / "transparency.html")
+            # 🚨 THE ANSWER TO "YOUR SITE IS BLOCKED, SO IT IS FAKE".
+            # A filter's block page is served before the request ever leaves the
+            # reader's device, so it is evidence about their filter and nothing
+            # else. This page exists so the reply is a link rather than an
+            # argument: if they can read it, they reached the server.
+            if p == "/status":          return self._file(PUBLIC / "status.html")
+            # SHA-256 for every published installer. Asked for on Hacker News,
+            # and the honest answer at the time was that no checksum existed to
+            # check against. Served from THIS host while the binaries live on
+            # GitHub, so verifying means trusting two places rather than one.
+            if p == "/checksums":       return self._file(PUBLIC / "checksums.html")
+            # Growth, live capacity and what it costs, generated from the
+            # database by tools/support_page.py. Asking for money without
+            # showing the numbers - including the bad retention one - is the
+            # kind of thing this project exists to be the opposite of.
             if p in ("/support", "/donate"):
                 return pages.support_or_donate(self)
             if p in ("/business", "/ipcamera"):
@@ -1163,6 +1664,111 @@ class Handler(BaseHTTPRequestHandler):
             if p.startswith("/api/tile/"):
                 return self._tile(p)
 
+            if p == "/api/cameras":
+                # Flock/ALPR surveillance-camera overlay (OpenStreetMap /
+                # DeFlock), bounded by viewport. The client sends its box and
+                # gets only the cameras inside it - the nationwide set is tens of
+                # thousands - and the map only asks above a zoom threshold.
+                # Cameras a review has confirmed REMOVED are dropped, so the
+                # layer shows what is still believed to be up.
+                _q = parse_qs(urlparse(self.path).query)
+                box = _q.get("box", [None])[0]
+                cams = _surveillance_cameras()
+                gone = _cameras_removed()
+                ok_rf = _cameras_confirmed()
+                out = []
+                if box:
+                    try:
+                        s, w, n, e = (float(x) for x in box.split(","))
+                        # Collect every camera in the viewport, THEN sample evenly
+                        # if there are more than the cap. Taking the first 1500 in
+                        # list order clumped them wherever the data happened to
+                        # start - so zoomed all the way out you saw a blob in one
+                        # region, or nothing where you were looking. An even
+                        # stride spreads the sample across the whole view.
+                        hits = [row for row in cams
+                                if row[0] not in gone
+                                and s <= row[1] <= n and w <= row[2] <= e]
+                        cap = 1500
+                        if len(hits) > cap:
+                            step = len(hits) / float(cap)
+                            hits = [hits[int(i * step)] for i in range(cap)]
+                        out = [{"id": row[0], "lat": row[1], "lon": row[2],
+                                "dir": row[3] if len(row) > 3 else "",
+                                "confirmed": row[0] in ok_rf} for row in hits]
+                    except (ValueError, AttributeError):
+                        out = []
+                return self._json({"cameras": out, "total": len(cams),
+                                   "removed": len(gone), "confirmed": len(ok_rf)})
+
+            if p == "/api/police":
+                # Police-station overlay (OpenStreetMap), bounded by viewport.
+                # The client sends its box and gets only the stations inside it,
+                # so the nationwide ~15k points never reach a phone at once; the
+                # map only asks for this above a zoom threshold. Capped as a
+                # backstop. A distinct layer, deliberately NOT a sighting.
+                _q = parse_qs(urlparse(self.path).query)
+                box = _q.get("box", [None])[0]
+                pts = _police_stations()
+                out = []
+                if box:
+                    try:
+                        s, w, n, e = (float(x) for x in box.split(","))
+                        # Even sample when the viewport holds more than the cap,
+                        # same reason as /api/cameras: a first-N slice clumps.
+                        hits = [row for row in pts
+                                if s <= row[0] <= n and w <= row[1] <= e]
+                        cap = 1500
+                        if len(hits) > cap:
+                            step = len(hits) / float(cap)
+                            hits = [hits[int(i * step)] for i in range(cap)]
+                        out = [{"lat": row[0], "lon": row[1],
+                                "name": row[2] if len(row) > 2 else ""}
+                               for row in hits]
+                    except (ValueError, AttributeError):
+                        out = []
+                return self._json({"stations": out, "total": len(pts)})
+
+            if p == "/api/radar":
+                # Live radar / speed-trap sources near a viewport. Reads are
+                # public (there is nothing to leak - a dot is "a Ka source was
+                # active here two minutes ago"); only WRITES are authenticated.
+                # Clustered and decayed server-side, so the client just draws
+                # what it gets. Empty until detector hardware is feeding it,
+                # exactly like the RF-confirm layer.
+                _q = parse_qs(urlparse(self.path).query)
+                box = _q.get("box", [None])[0]
+                bb = None
+                if box:
+                    try:
+                        bb = tuple(float(x) for x in box.split(","))
+                    except ValueError:
+                        bb = None
+                dots = _radar_dots(bb)
+                return self._json({"dots": dots, "active": len(dots),
+                                   "ttl_s": int(RADAR_TTL_S)})
+
+            if p == "/api/sensor":
+                # Live drone / police-radio events near a viewport. Public read,
+                # like /api/radar. kind selects the feed; empty until hardware
+                # feeds it.
+                _q = parse_qs(urlparse(self.path).query)
+                kind = (_q.get("kind", [""])[0] or "").strip().lower()
+                if kind not in LIVE_KINDS:
+                    return self._err(400, "kind must be one of "
+                                          + ", ".join(sorted(LIVE_KINDS)))
+                box = _q.get("box", [None])[0]
+                bb = None
+                if box:
+                    try:
+                        bb = tuple(float(x) for x in box.split(","))
+                    except ValueError:
+                        bb = None
+                pts = _live_points(kind, bb)
+                return self._json({"kind": kind, "points": pts,
+                                   "active": len(pts),
+                                   "ttl_s": int(LIVE_TTL.get(kind, 300))})
+
             if p == "/api/nodes":
                 # 🚨 4,800 PUBLIC CAMERAS WERE DOWNLOADED ON EVERY MAP LOAD IN
                 # ORDER TO BE HIDDEN.
@@ -1470,6 +2076,34 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(503, "the map is at capacity right now - "
                                           "your camera will retry")
                 return self._ingest(b)
+
+            if p == "/api/rf":
+                # 🚨 RF SURVEILLANCE-DEVICE CANDIDATES. No image, no civilian
+                # data - the client dropped every private device at the edge, so
+                # a payload here is only ever known surveillance hardware (a
+                # Flock/ALPR camera) heard at a position. Same auth as a camera
+                # node (enroll gives the token), and it NEVER publishes: every
+                # candidate parks in the RF pen for a human, exactly like the
+                # government-vehicle review pen. A false RF guess costs a review
+                # click, never a wrong dot on the public map.
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if nd["status"] != "active":
+                    return self._err(403, f"node is {nd['status']}")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                if not rate_ok(p, self.client_ip, who=nd["id"]):
+                    return self._err(429, "this node is posting too fast")
+                cands = b.get("candidates") or []
+                if not isinstance(cands, list):
+                    return self._err(400, "candidates must be a list")
+                parked = 0
+                for c in cands[:200]:   # a single scan cannot see more than this
+                    if isinstance(c, dict) and mirror.rf_park(nd["id"], c):
+                        parked += 1
+                return self._json({"parked": parked, "reviewed": "pending"})
 
             # A stranger's judgement about one crop. It is written to
             # label_votes.db and nowhere else - not to sightings, not to the
@@ -1862,6 +2496,349 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(404, "no such sighting")
                 db.set_sighting_desc(sid, body=b.get("body"), color=b.get("color"))
                 db.audit("edit_desc", str(sid), actor="operator",
+                         ip=privacy.audit_ip(self.client_ip))
+                return self._json({"ok": True})
+
+            if p == "/api/camera/report":
+                # A public "this ALPR camera is GONE / is still HERE" report
+                # about a known OSM camera on the Flock layer. It parks for
+                # review and NEVER hides or confirms a camera by itself - the
+                # served layer only drops osm_ids a human curated into
+                # cameras_removed.json. This is how the layer stays honest as
+                # cities add and remove cameras, and where an RF-beta "still
+                # here" confirmation lands too (source=rf).
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "a lot of camera reports right now - "
+                                          "please try again shortly")
+                b = self._body()
+                # 🚨 PROXIMITY GATE. A report only counts if the reporter's live
+                # GPS is next to the camera, so nobody can log on from anywhere
+                # and mass-report cameras gone (or present). The camera position
+                # is exact (OSM); GPS wobbles, so the reporter's own accuracy is
+                # allowed as slack up to a cap. RF confirmations (source=rf) come
+                # from a trusted local job and skip this.
+                src = str(b.get("source") or "public")
+                if src != "rf":
+                    try:
+                        cam_lat = float(b.get("lat")); cam_lon = float(b.get("lon"))
+                        at_lat = float(b.get("at_lat")); at_lon = float(b.get("at_lon"))
+                    except (TypeError, ValueError):
+                        return self._err(400, "your location is required to "
+                                              "report a camera - stand next to it")
+                    acc = 0.0
+                    try:
+                        acc = min(float(b.get("acc") or 0), 60.0)
+                    except (TypeError, ValueError):
+                        acc = 0.0
+                    dist = _haversine_m(at_lat, at_lon, cam_lat, cam_lon)
+                    if dist > 75.0 + acc:
+                        return self._err(403, "you are about %d m away - stand "
+                                              "at the camera to report it"
+                                              % int(dist))
+                stem = mirror.camera_status_report({
+                    "id": b.get("id"), "kind": b.get("kind"),
+                    "lat": b.get("lat"), "lon": b.get("lon"),
+                    "at_lat": b.get("at_lat"), "at_lon": b.get("at_lon"),
+                    "note": b.get("note"), "source": src,
+                    "ip": privacy.audit_ip(self.client_ip),
+                })
+                if not stem:
+                    return self._err(400, "need a camera id and kind "
+                                          "'removed' or 'present'")
+                return self._json({"ok": True})
+
+            if p == "/api/radar/hit":
+                # A police-radar emission detected by PAIRED HARDWARE. This is
+                # deliberately NOT the withdrawn tap-a-patrol route: that placed
+                # a marker from bare numbers anyone could type, this places one
+                # only when a real detector on a real node saw a real emission.
+                # So it carries the node's token and is refused without it -
+                # every dot is attributable and the node revocable, the same
+                # guarantee the rest of the map runs on. Band decides trust
+                # downstream (Ka is police-only; K/X need corroboration); this
+                # endpoint just authenticates, validates, and records.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "a lot of radar hits right now - "
+                                          "the detector can retry shortly")
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if not nd.get("token"):
+                    return self._err(401, "this node has no token; re-enroll it")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                band = str(b.get("band") or "").strip().lower()
+                if band not in RADAR_BAND_BASE:
+                    return self._err(400, "band must be one of ka, k, x, laser")
+                try:
+                    lat = float(b.get("lat")); lon = float(b.get("lon"))
+                except (TypeError, ValueError):
+                    return self._err(400, "a location is required")
+                if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                    return self._err(400, "location out of range")
+                try:
+                    heading = float(b.get("heading")) if b.get("heading") is not None else None
+                except (TypeError, ValueError):
+                    heading = None
+                try:
+                    strength = max(0.0, min(1.0, float(b.get("strength"))))
+                except (TypeError, ValueError):
+                    strength = None
+                _radar_add(lat, lon, band, heading, strength, nd["id"])
+                return self._json({"ok": True})
+
+            if p == "/api/sensor/hit":
+                # Drone (Remote ID) or police-radio activity from paired hardware.
+                # Node-token authenticated, same as radar: a live point on the map
+                # must be attributable to a node, never an anonymous tap.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "a lot of sensor events right now - "
+                                          "retry shortly")
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if not nd.get("token"):
+                    return self._err(401, "this node has no token; re-enroll it")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                kind = str(b.get("kind") or "").strip().lower()
+                if kind not in LIVE_KINDS:
+                    return self._err(400, "kind must be one of "
+                                          + ", ".join(sorted(LIVE_KINDS)))
+                try:
+                    lat = float(b.get("lat")); lon = float(b.get("lon"))
+                except (TypeError, ValueError):
+                    return self._err(400, "a location is required")
+                if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                    return self._err(400, "location out of range")
+                label = str(b.get("label") or "")[:80]
+                # Dedup key: a drone by its own id (so a trail is one point),
+                # radio by the receiving node (one scanner is one pulse).
+                if kind == "drone":
+                    key = str(b.get("id") or ("%.5f,%.5f" % (lat, lon)))
+                else:
+                    key = nd["id"]
+                _live_add(kind, lat, lon, label, key, nd["id"])
+                return self._json({"ok": True})
+
+            if p == "/api/send/challenge":
+                # A short-lived challenge the client signs to prove it owns a
+                # mailbox before fetching. Stateless; no message content involved.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "slow down")
+                b = self._body()
+                ch = send_relay.issue_challenge(str(b.get("mb") or ""))
+                if not ch:
+                    return self._err(400, "bad mailbox")
+                return self._json({"challenge": ch})
+
+            if p == "/api/send/put":
+                # Drop one sealed ciphertext envelope into a recipient's mailbox.
+                # No auth to SEND (anyone with your address can write to you, the
+                # same as email), but the envelope is opaque and hard-capped.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "a lot of messages right now - retry shortly")
+                b = self._body()
+                to, env = str(b.get("to") or ""), str(b.get("env") or "")
+                # Proof-of-work gate. Anyone may send (no account), but each send
+                # carries a small hashcash stamp so flooding costs real CPU. The
+                # required difficulty RISES with how full the target mailbox
+                # already is (progressive), so packing a mailbox to eviction is
+                # expensive even natively. The client sends at the base and
+                # re-stamps when we answer with need_bits. Verified in ONE hash.
+                need = send_relay.required_bits(send_relay.queue_depth(to))
+                if not send_relay.pow_ok(to, env, b.get("pt"), b.get("pn"), bits=need):
+                    return self._json({"error": "proof-of-work too low - resend",
+                                       "need_bits": need}, 400)
+                ok = send_relay.put(to, env, str(b.get("mid") or ""))
+                if not ok:
+                    return self._err(400, "could not accept that message "
+                                          "(bad mailbox, too large, or relay full)")
+                # Content-free push nudge so the recipient's phone rings even with
+                # the app closed. Fire-and-forget; never blocks the send.
+                send_push.notify_async(to)
+                return self._json({"ok": True})
+
+            if p == "/api/send/claim":
+                # Claim a short handle for an address. Signed by the identity's
+                # key + PoW (see send_relay.claim_handle). Anti-squat: rate-
+                # limited, one handle per identity, reserved names blocked.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "slow down")
+                b = self._body()
+                ok, res = send_relay.claim_handle(
+                    str(b.get("handle") or ""), str(b.get("address") or ""),
+                    str(b.get("sig") or ""), b.get("pt"), b.get("pn"))
+                if not ok:
+                    return self._json({"error": res}, 400)
+                return self._json({"ok": True, "handle": res})
+
+            if p == "/api/send/release":
+                # Give up a handle you own (signed; no PoW - only the owner can).
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "slow down")
+                b = self._body()
+                ok, res = send_relay.release_handle(
+                    str(b.get("handle") or ""), str(b.get("address") or ""),
+                    str(b.get("sig") or ""))
+                if not ok:
+                    return self._json({"error": res}, 400)
+                return self._json({"ok": True, "handle": res})
+
+            if p == "/api/send/subscribe":
+                # Store (or clear) a device's Web Push subscription for a mailbox
+                # so the hub can send content-free "new message" nudges. Opt-in.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "slow down")
+                b = self._body()
+                mb = str(b.get("mb") or "")
+                if b.get("unsubscribe"):
+                    send_push.unsubscribe(mb)
+                    return self._json({"ok": True})
+                if not send_push.subscribe(mb, b.get("sub")):
+                    return self._err(400, "bad subscription")
+                return self._json({"ok": True})
+
+            if p == "/api/send/get":
+                # Prove ownership, then hand back and DELETE this mailbox's
+                # envelopes. The hub cannot read any of them - they are ciphertext.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "slow down")
+                b = self._body()
+                msgs = send_relay.fetch_and_clear(
+                    str(b.get("mb") or ""), str(b.get("pk") or ""),
+                    str(b.get("ch") or ""), str(b.get("sig") or ""))
+                return self._json({"msgs": msgs})
+
+            if p == "/api/air/put":
+                # Drop one sealed frame onto the air under a ROUTING TAG. The hub
+                # never learns the recipient - the tag is an HMAC over a pairwise
+                # secret only the two parties share, and it rotates each epoch.
+                # No account (like a mailbox send), so a hashcash stamp gates the
+                # flood; the required difficulty rises with how full the tag
+                # already is. See air_relay for the trust model.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "a lot of messages right now - retry shortly")
+                b = self._body()
+                tag, frame = str(b.get("tag") or ""), str(b.get("frame") or "")
+                if not air_relay.valid_tag(tag):
+                    return self._err(400, "bad routing tag")
+                need = air_relay.required_bits(tag)
+                if not send_relay.pow_ok(tag, frame, b.get("pt"), b.get("pn"), bits=need):
+                    return self._json({"error": "proof-of-work too low - resend",
+                                       "need_bits": need}, 400)
+                s = air_relay.put(tag, frame)
+                if s is None:
+                    return self._err(400, "could not accept that frame "
+                                          "(malformed, too large, or air full)")
+                return self._json({"ok": True, "seq": s})
+
+            if p == "/api/air/get":
+                # Poll the air for frames routed to a tag. A POST (not a GET query)
+                # so the tag never lands in an access or proxy log - the whole
+                # point is to leave no lasting record of who is reachable. No
+                # ownership proof: only the two parties can compute the tag, so it
+                # IS the capability. Non-destructive cursor read (since -> head).
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "slow down")
+                b = self._body()
+                # Batch form: a client polls ALL its contacts' recv-tags in ONE
+                # request. Per-contact polling would multiply requests by the
+                # address book and blow the rate limit; one batched poll per
+                # cycle keeps a client at roughly the same request rate as the
+                # mailbox path no matter how many contacts it has. Capped so the
+                # batch itself cannot be turned into an amplification lever.
+                tags = b.get("tags")
+                if isinstance(tags, list):
+                    out = {}
+                    for entry in tags[:64]:
+                        try:
+                            t = str(entry.get("tag") or "")
+                            since = entry.get("since") or 0
+                        except AttributeError:
+                            t = str(entry or "")
+                            since = 0
+                        if not air_relay.valid_tag(t):
+                            continue
+                        head, frames = air_relay.get(t, since)
+                        if frames or head:
+                            out[t] = {"seq": head, "m": frames}
+                    return self._json({"results": out})
+                tag = str(b.get("tag") or "")
+                if not air_relay.valid_tag(tag):
+                    return self._err(400, "bad routing tag")
+                head, frames = air_relay.get(tag, b.get("since") or 0)
+                return self._json({"seq": head, "m": frames})
+
+            if p == "/api/aircraft/ingest":
+                # A LOCAL ADS-B receiver (dump1090 on a Pi) pushing the aircraft it
+                # sees, to augment the OpenSky-fed layer with local coverage. Only
+                # reached when the aircraft preview is on; node-token authenticated
+                # like every other write that puts something on the map.
+                if not CONFIG.get("aircraft_preview"):
+                    return self._err(404, "aircraft layer is not enabled here")
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "a lot of aircraft pushes right now - "
+                                          "retry shortly")
+                b = self._body()
+                nd = db.node(str(b.get("node_id") or ""))
+                if not nd:
+                    return self._err(404, "unknown node")
+                if not nd.get("token"):
+                    return self._err(401, "this node has no token; re-enroll it")
+                if not self._token_ok(nd):
+                    return self._err(401, "bad node token")
+                craft = b.get("aircraft")
+                if not isinstance(craft, list):
+                    return self._err(400, "aircraft must be a list")
+                try:
+                    import aircraft as _air
+                    n = _air.ingest_local(craft, nd["id"])
+                except Exception as exc:
+                    return self._err(400, "could not ingest: %s" % exc)
+                return self._json({"ok": True, "accepted": n})
+
+            if p == "/api/spot":
+                # A public "I see a fixed surveillance camera here" report from
+                # the no-install /spot page. It is the camera equivalent of a
+                # flag: a CLAIM, backed by a photograph, that parks for review
+                # and NEVER draws on the map by itself.
+                #
+                # 🚨 THE PHOTO IS MANDATORY, AND THIS IS WHY THE FEATURE IS SAFE.
+                # /api/drive/report was withdrawn because it asserted a police
+                # presence from a pair of numbers - no picture, no review. A
+                # camera spot without a photo would be the same mistake wearing
+                # a different hat, so a report with no decodable image is a 400,
+                # not a maybe. A person looks at every picture before anything
+                # is ever published.
+                if not rate_ok(p, self.client_ip):
+                    return self._err(429, "the network is sending a lot of "
+                                          "camera reports right now - please "
+                                          "try again in a few minutes")
+                b = self._body()
+                raw = str(b.get("photo") or "")
+                if "," in raw and raw[:5].lower() == "data:":
+                    raw = raw.split(",", 1)[1]
+                try:
+                    import base64 as _b64
+                    photo = _b64.b64decode(raw, validate=False) if raw else b""
+                except Exception:
+                    photo = b""
+                if not photo:
+                    return self._err(400, "a photo of the camera is required")
+                stem = mirror.camera_park({
+                    "lat": b.get("lat"), "lon": b.get("lon"),
+                    "note": b.get("note"), "kind": b.get("kind"),
+                    "accuracy_m": b.get("accuracy_m"),
+                    "ip": privacy.audit_ip(self.client_ip),
+                }, photo)
+                if not stem:
+                    # camera_park rejects a missing/oversize photo or bad coords.
+                    return self._err(400, "need a photo (under 4 MB) and a "
+                                          "valid location")
+                db.audit("camera_spot", stem, actor="public",
                          ip=privacy.audit_ip(self.client_ip))
                 return self._json({"ok": True})
 

@@ -48,7 +48,14 @@ from PIL import Image
 
 # isolate.BACKDROP is BGR because it lives in an OpenCV file. Pillow is RGB.
 # Same colour, stated once here so the two files cannot drift into two greys.
-BACKDROP_RGB = (38, 30, 26)
+# 🚨 WAS (38, 30, 26) - a warm brown that baked into every published crop and
+# read as an ugly stain around the vehicle (the operator spotted it in the
+# aliasing at the box edge). Now matched to the detail-card background (#0d1420)
+# so the removed area VANISHES into the card - the vehicle reads as sitting on
+# the card with no visible backdrop, which is the point. It is still a real
+# colour (a car outline is not a rectangle, so the removed region must be
+# filled) - just one that disappears where the photo is shown.
+BACKDROP_RGB = (13, 20, 32)
 
 
 def strip_box(img: Image.Image,

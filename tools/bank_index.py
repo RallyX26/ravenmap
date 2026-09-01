@@ -107,6 +107,13 @@ def connect() -> sqlite3.Connection:
     # locked". In WAL a reader sees the last committed state and never waits.
     try:
         db.execute("PRAGMA journal_mode=WAL")
+        # 🚀 NORMAL, not the default FULL. FULL fsyncs on EVERY commit, and this
+        # index has two writers - box_puller scoring thousands of crops a pull,
+        # and the labelling UI - so an fsync per commit turned into a write-lock
+        # traffic jam that made a grid save take seconds. In WAL, NORMAL fsyncs
+        # only at checkpoint; the only thing at risk is the last transaction on a
+        # power cut, and this index is rebuildable from the sidecars anyway.
+        db.execute("PRAGMA synchronous=NORMAL")
     except sqlite3.OperationalError:
         pass                    # already WAL, or someone else holds it briefly
     return db
@@ -186,6 +193,14 @@ QUERIES = {
     # Unbiased. The ONLY mode whose labels may be quoted as precision or recall.
     "review": ("SELECT * FROM crops WHERE " + _UNLABELLED +
                " ORDER BY RANDOM() LIMIT :n"),
+    # Unbiased too, but RESTRICTED to the non-window population - public traffic
+    # cams and other people's nodes, the ~86% the his-camera test set is blind
+    # to. Random order, so it still MAY MEASURE (a stratified random slice, the
+    # same standing his call granted the community's slice). This is the queue
+    # that closes the 08-18 measurement gap: every label is a fair public-cam
+    # sample instead of a his-window crop already covered.
+    "review_public": ("SELECT * FROM crops WHERE " + _UNLABELLED +
+                      " AND source = 'remote_node' ORDER BY RANDOM() LIMIT :n"),
     # Crops from other people's nodes, oldest first.
     "remote": ("SELECT * FROM crops WHERE " + _UNLABELLED +
                " AND source = 'remote_node' ORDER BY ts ASC LIMIT :n"),
@@ -248,8 +263,14 @@ INSERT = ("INSERT OR REPLACE INTO crops(day,stem,mtime,ts,node_id,source,"
           "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
 
 
-def update_one(db: sqlite3.Connection, day: str, stem: str) -> None:
-    """Re-read one sidecar into the index. Used by labelbank.set_label."""
+def update_one(db: sqlite3.Connection, day: str, stem: str,
+               commit: bool = True) -> None:
+    """Re-read one sidecar into the index. Used by labelbank.set_label.
+
+    `commit=False` lets a caller fold many updates into ONE transaction - the
+    grid picker writes 24 at once, and 24 separate commits (each an fsync, each
+    contending with box_puller writing the same index) was ~2 s of the save.
+    """
     p = BANK / day / f"{stem}.json"
     try:
         st = p.stat()
@@ -257,7 +278,8 @@ def update_one(db: sqlite3.Connection, day: str, stem: str) -> None:
     except Exception:
         return
     db.execute(INSERT, _row_from(day, stem, st.st_mtime, d))
-    db.commit()
+    if commit:
+        db.commit()
 
 
 def _singleton():

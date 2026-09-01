@@ -26,21 +26,35 @@
   var ITEMS = [
     { href: "/",             icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6.5v13L9 17l6 3 6-2.5v-13L15 7z"/><path d="M9 4v13M15 7v13"/></svg>', label: "Map",          mode: "map" },
     { href: "/drive",        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 16v2a1 1 0 0 1-1 1H3.5A1.5 1.5 0 0 1 2 17.5V12l2.2-5.1A2 2 0 0 1 6 5.6h12a2 2 0 0 1 1.8 1.3L22 12v5.5a1.5 1.5 0 0 1-1.5 1.5H20a1 1 0 0 1-1-1v-2"/><path d="M2 12h20"/><circle cx="6.5" cy="15" r="1"/><circle cx="17.5" cy="15" r="1"/></svg>', label: "Driving" },
+    // Sparrow Send - end-to-end encrypted 1:1 messaging built on the same
+    // no-phone-number identity. Announced 2026-08-24.
+    { href: "/send",         icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22 11 13 2 9z"/></svg>', label: "Send" },
+    // Growth, live capacity and costs, generated from the database. Labelled
+    // "Support" rather than "Donate" because the page is mostly numbers - the
+    // costs and the bad retention figure included - and the ask is the last
+    // thing on it rather than the point of it.
+    { href: "/support",      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 5.6a5 5 0 0 0-7.1 0L12 7.3l-1.7-1.7a5 5 0 0 0-7.1 7.1l8.8 8.8 8.8-8.8a5 5 0 0 0 0-7.1z"/></svg>', label: "Support" },
     { href: "/app",          icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2l1.2-2h8.2l1.2 2h2.2A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/><circle cx="12" cy="13" r="3.2"/></svg>', label: "Add a camera" },
     // Businesses already pointing a camera at a street are the cheapest
     // coverage this project can get - the hardware and the sightline are
     // already paid for. It was reachable only from a paragraph inside
     // /app and a link near the bottom of the landing page.
     { href: "/IPCamera",     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h11a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H4z"/><path d="M17 10.5 21 8v7l-4-2.5z"/><path d="M8 15v4M5 19h6"/></svg>', label: "IP Camera" },
+    // Feed sightings from your own code/device via the two endpoints. Dev
+    // facing, but it belongs in the bar so people running their own kit (a Pi,
+    // an SBC, a fleet) can find it without being told the URL.
+    { href: "/contribute",   icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="2.2"/><circle cx="17" cy="6" r="2.2"/><circle cx="17" cy="18" r="2.2"/><path d="M7.9 11 15.1 7M7.9 13l7.2 4"/></svg>', label: "Contribute" },
+    // Every how-to in one place - how it works, add a camera, IP camera, the
+    // API, the RF beta, review. Put here so the RF/phone/Pi beta pages are
+    // reachable from the map and every page, not just by knowing the URL.
+    { href: "/guides",       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/></svg>', label: "Guides" },
     { href: "/rv",           icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5 9.5 18 20 6.5"/></svg>',       label: "Review" },
     { href: "/about",        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.8" r=".9" fill="currentColor" stroke="none"/></svg>',       label: "About",        mode: "about" },
     { href: "/transparency", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.8-6.5 10-6.5S22 12 22 12s-3.8 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/></svg>', label: "Transparency", mode: "transparency" },
     { href: "/status",       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19v-4M9.3 19V11M14.7 19V7M20 19V4"/></svg>', label: "Status" },
-    // Growth, live capacity and costs, generated from the database. Labelled
-    // "Support" rather than "Donate" because the page is mostly numbers - the
-    // costs and the bad retention figure included - and the ask is the last
-    // thing on it rather than the point of it.
-    { href: "/support",      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 5.6a5 5 0 0 0-7.1 0L12 7.3l-1.7-1.7a5 5 0 0 0-7.1 7.1l8.8 8.8 8.8-8.8a5 5 0 0 0 0-7.1z"/></svg>', label: "Support" }
+    // The Tor onion mirror - a censorship-resistant way to reach the map. Here
+    // so people who need it can find it from any page.
+    { href: "/tor",          icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-3 3-4.5 6-4.5 9a4.5 4.5 0 0 0 9 0c0-3-1.5-6-4.5-9z"/><path d="M12 21v-4.5"/></svg>', label: "Tor" }
   ];
 
   // Self-contained styling, so this works on a page that does not load
@@ -210,18 +224,23 @@
     ".swbugclose{width:100%;margin-top:8px;padding:11px;border-radius:10px;",
     "  background:#1b2432;border:1px solid #2b3a4f;color:#c7d2dc;",
     "  font:600 14px system-ui;cursor:pointer}",
+    /* Matches the map shell's bar (dark glass, one blue accent, even width on a
+       wide screen, horizontal scroll on a phone) so every page's bottom bar
+       looks the same, not the old teal/red one. */
     "nav.sitenav{position:fixed;left:0;right:0;bottom:0;z-index:1200;display:flex;",
-    "  background:#0d1219;border-top:1px solid #25303f;",
+    "  background:rgba(7,10,16,.9);-webkit-backdrop-filter:blur(18px) saturate(1.4);",
+    "  backdrop-filter:blur(18px) saturate(1.4);border-top:1px solid rgba(120,170,235,.14);",
     "  overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}",
     "nav.sitenav::-webkit-scrollbar{display:none}",
-    "nav.sitenav a,nav.sitenav button{flex:1 0 auto;min-width:62px;white-space:nowrap;",
-    "  background:none;border:0;color:#8a97a8;cursor:pointer;text-decoration:none;",
+    "nav.sitenav a,nav.sitenav button{flex:1 1 0;min-width:0;white-space:nowrap;",
+    "  background:none;border:0;color:#8ea2b8;cursor:pointer;text-decoration:none;",
     "  text-align:center;padding:10px 4px calc(10px + env(safe-area-inset-bottom));",
     "  font:600 10.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;",
     "  letter-spacing:.09em;text-transform:uppercase;border-top:2px solid transparent;",
     "  -webkit-tap-highlight-color:transparent}",
-    "nav.sitenav a{color:#5fb3a1}",
-    "nav.sitenav .on,nav.sitenav a.on{color:#e8eef6;border-top-color:#ff3b47;background:#111621}",
+    "@media(max-width:820px){nav.sitenav a,nav.sitenav button{flex:0 0 auto;min-width:64px}}",
+    "nav.sitenav a{color:#8ea2b8}",
+    "nav.sitenav .on,nav.sitenav a.on{color:#2b86e0;border-top-color:#2b86e0;background:rgba(43,134,224,.10)}",
     "nav.sitenav .ic{display:block;margin-bottom:3px;line-height:0}",
     "nav.sitenav .ic svg{width:19px;height:19px;display:inline-block;vertical-align:middle}"
   ].join("\n");
@@ -473,6 +492,15 @@
      * Sign in is the way back to a camera a volunteer thinks they have lost;
      * refresh is what you reach for only once something already looks wrong. */
     var site = bar || TR;
+    /* 🚨 "What's new" JOINS THE STACK instead of floating alone. Reported from an
+     * iPhone: on a phone the map header wraps and the header's own "What's new"
+     * button landed on a second row by itself (top-left), while Sign in and the
+     * bug button sat lower-right - three controls at three heights, visibly
+     * unaligned. It is exactly the kind of thing this stack exists to absorb: one
+     * owner, one right-aligned group. Adopted FIRST so it reads left-to-right as
+     * What's new · Sign in · bug. Only index.html has it; adopt() no-ops on null
+     * elsewhere. The button node is unchanged, so its modal handler still binds. */
+    adopt(site, document.getElementById("newsopen"));
     adopt(site, col);
 
     /* Leaflet's own controls join the same column rather than being dodged.
@@ -517,7 +545,23 @@
       var nb = nav.getBoundingClientRect();
       if (nb.height > 0) navh = Math.round(nb.height);
     }
-    BR.style.bottom = "calc(" + (navh + 10) + "px + env(safe-area-inset-bottom))";
+    /* 🚨 AND CLEAR THE MAP'S FILTER ROW, NOT JUST THE NAV. Reported from a phone:
+     * the "Add to home screen" banner sat on top of the View / Layers controls.
+     * On a phone the panel is in flow right under a short map, so its `.win`
+     * filter row lands in the same band as this stack. When that row is in the
+     * lower half of the screen, lift the stack above it (capped, so it can never
+     * jump to the top of the page). */
+    var floor = navh + 10;
+    var win = document.querySelector(".win");
+    if (win) {
+      var wb = win.getBoundingClientRect();
+      if (wb.height > 0 && wb.top < window.innerHeight
+          && wb.bottom > window.innerHeight * 0.5) {
+        var above = Math.round(window.innerHeight - wb.top) + 10;
+        floor = Math.max(floor, Math.min(above, Math.round(window.innerHeight * 0.6)));
+      }
+    }
+    BR.style.bottom = "calc(" + floor + "px + env(safe-area-inset-bottom))";
     BR.style.display = BR.children.length ? "flex" : "none";
 
     /* 🚨 THE PAGE HAS TO END ABOVE THE NAV BAR.
@@ -570,7 +614,13 @@
      * So the sign-in half stays everywhere and the shortcut half stops
      * competing with the map. Same element, one condition, no second copy. */
     var onMap = (here === "/");
-    if (has && onMap) return;
+    // 🚨 STILL MAKE THE TOOL COLUMN even when we skip the link. This early return
+    // used to happen BEFORE toolCol(), so a camera owner on the map got no
+    // .swtools - and placeTools() bails without one, so .swbar was never built:
+    // the ☰ dropdown did nothing and What's new / the bug button were stranded in
+    // the header. The map still has tools to collapse (What's new, report a bug),
+    // it just does not need the "My camera" pill the bottom bar already offers.
+    if (has && onMap) { toolCol(); return; }
 
     var a = document.createElement("a");
     a.className = "swtoplink";
