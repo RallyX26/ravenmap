@@ -56,6 +56,24 @@ def authenticate_node_bearer(
     return NodeAuthenticationResult(node_id, node, False)
 
 
+def authenticate_required_node_bearer(
+    node_id: str, authorization: str | None,
+) -> NodeAuthenticationResult:
+    """Resolve a node and require its configured header bearer token."""
+    node = db.node(node_id)
+    if not node:
+        return NodeAuthenticationResult(node_id, None, False, 404, "unknown node")
+    if not node.get("token"):
+        return NodeAuthenticationResult(
+            node_id, node, False, 401, "this node has no token; re-enroll it"
+        )
+    if not verify_node_bearer(authorization, node):
+        return NodeAuthenticationResult(
+            node_id, node, False, 401, "bad node token"
+        )
+    return NodeAuthenticationResult(node_id, node, False)
+
+
 def authenticate_node_submission(
     event: dict[str, Any], authorization: str | None,
 ) -> NodeAuthenticationResult:

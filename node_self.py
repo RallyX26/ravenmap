@@ -17,14 +17,14 @@ Deliberately NOT moved in this stage:
                  stage is allowed to introduce.
 
 The handler contract is intentionally the same duck-typed object used in the
-other route modules: it has _body(), _json(), _err(), and the existing
-_handler._token_ok() method. This keeps the ordered dispatch semantics in
-hub.py unchanged while moving only the route-specific logic out.
+other route modules: it has _body(), _json(), and _err(). Node authentication
+is delegated to node_auth while route-specific logic remains here.
 """
 
 from __future__ import annotations
 
 import db
+import node_auth
 import nodes as node_mod
 import privacy
 import review_api
@@ -75,13 +75,12 @@ def node_whoami(handler):
 def node_parked(handler):
     """POST /api/node/parked - moved verbatim from hub.py."""
     b = handler._body()
-    nd = db.node(str(b.get("node_id") or ""))
-    if not nd:
-        return handler._err(404, "unknown node")
-    if not nd.get("token"):
-        return handler._err(401, "this node has no token; re-enroll it")
-    if not handler._token_ok(nd):
-        return handler._err(401, "bad node token")
+    authenticated = node_auth.authenticate_required_node_bearer(
+        str(b.get("node_id") or ""), handler.headers.get("Authorization")
+    )
+    if not authenticated.allowed:
+        return handler._err(authenticated.status_code, authenticated.error)
+    nd = authenticated.node
     try:
         ids = [int(x) for x in (b.get("ids") or [])][:40]
     except (TypeError, ValueError):
@@ -103,13 +102,12 @@ def node_parked(handler):
 def node_span(handler):
     """POST /api/node/span - moved verbatim from hub.py."""
     b = handler._body()
-    nd = db.node(str(b.get("node_id") or ""))
-    if not nd:
-        return handler._err(404, "unknown node")
-    if not nd.get("token"):
-        return handler._err(401, "this node has no token; re-enroll it")
-    if not handler._token_ok(nd):
-        return handler._err(401, "bad node token")
+    authenticated = node_auth.authenticate_required_node_bearer(
+        str(b.get("node_id") or ""), handler.headers.get("Authorization")
+    )
+    if not authenticated.allowed:
+        return handler._err(authenticated.status_code, authenticated.error)
+    nd = authenticated.node
     on = bool(b.get("publish"))
     db.set_publish_span(nd["id"], on)
     db.audit("node_span:" + ("publish" if on else "hide"),
