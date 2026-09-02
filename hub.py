@@ -35,6 +35,7 @@ import ingest_record
 import mapdata
 import microcache
 import mirror
+import node_auth
 import node_credentials
 import node_label
 import node_lifecycle
@@ -3126,19 +3127,16 @@ class Handler(BaseHTTPRequestHandler):
         ever crosses this boundary, which is the architectural reason SparrowMap
         is not a wiretap: there is no stream to intercept, subpoena or leak.
         """
-        nid = ev.get("node_id")
-        nd = db.node(nid) if nid else None
-        if not nd:
-            return self._err(404, "unknown node")
-        if nd["status"] != "active":
-            return self._err(403, f"node is {nd['status']}")
-
-        # --- authenticate the node ---------------------------------------
-        sig_ok = node_mod.verify_event(ev, ev.get("sig", ""), nd.get("pubkey") or "")
-        if nd.get("pubkey") and not sig_ok:
-            return self._err(401, "signature did not verify")
-        if not self._token_ok(nd):
-            return self._err(401, "bad node token")
+        # This preserves nodes.verify_event before bearer verification for keyed
+        # nodes, after unknown and inactive node checks.
+        authenticated = node_auth.authenticate_node_submission(
+            ev, self.headers.get("Authorization")
+        )
+        if not authenticated.allowed:
+            return self._err(authenticated.status_code, authenticated.error)
+        nid = authenticated.node_id
+        nd = authenticated.node
+        sig_ok = authenticated.signature_verified
 
         source = ev.get("source", "camera")
         decision = ingest_decisions.decide_vehicle_sighting(

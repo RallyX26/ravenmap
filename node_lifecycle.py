@@ -12,16 +12,18 @@ import hmac
 
 import db
 from core import now
+import node_auth
 
 
 def heartbeat(handler):
     """POST /api/heartbeat - preserve existing heartbeats + fullres request."""
     b = handler._body()
-    nd = db.node(str(b.get("node_id") or ""))
-    if not nd:
-        return handler._err(404, "unknown node")
-    if not handler._token_ok(nd):
-        return handler._err(401, "bad node token")
+    authenticated = node_auth.authenticate_node_bearer(
+        str(b.get("node_id") or ""), handler.headers.get("Authorization")
+    )
+    if not authenticated.allowed:
+        return handler._err(authenticated.status_code, authenticated.error)
+    nd = authenticated.node
     if nd["status"] != "active":
         return handler._json({"ok": True, "posting": False,
                               "status": nd["status"],
@@ -72,11 +74,12 @@ def heartbeat_bulk(handler):
 def node_progress(handler):
     """POST /api/node/progress - preserve the permissive header-only token check."""
     b = handler._body()
-    nd = db.node(str(b.get("node_id") or ""))
-    if not nd:
-        return handler._err(404, "unknown node")
-    if not handler._token_ok(nd):
-        return handler._err(401, "bad node token")
+    authenticated = node_auth.authenticate_node_bearer(
+        str(b.get("node_id") or ""), handler.headers.get("Authorization")
+    )
+    if not authenticated.allowed:
+        return handler._err(authenticated.status_code, authenticated.error)
+    nd = authenticated.node
     plat = str(b.get("platform") or "")[:12].lower()
     if plat not in ("ios", "android", "desktop", "other", ""):
         plat = "other"
