@@ -74,6 +74,28 @@ def authenticate_required_node_bearer(
     return NodeAuthenticationResult(node_id, node, False)
 
 
+def authenticate_active_node_bearer(
+    node_id: str, authorization: str | None,
+) -> NodeAuthenticationResult:
+    """Resolve a node, require active status, then apply the tokenless-
+    compatible header bearer policy. No Ed25519 signature is required or
+    checked; this is distinct from `authenticate_node_submission`, which
+    always verifies a signature for keyed nodes.
+    """
+    node = db.node(node_id)
+    if not node:
+        return NodeAuthenticationResult(node_id, None, False, 404, "unknown node")
+    if node["status"] != "active":
+        return NodeAuthenticationResult(
+            node_id, node, False, 403, f"node is {node['status']}"
+        )
+    if not verify_node_bearer(authorization, node):
+        return NodeAuthenticationResult(
+            node_id, node, False, 401, "bad node token"
+        )
+    return NodeAuthenticationResult(node_id, node, False)
+
+
 def authenticate_node_submission(
     event: dict[str, Any], authorization: str | None,
 ) -> NodeAuthenticationResult:

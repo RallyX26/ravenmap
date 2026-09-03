@@ -2091,13 +2091,12 @@ class Handler(BaseHTTPRequestHandler):
                 # government-vehicle review pen. A false RF guess costs a review
                 # click, never a wrong dot on the public map.
                 b = self._body()
-                nd = db.node(str(b.get("node_id") or ""))
-                if not nd:
-                    return self._err(404, "unknown node")
-                if nd["status"] != "active":
-                    return self._err(403, f"node is {nd['status']}")
-                if not self._token_ok(nd):
-                    return self._err(401, "bad node token")
+                authenticated = node_auth.authenticate_active_node_bearer(
+                    str(b.get("node_id") or ""), self.headers.get("Authorization")
+                )
+                if not authenticated.allowed:
+                    return self._err(authenticated.status_code, authenticated.error)
+                nd = authenticated.node
                 if not rate_ok(p, self.client_ip, who=nd["id"]):
                     return self._err(429, "this node is posting too fast")
                 cands = b.get("candidates") or []
@@ -2565,13 +2564,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(429, "a lot of radar hits right now - "
                                           "the detector can retry shortly")
                 b = self._body()
-                nd = db.node(str(b.get("node_id") or ""))
-                if not nd:
-                    return self._err(404, "unknown node")
-                if not nd.get("token"):
-                    return self._err(401, "this node has no token; re-enroll it")
-                if not self._token_ok(nd):
-                    return self._err(401, "bad node token")
+                authenticated = node_auth.authenticate_required_node_bearer(
+                    str(b.get("node_id") or ""), self.headers.get("Authorization")
+                )
+                if not authenticated.allowed:
+                    return self._err(authenticated.status_code, authenticated.error)
+                nd = authenticated.node
                 band = str(b.get("band") or "").strip().lower()
                 if band not in RADAR_BAND_BASE:
                     return self._err(400, "band must be one of ka, k, x, laser")
@@ -2600,13 +2598,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(429, "a lot of sensor events right now - "
                                           "retry shortly")
                 b = self._body()
-                nd = db.node(str(b.get("node_id") or ""))
-                if not nd:
-                    return self._err(404, "unknown node")
-                if not nd.get("token"):
-                    return self._err(401, "this node has no token; re-enroll it")
-                if not self._token_ok(nd):
-                    return self._err(401, "bad node token")
+                authenticated = node_auth.authenticate_required_node_bearer(
+                    str(b.get("node_id") or ""), self.headers.get("Authorization")
+                )
+                if not authenticated.allowed:
+                    return self._err(authenticated.status_code, authenticated.error)
+                nd = authenticated.node
                 kind = str(b.get("kind") or "").strip().lower()
                 if kind not in LIVE_KINDS:
                     return self._err(400, "kind must be one of "
@@ -2787,13 +2784,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(429, "a lot of aircraft pushes right now - "
                                           "retry shortly")
                 b = self._body()
-                nd = db.node(str(b.get("node_id") or ""))
-                if not nd:
-                    return self._err(404, "unknown node")
-                if not nd.get("token"):
-                    return self._err(401, "this node has no token; re-enroll it")
-                if not self._token_ok(nd):
-                    return self._err(401, "bad node token")
+                authenticated = node_auth.authenticate_required_node_bearer(
+                    str(b.get("node_id") or ""), self.headers.get("Authorization")
+                )
+                if not authenticated.allowed:
+                    return self._err(authenticated.status_code, authenticated.error)
+                nd = authenticated.node
                 craft = b.get("aircraft")
                 if not isinstance(craft, list):
                     return self._err(400, "aircraft must be a list")
