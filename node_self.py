@@ -26,6 +26,7 @@ from __future__ import annotations
 import db
 import node_auth
 import nodes as node_mod
+import ownership
 import privacy
 import review_api
 
@@ -88,7 +89,7 @@ def node_parked(handler):
     out = []
     for sid in ids:
         row = db.sighting(sid)
-        if not row or (row.get("node_id") or "") != nd["id"]:
+        if not ownership.sighting_belongs_to_node(row, nd):
             continue
         meta = review_api._pen_meta(sid)
         if not meta:

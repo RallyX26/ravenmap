@@ -43,6 +43,7 @@ import node_self
 import operator_admin
 import operator_auth
 import operator_bugs
+import ownership
 import pages
 import qr
 import nodes as node_mod
@@ -2161,7 +2162,7 @@ class Handler(BaseHTTPRequestHandler):
                 row = db.sighting(sid)
                 if not row:
                     return self._err(404, "no such sighting")
-                if (row.get("node_id") or "") != nd["id"]:
+                if not ownership.sighting_belongs_to_node(row, nd):
                     return self._err(403, "not your camera's sighting")
                 label = str(b.get("label") or "")
                 undo = str(b.get("undo") or "")

@@ -20,6 +20,7 @@ import base64
 import secrets as _s
 
 import db
+import ownership
 import privacy
 import qr
 import review_api
@@ -100,7 +101,7 @@ def sighting_fullres(handler):
     except (TypeError, ValueError):
         return handler._err(400, "bad id")
     row = db.sighting(sid)
-    if not row or row.get("node_id") != nd["id"]:
+    if not ownership.sighting_belongs_to_node(row, nd):
         return handler._err(404, "not this camera's sighting")
     if row.get("tier") != "public":
         return handler._err(403, "not published; the small crop stands")
