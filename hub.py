@@ -1529,7 +1529,7 @@ class Handler(BaseHTTPRequestHandler):
                 # rest of the operational surface.
                 health = {"ok": True, "version": VERSION, "ts": now()}
                 try:
-                    db.connect().execute("SELECT 1").fetchone()
+                    db.health_check()
                     health["db"] = "ok"
                 except Exception as exc:
                     health["ok"] = False
@@ -1919,9 +1919,7 @@ class Handler(BaseHTTPRequestHandler):
                 return mapdata.leaderboard(self, q)
 
             if p == "/api/audit":
-                rows = db.connect().execute(
-                    "SELECT ts, action, target, ip FROM audit ORDER BY ts DESC LIMIT 200"
-                ).fetchall()
+                rows = db.recent_audit(200)
                 # The operator's decisions on the map - confirms, retractions,
                 # public flags. Searches are never in here (they are not logged
                 # at all). The IP is truncated so even this decision log cannot

@@ -333,19 +333,20 @@ def test_review_sighting_report_sequencing() -> None:
 # 7. Raw-SQL leak baseline (static, count-based, not line-number based)
 # ---------------------------------------------------------------------------
 def test_raw_sql_leak_baseline() -> None:
-    print("\n[7] raw-SQL leak baseline (Stage 3F analysis targets, unmodified)")
+    print("\n[7] raw-SQL leak baseline (Stage 3F2: closed sites now at 0/expected)")
     expectations = {
-        "hub.py": 3,
-        "node_credentials.py": 2,
-        "review_api.py": 2,
-        "reviewer_read.py": 2,
-        "operator_admin.py": 1,
+        "hub.py": 1,               # only _janitor()'s purge_expired(db.connect()) remains
+        "node_credentials.py": 0,  # node_key/key_rotate now use db.set_node_pubkey/set_node_token
+        "review_api.py": 0,        # contributed()/attach_confirmed_photo() now use named db fns
+        "reviewer_read.py": 0,     # review_queue() now uses db.public_review_queue_rows/
+                                   # db.private_unreviewed_since
+        "operator_admin.py": 1,    # purge() deferred; still passes db.connect() to privacy.py
     }
     for filename, expected_count in expectations.items():
         text = (ROOT / filename).read_text(encoding="utf-8")
         actual_count = text.count("db.connect(")
-        check(f"{filename} still has {expected_count} direct db.connect() call(s) "
-              f"(Stage 3F1 baseline; not closed in this stage)",
+        check(f"{filename} has {expected_count} direct db.connect() call(s) "
+              f"(Stage 3F2 baseline)",
               actual_count == expected_count,
               f"found {actual_count}")
 

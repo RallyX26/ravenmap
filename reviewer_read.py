@@ -43,10 +43,7 @@ def review_queue(handler):
     """GET /api/review/queue - preserve the operator-local read-only queue."""
     if not handler._is_local():
         return handler._err(403, "local only")
-    rows = db.connect().execute(
-        "SELECT * FROM sightings WHERE tier='public' "
-        "ORDER BY (reviewed IS NOT NULL), ts DESC LIMIT 200"
-    ).fetchall()
+    rows = db.public_review_queue_rows(200)
     report_counts = db.open_report_counts()
     out = []
     for row in rows:
@@ -63,10 +60,7 @@ def review_queue(handler):
     try:
         from detect import bank
         day = __import__("core").now() - 86400 * 3
-        rows2 = db.connect().execute(
-            "SELECT * FROM sightings WHERE tier='private' AND ts > ? "
-            "AND reviewed IS NULL ORDER BY ts DESC LIMIT 400",
-            (day,)).fetchall()
+        rows2 = db.private_unreviewed_since(day, 400)
         from detect import head as _head
         hthr = _head.threshold() if _head.available() else None
         for r in rows2:

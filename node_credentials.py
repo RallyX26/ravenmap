@@ -45,9 +45,7 @@ def node_key(handler):
         Ed25519PublicKey.from_public_bytes(base64.b64decode(pub))
     except Exception:
         return handler._err(400, "that is not an ed25519 public key")
-    conn = db.connect()
-    conn.execute("UPDATE nodes SET pubkey=? WHERE id=?", (pub, nd["id"]))
-    conn.commit()
+    db.set_node_pubkey(nd["id"], pub)
     db.audit("node_key", nd["id"], actor=f"camera {nd['id']}",
              ip=privacy.audit_ip(handler.client_ip))
     return handler._json({"ok": True, "id": nd["id"]})
@@ -82,9 +80,7 @@ def key_rotate(handler):
     if not (_s.compare_digest(str(nd["token"]), tok) or handler._is_local()):
         return handler._err(403, "wrong key")
     new = _s.token_urlsafe(24)
-    c = db.connect()
-    c.execute("UPDATE nodes SET token=? WHERE id=?", (new, nid))
-    c.commit()
+    db.set_node_token(nid, new)
     return handler._json({"ok": True, "node_id": nid, "token": new})
 
 
