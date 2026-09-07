@@ -1,4 +1,4 @@
-r"""SparrowMap Camera Control - a PTZ and imaging console for a USB camera.
+r"""RavenMap Camera Control - a PTZ and imaging console for a USB camera.
 
 Separate from the SparrowMap site on purpose: this is the installer's tool for
 aiming and tuning a node, not something the public map should carry.
@@ -1024,7 +1024,7 @@ def main():
         print("  Serving anyway; the watchdog will keep retrying.")
     else:
         print(f"camera {a.index} open at {CAM.width}x{CAM.height}")
-    print(f"SparrowMap Camera Control -> http://localhost:{a.port}/")
+    print(f"RavenMap Camera Control -> http://localhost:{a.port}/")
     print(f"  node source: CameraSource(kind='mjpeg', "
           f"target='http://localhost:{a.port}/stream.mjpg')")
     import sys

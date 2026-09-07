@@ -1277,8 +1277,7 @@ class Handler(BaseHTTPRequestHandler):
                         # Nominatim's policy requires an identifying agent. A
                         # generic one gets the whole project blocked, and the
                         # block would look like "search is broken".
-                        headers={"User-Agent": "SparrowMap/1.0 "
-                                               "(https://sparrowmap.com)"})
+                        headers={"User-Agent": "RavenMap/1.0"})
                     with _ur.urlopen(req, timeout=12) as r:
                         raw = json.loads(r.read())
                 except (urllib.error.URLError, OSError, ValueError) as exc:
@@ -1351,8 +1350,7 @@ class Handler(BaseHTTPRequestHandler):
                         "https://nominatim.openstreetmap.org/reverse?"
                         + _up.urlencode({"format": "json", "zoom": "8",
                                          "lat": lat, "lon": lon}),
-                        headers={"User-Agent": "SparrowMap/1.0 "
-                                               "(https://sparrowmap.com)"})
+                        headers={"User-Agent": "RavenMap/1.0"})
                     with _ur.urlopen(req, timeout=12) as r:
                         addr = (json.loads(r.read()) or {}).get("address") or {}
                 except (urllib.error.URLError, OSError, ValueError) as exc:

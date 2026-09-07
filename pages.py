@@ -67,7 +67,7 @@ def download_url():
             # 🚨 A User-Agent is REQUIRED. GitHub refuses requests without one,
             # and this project has already lost a whole ingest path to exactly
             # that mistake behind Cloudflare.
-            headers={"User-Agent": "SparrowMap"})
+            headers={"User-Agent": "RavenMap"})
         with urllib.request.urlopen(req, timeout=8) as r:
             ok = r.status == 200
     except Exception:

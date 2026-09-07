@@ -178,7 +178,7 @@ def serve(handler, path: str) -> None:
 
     try:
         raw = urllib.request.urlopen(urllib.request.Request(
-            url, headers={"User-Agent": "SparrowMap/0.1 (+https://sparrowmap.com)"}),
+            url, headers={"User-Agent": "RavenMap/0.1 (tile fetcher)"}),
             timeout=15).read()
     except Exception:
         # A missing tile must not be an error page: Leaflet would draw the

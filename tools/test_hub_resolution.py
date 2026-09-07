@@ -176,6 +176,24 @@ def main():
               "RAVEN_KEY", "SPARROW_KEY", "", {
                   "SPARROW_KEY": "legacy.key"})
           == "legacy.key")
+    check("RAVEN_REPO only selects Raven repository",
+          _run_compat_resolution(
+              "RAVEN_REPO", "SPARROW_REPO", "", {
+                  "RAVEN_REPO": "https://example.invalid/raven.git"})
+          == "https://example.invalid/raven.git")
+    check("SPARROW_REPO only remains supported",
+          _run_compat_resolution(
+              "RAVEN_REPO", "SPARROW_REPO", "", {
+                  "SPARROW_REPO": "https://example.invalid/legacy.git"})
+          == "https://example.invalid/legacy.git")
+    check("both repository variables: RAVEN_REPO wins",
+          _run_compat_resolution(
+              "RAVEN_REPO", "SPARROW_REPO", "", {
+                  "RAVEN_REPO": "https://example.invalid/raven.git",
+                  "SPARROW_REPO": "https://example.invalid/legacy.git"})
+          == "https://example.invalid/raven.git")
+    check("neither repository variable fails closed",
+          _run_compat_resolution("RAVEN_REPO", "SPARROW_REPO", "", {}) == "")
 
     # 5. Static, non-brittle repo-wide search: no shipped runtime/client
     # default literal points at the upstream host. We do not assert on line
@@ -195,8 +213,25 @@ def main():
         "landing/install-node-windows.ps1",
         "detect/relay.py",
         "desktop/sparrowmap_app.py",
+        "desktop/install-node-linux.sh",
+        "desktop/install-node-windows.ps1",
+        "landing/install-node-linux.sh",
+        "landing/install-node-windows.ps1",
+        "desktop/install-unix.sh",
+        "desktop/install-windows.ps1",
+        "landing/install-unix.sh",
+        "landing/install-windows.ps1",
+        "deploy/cameras-box-setup.sh",
+        "tools/public_cams.py",
+        "tools/deploy.py",
+        "tools/health_check.py",
+        "tools/upgrade_published_photos.py",
     ]
-    forbidden = "https://map.sparrowmap.com"
+    forbidden = (
+        "https://map.sparrowmap.com",
+        "https://sparrowmap.com",
+        "https://github.com/SparrowMap/sparrowmap",
+    )
     offenders = []
     for rel in shipped_runtime_files:
         text = (ROOT / rel).read_text(encoding="utf-8")
@@ -204,7 +239,7 @@ def main():
         for lineno, line in enumerate(text.splitlines(), 1):
             if line.count('"""') % 2 == 1:
                 in_docstring = not in_docstring
-            if forbidden in line:
+            if any(value in line for value in forbidden):
                 # Allow only inside comments/docstrings (documentation of the
                 # public network the tool contributes to), never as a live
                 # code default (assignment, argparse default, etc.).

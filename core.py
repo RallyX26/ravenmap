@@ -1,6 +1,6 @@
-"""SparrowMap - shared paths, config and small helpers.
+"""RavenMap - shared paths, config and small helpers.
 
-SparrowMap is a citizen-run camera network. Volunteers point a camera at a public
+RavenMap is a citizen-run camera network. Volunteers point a camera at a public
 road from their own property. The camera does all recognition locally and sends
 the hub a *detection event*, never video.
 
@@ -107,7 +107,7 @@ EVIDENCE_TTL_S = 72 * 3600
 # (Overpass, Nominatim, the tile CDN, aircraft). The clients pointed at our OWN
 # hub were the ones that did not, which is backwards: those are the requests we
 # most need to be able to recognise, allow-list and debug.
-NODE_UA = "SparrowMap-Node/1.0 (+https://sparrowmap.com)"
+NODE_UA = "RavenMap-Node/1.0"
 PUBLIC = ROOT / "public"
 DB_PATH = DATA / "sparrow.db"
 CONFIG_PATH = ROOT / "config.json"

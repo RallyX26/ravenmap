@@ -127,7 +127,7 @@ VEHICLE = {2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
 
 OPEN_TIMEOUT_MS = 8000
 READ_TIMEOUT_MS = 8000
-UA = "SparrowMap-relay/0.1"
+UA = "RavenMap-relay/0.1"
 
 
 # --------------------------------------------------------------------------

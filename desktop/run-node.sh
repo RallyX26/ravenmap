@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# SparrowMap camera node - launcher (Linux / macOS).
+# RavenMap camera node - launcher (Linux / macOS).
 #
 # Starts the camera-control UI (which owns the webcam and serves its video to
 # the detector) and then the detector, which posts sightings to the public
-# SparrowMap network. Installed by install-node-linux.sh; also run by the
+# RavenMap network. Installed by install-node-linux.sh; also run by the
 # systemd --user service and from the desktop entry.
 #
 # Set RAVEN_HUB (or legacy SPARROW_HUB) to point this at your hub before it
@@ -20,7 +20,7 @@ HUB="${RAVEN_HUB:-${SPARROW_HUB:-}}"
 HUB="${HUB%/}"
 
 if [ ! -x "$PY" ]; then
-  echo "SparrowMap is not installed yet. Run install-node-linux.sh first." >&2
+  echo "RavenMap is not installed yet. Run install-node-linux.sh first." >&2
   exit 1
 fi
 if [ -z "$HUB" ]; then
@@ -41,7 +41,7 @@ enrolled() {
 }
 
 echo
-echo "  SparrowMap camera node"
+echo "  RavenMap camera node"
 echo "    posts to  $HUB"
 echo
 

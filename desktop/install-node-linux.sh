@@ -4,15 +4,14 @@
 #   ⚠  UNTESTED on Linux/macOS. The Windows path is the one we run daily; this
 #      mirrors it but has not been exercised end-to-end. Please help us test it
 #      and report anything broken at
-#      https://github.com/SparrowMap/sparrowmap/issues
+#      the issue tracker for the configured RavenMap source repository
 #
 # Turns a machine with a webcam into a SparrowMap camera that contributes to the
-# public map at https://map.sparrowmap.com. Installs the camera code into your
+# configured RavenMap hub. Installs the camera code into your
 # user account, sets up the detector, and starts you at the "aim your camera"
 # step.
 #
-#   One line:
-#     curl -fsSL https://sparrowmap.com/install-node-linux.sh | bash
+#   Configure RAVEN_HUB and RAVEN_REPO, then run this script from the checkout.
 #
 # Re-running updates an existing install. Set RAVEN_HUB (or legacy
 # SPARROW_HUB) to your hub before running; there is no implicit default.
@@ -25,7 +24,12 @@ if [ -z "$HUB" ]; then
   echo "Legacy SPARROW_HUB is also accepted." >&2
   exit 1
 fi
-REPO="https://github.com/SparrowMap/sparrowmap"
+REPO="${RAVEN_REPO:-${SPARROW_REPO:-}}"
+if [ -z "$REPO" ]; then
+  echo "No RavenMap source repository configured. Set RAVEN_REPO." >&2
+  echo "Legacy SPARROW_REPO is also accepted; no upstream default is used." >&2
+  exit 1
+fi
 ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/sparrowmap"
 APP="$ROOT/app"
 
@@ -66,9 +70,9 @@ fi
 
 # --- get / update the code ---------------------------------------------------
 if [ -d "$APP/.git" ]; then
-  say "Updating SparrowMap in $APP"; git -C "$APP" pull --ff-only
+  say "Updating RavenMap in $APP"; git -C "$APP" pull --ff-only
 else
-  say "Downloading SparrowMap to $APP"; mkdir -p "$ROOT"; git clone --depth 1 "$REPO" "$APP"
+  say "Downloading RavenMap to $APP"; mkdir -p "$ROOT"; git clone --depth 1 "$REPO" "$APP"
 fi
 
 # --- python environment + dependencies --------------------------------------
@@ -102,7 +106,7 @@ if systemctl --user status >/dev/null 2>&1; then
   mkdir -p "$HOME/.config/systemd/user"
   cat > "$HOME/.config/systemd/user/sparrowmap-camera.service" <<UNIT
 [Unit]
-Description=SparrowMap camera node
+Description=RavenMap camera node
 After=graphical-session.target
 
 [Service]
@@ -122,7 +126,7 @@ else
   cat > "$HOME/.config/autostart/sparrowmap-camera.desktop" <<DESK
 [Desktop Entry]
 Type=Application
-Name=SparrowMap Camera
+Name=RavenMap Camera
 Exec=$LAUNCH
 X-GNOME-Autostart-enabled=true
 DESK

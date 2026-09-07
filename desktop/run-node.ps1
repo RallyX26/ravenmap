@@ -1,8 +1,8 @@
-# SparrowMap camera node - launcher (Windows).
+# RavenMap camera node - launcher (Windows).
 #
 # Starts the camera-control UI (which owns the webcam and serves its video to
 # the detector) and then the detector, which posts sightings to the public
-# SparrowMap network. Installed by install-node-windows.ps1; also run at login
+# RavenMap network. Installed by install-node-windows.ps1; also run at login
 # and from the desktop shortcut.
 #
 # Set RAVEN_HUB (or legacy SPARROW_HUB) to point this at your hub before it
@@ -16,7 +16,7 @@ $Place = Join-Path $App 'camctl\placement.json'
 $Hub   = if ($env:RAVEN_HUB) { $env:RAVEN_HUB.TrimEnd('/') } elseif ($env:SPARROW_HUB) { $env:SPARROW_HUB.TrimEnd('/') } else { $null }
 
 if (-not (Test-Path $Py)) {
-  Write-Host "SparrowMap is not installed yet. Run install-node-windows.ps1 first." -ForegroundColor Yellow
+  Write-Host "RavenMap is not installed yet. Run install-node-windows.ps1 first." -ForegroundColor Yellow
   Read-Host "Press Enter to close"; exit 1
 }
 if (-not $Hub) {
@@ -35,7 +35,7 @@ function Enrolled {
 }
 
 Write-Host ""
-Write-Host "  SparrowMap camera node" -ForegroundColor Cyan
+Write-Host "  RavenMap camera node" -ForegroundColor Cyan
 Write-Host "    posts to  $Hub"
 Write-Host ""
 

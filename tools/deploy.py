@@ -53,7 +53,7 @@ BOX = os.environ.get("RAVEN_BOX") or os.environ.get("SPARROW_BOX") or ""
 KEY = os.environ.get("RAVEN_KEY") or os.environ.get("SPARROW_KEY") or ""
 REMOTE = "/opt/sparrowmap"
 SERVICE = "sparrowmap.service"
-SITE = "https://map.sparrowmap.com"
+SITE = os.environ.get("RAVEN_HUB") or os.environ.get("SPARROW_HUB") or ""
 
 # Imported once at startup: changing these means the running process is stale.
 # Everything else on the box (public/*.html, *.js, *.css, *.json) is read from
@@ -288,6 +288,9 @@ def main() -> None:
         sys.exit("set RAVEN_BOX and RAVEN_KEY "
                  "(legacy SPARROW_BOX and SPARROW_KEY are also accepted; "
                  "the address is not in this repo)")
+    if not SITE:
+        sys.exit("set RAVEN_HUB for the deployment health check "
+                 "(legacy SPARROW_HUB is also accepted)")
 
     print("1. local state")
     dirty = [l for l in git("status", "--porcelain").splitlines()
