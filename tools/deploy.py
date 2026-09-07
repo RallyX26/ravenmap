@@ -4,8 +4,8 @@
     python tools/deploy.py --dry-run       # say what it would do
     python tools/deploy.py --no-restart    # deploy, skip the restart decision
 
-Needs SPARROW_BOX (user@host) and SPARROW_KEY (path to the key). The address is
-not in this repo.
+Needs RAVEN_BOX (user@host) and RAVEN_KEY (path to the key); legacy SPARROW_BOX
+and SPARROW_KEY remain accepted. The address is not in this repo.
 
 🚨 WHY THIS EXISTS: `git checkout origin/main -- <paths>` IS HOW THE BOX DRIFTED.
 Deploying by naming paths works, right up until it doesn't:
@@ -49,8 +49,8 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BOX = os.environ.get("SPARROW_BOX", "")
-KEY = os.environ.get("SPARROW_KEY", "")
+BOX = os.environ.get("RAVEN_BOX") or os.environ.get("SPARROW_BOX") or ""
+KEY = os.environ.get("RAVEN_KEY") or os.environ.get("SPARROW_KEY") or ""
 REMOTE = "/opt/sparrowmap"
 SERVICE = "sparrowmap.service"
 SITE = "https://map.sparrowmap.com"
@@ -285,7 +285,9 @@ def main() -> None:
     a = ap.parse_args()
 
     if not BOX or not KEY:
-        sys.exit("set SPARROW_BOX and SPARROW_KEY (the address is not in this repo)")
+        sys.exit("set RAVEN_BOX and RAVEN_KEY "
+                 "(legacy SPARROW_BOX and SPARROW_KEY are also accepted; "
+                 "the address is not in this repo)")
 
     print("1. local state")
     dirty = [l for l in git("status", "--porcelain").splitlines()

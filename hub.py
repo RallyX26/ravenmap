@@ -3288,7 +3288,9 @@ def _tls_listener(port: int) -> None:
     ctx.load_cert_chain(str(crt), str(key))
     import os as _os
     from dualstack import serve
-    srv = serve(Handler, port, _os.environ.get("SPARROW_BIND") or "::")
+    srv = serve(Handler, port,
+                _os.environ.get("RAVEN_BIND") or
+                _os.environ.get("SPARROW_BIND") or "::")
     srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
     print(f"  https  ->  https://localhost:{port}/app   (phone camera)")
     srv.serve_forever()
@@ -3325,7 +3327,8 @@ def main() -> None:
     # socket is ever briefly bound on a public interface before the check.
     import os as _os
     import ipaddress as _ip
-    host = _os.environ.get("SPARROW_BIND") or "::"
+    host = (_os.environ.get("RAVEN_BIND") or
+            _os.environ.get("SPARROW_BIND") or "::")
 
     def _loopback_only(h: str) -> bool:
         h = (h or "").strip()
@@ -3345,7 +3348,8 @@ def main() -> None:
             "  * set operator_requires_auth: true in config.json (then log in "
             "at /login with the token in data/operator.token), or\n"
             "  * set behind_tls: true if a proxy terminates TLS in front, or\n"
-            "  * bind loopback only: SPARROW_BIND=127.0.0.1 python hub.py")
+            "  * bind loopback only: RAVEN_BIND=127.0.0.1 python hub.py "
+            "(legacy SPARROW_BIND is also accepted)")
 
     db.init()
     threading.Thread(target=_janitor, daemon=True).start()

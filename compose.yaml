@@ -7,7 +7,7 @@ services:
     container_name: ravenmap-devtest
 
     environment:
-      SPARROW_BIND: 0.0.0.0
+      RAVEN_BIND: 0.0.0.0
 
     ports:
       - "127.0.0.1:8150:8150"

@@ -58,6 +58,23 @@ def _run_resolution_snippet(env_overrides: dict) -> str:
     return result.stdout.strip()
 
 
+def _run_compat_resolution(raven_name: str, sparrow_name: str,
+                           default: str, env_overrides: dict) -> str:
+    snippet = (
+        "import os\n"
+        f"raven = os.environ.get({raven_name!r})\n"
+        f"sparrow = os.environ.get({sparrow_name!r})\n"
+        f"print(raven or sparrow or {default!r})\n"
+    )
+    env = {"PATH": __import__("os").environ.get("PATH", "")}
+    env.update(env_overrides)
+    result = subprocess.run(
+        [PY, "-c", snippet], cwd=str(ROOT), env=env,
+        capture_output=True, text=True, timeout=30,
+    )
+    return result.stdout.strip()
+
+
 def main():
     # 1. RAVEN_HUB only -> Raven value used.
     out = _run_resolution_snippet({"RAVEN_HUB": "https://raven.example.org"})
@@ -131,6 +148,34 @@ def main():
         "os.environ.get('RAVEN_HUB')" in labelbank_src.replace('"', "'")
         or 'os.environ.get("RAVEN_HUB")' in labelbank_src,
     )
+
+    # 4d. Runtime bind compatibility: Raven-only, legacy-only, Raven wins,
+    # and the existing wildcard default is preserved.
+    bind = lambda env: _run_compat_resolution(
+        "RAVEN_BIND", "SPARROW_BIND", "::", env)
+    check("RAVEN_BIND only selects Raven bind",
+          bind({"RAVEN_BIND": "127.0.0.1"}) == "127.0.0.1")
+    check("SPARROW_BIND only remains supported",
+          bind({"SPARROW_BIND": "127.0.0.2"}) == "127.0.0.2")
+    check("both bind variables: RAVEN_BIND wins",
+          bind({"RAVEN_BIND": "127.0.0.1", "SPARROW_BIND": "127.0.0.2"})
+          == "127.0.0.1")
+    check("neither bind variable preserves :: default", bind({}) == "::")
+    hub_src = (ROOT / "hub.py").read_text(encoding="utf-8")
+    check("hub.py resolves RAVEN_BIND before SPARROW_BIND",
+          "RAVEN_BIND" in hub_src and "SPARROW_BIND" in hub_src)
+
+    # Active deployment-tool aliases use the same precedence contract.
+    check("RAVEN_BOX wins over SPARROW_BOX",
+          _run_compat_resolution(
+              "RAVEN_BOX", "SPARROW_BOX", "", {
+                  "RAVEN_BOX": "raven@host", "SPARROW_BOX": "legacy@host"})
+          == "raven@host")
+    check("SPARROW_KEY remains supported",
+          _run_compat_resolution(
+              "RAVEN_KEY", "SPARROW_KEY", "", {
+                  "SPARROW_KEY": "legacy.key"})
+          == "legacy.key")
 
     # 5. Static, non-brittle repo-wide search: no shipped runtime/client
     # default literal points at the upstream host. We do not assert on line
