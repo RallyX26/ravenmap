@@ -132,6 +132,13 @@ say "10. did it actually take?"
 sleep 20
 ssh "root@$NEW" 'echo "--- last log lines ---"; tail -15 /srv/ravenmap/streamer/logs/youtube.log; \
     echo "--- encoder cpu ---"; ps -eo %cpu,etimes,comm --sort=-%cpu | grep ffmpeg | head -3'
+HEALTH_URL="${RAVEN_HEALTH_URL:-${SPARROW_HEALTH_URL:-}}"
+if [ -n "$HEALTH_URL" ]; then
+    HEALTH_NOTE="Then, if needed, watch the configured RavenMap hub recover the core:
+    curl -s ${HEALTH_URL%/}/api/health"
+else
+    HEALTH_NOTE="No RAVEN_HEALTH_URL is configured; skipping the optional hub health check."
+fi
 cat <<EOF
 
 Now CONFIRM THE CHANNEL IS ACTUALLY LIVE on YouTube before walking away. ffmpeg
@@ -146,6 +153,5 @@ Once it IS live, retire the old one so a reboot cannot start two encoders on one
 key:
     systemctl disable project-stream      # on this box
 
-Then watch SparrowMap recover the core:
-    curl -s https://map.sparrowmap.com/api/health
+$HEALTH_NOTE
 EOF

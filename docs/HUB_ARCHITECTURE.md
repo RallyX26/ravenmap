@@ -461,7 +461,52 @@ calls, Ed25519 signature verification, or `MAX_REQUESTS` admission overload —
 see the file's trailing comment block for the full list of what is
 deliberately out of scope for this pass.
 
-## 11. Stage 1B pre-analysis: stateful transport infrastructure
+## 12. RavenMap configuration and compatibility ledger
+
+Active RavenMap operational configuration uses Raven-native names first, while
+retaining legacy Sparrow names as compatibility fallbacks:
+
+| Raven-native setting | Legacy fallback | Behavior when unset |
+| --- | --- | --- |
+| `RAVEN_HUB` | `SPARROW_HUB` | fail closed |
+| `RAVEN_REPO` | `SPARROW_REPO` | fail closed |
+| `RAVEN_BIND` | `SPARROW_BIND` | existing `::` default |
+| `RAVEN_HEALTH_URL` | `SPARROW_HEALTH_URL` | health check is not configured |
+| `RAVEN_ALERT_REPO` | `SPARROW_ALERT_REPO` | tool-specific safe default/failure |
+| `RAVEN_BOX` | `SPARROW_BOX` | tool-specific safe default/failure |
+| `RAVEN_KEY` | `SPARROW_KEY` | tool-specific safe default/failure |
+| `RAVEN_SOURCES` | `SPARROW_SOURCES` | tool-specific existing default |
+| `RAVEN_INTERVAL` | `SPARROW_INTERVAL` | tool-specific existing default |
+| `RAVEN_WORKERS` | `SPARROW_WORKERS` | tool-specific existing default |
+
+`SPARROW_*` names are compatibility aliases, not a deprecation promise. Hub
+and repository targets never silently select an upstream or localhost target.
+
+The following names remain intentional compatibility or provenance identifiers:
+
+- Persistence/deployment: `sparrow.db`, `/opt/sparrowmap`, the `sparrow`
+  system user/group, existing systemd unit names, and installed profile paths.
+- Browser/session: `sparrow_op`, `sparrow_rv`, and legacy localStorage keys.
+- Assets/artifacts: `sparrow-app.js` and legacy installer/artifact filenames.
+- Protocol/subsystem: Sparrow Send and `sparrowsend`.
+- History/provenance: SparrowMap attribution, upstream source links, and
+  licensing history.
+
+The stats worker uses an explicit `RAVEN_STATS_ORIGIN` (or legacy
+`SPARROW_STATS_ORIGIN`) allowlist value. It emits no CORS allow-origin header
+when neither is configured. The VAPID contact in `send_push.py` remains
+deferred infrastructure metadata because no canonical RavenMap contact URI is
+known.
+
+## 13. Stage 3G closeout
+
+Stage 3G severed silent RavenMap dependencies on SparrowMap hubs, repositories,
+and deployment health endpoints. Remaining upstream references are classified
+as compatibility, provenance, Sparrow Send, explicit upstream tooling, or
+deferred infrastructure metadata; they are not implicit RavenMap operational
+defaults.
+
+## 14. Stage 1B pre-analysis: stateful transport infrastructure
 
 Stage 1A moved only the stateless body/serialization primitives (`_body`,
 `_drain_body`, `_json`, `_err`, `_route_label`, `do_HEAD`) into `transport.py`.
@@ -1655,4 +1700,3 @@ The correct Stage 2 rule is:
   later, deliberate security change.
 
 This document intentionally records the current behavior without fixing it.
-

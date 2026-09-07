@@ -194,6 +194,17 @@ def main():
           == "https://example.invalid/raven.git")
     check("neither repository variable fails closed",
           _run_compat_resolution("RAVEN_REPO", "SPARROW_REPO", "", {}) == "")
+    check("RAVEN_HEALTH_URL wins over legacy health URL",
+          _run_compat_resolution(
+              "RAVEN_HEALTH_URL", "SPARROW_HEALTH_URL", "", {
+                  "RAVEN_HEALTH_URL": "https://raven.example/health",
+                  "SPARROW_HEALTH_URL": "https://legacy.example/health"})
+          == "https://raven.example/health")
+    check("SPARROW_HEALTH_URL remains supported",
+          _run_compat_resolution(
+              "RAVEN_HEALTH_URL", "SPARROW_HEALTH_URL", "", {
+                  "SPARROW_HEALTH_URL": "https://legacy.example/health"})
+          == "https://legacy.example/health")
 
     # 5. Static, non-brittle repo-wide search: no shipped runtime/client
     # default literal points at the upstream host. We do not assert on line
@@ -251,6 +262,24 @@ def main():
         "no shipped runtime/client code default points at upstream host",
         not offenders,
         f"offenders={offenders}",
+    )
+    ember = (ROOT / "deploy" / "emberfm-youtube-newbox.sh").read_text(encoding="utf-8")
+    check(
+        "emberfm deployment health check has no upstream default",
+        "map.sparrowmap.com" not in ember and "sparrowmap.com/api/health" not in ember,
+    )
+    sparrow_send = (ROOT / "tools" / "sparrow_claude.js").read_text(encoding="utf-8")
+    check(
+        "Sparrow Send maintainer client has no upstream hub default",
+        "https://map.sparrowmap.com" not in sparrow_send
+        and "process.env.RAVEN_HUB || process.env.SPARROW_HUB || \"\"" in sparrow_send,
+    )
+    stats_worker = (ROOT / "landing" / "worker" / "stats-worker.js").read_text(encoding="utf-8")
+    check(
+        "stats worker CORS origin is explicitly configured",
+        "RAVEN_STATS_ORIGIN" in stats_worker
+        and "SPARROW_STATS_ORIGIN" in stats_worker
+        and "https://sparrowmap.com" not in stats_worker,
     )
 
     print(f"\n{PASS} passed, {FAIL} failed")
