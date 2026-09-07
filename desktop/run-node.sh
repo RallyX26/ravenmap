@@ -6,9 +6,9 @@
 # SparrowMap network. Installed by install-node-linux.sh; also run by the
 # systemd --user service and from the desktop entry.
 #
-# A self-hoster points this at their own hub by setting SPARROW_HUB before it
-# runs (e.g. export SPARROW_HUB=http://localhost:8150). Everyone else
-# contributes to https://map.sparrowmap.com with no configuration.
+# Set RAVEN_HUB (or legacy SPARROW_HUB) to point this at your hub before it
+# runs (e.g. export RAVEN_HUB=http://localhost:8150). There is no implicit
+# default hub; an unconfigured install fails clearly instead of guessing.
 
 set -euo pipefail
 
@@ -16,11 +16,16 @@ SELF="$(cd "$(dirname "$0")" && pwd)"
 APP="$(dirname "$SELF")"
 PY="$APP/.venv/bin/python"
 PLACE="$APP/camctl/placement.json"
-HUB="${SPARROW_HUB:-https://map.sparrowmap.com}"
+HUB="${RAVEN_HUB:-${SPARROW_HUB:-}}"
 HUB="${HUB%/}"
 
 if [ ! -x "$PY" ]; then
   echo "SparrowMap is not installed yet. Run install-node-linux.sh first." >&2
+  exit 1
+fi
+if [ -z "$HUB" ]; then
+  echo "No RavenMap hub configured. Set RAVEN_HUB to your hub URL." >&2
+  echo "Legacy SPARROW_HUB is also accepted." >&2
   exit 1
 fi
 

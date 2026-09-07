@@ -12,11 +12,15 @@
 #
 # It installs entirely under your user account (no admin needed for the app
 # itself; winget may prompt to install Python/Git the first time). Re-running it
-# updates an existing install. Self-hosters: set SPARROW_HUB to your own hub
-# before running and everything points there instead.
+# updates an existing install. Set RAVEN_HUB (or legacy SPARROW_HUB) to your
+# hub before running; there is no implicit default.
 
 $ErrorActionPreference = 'Stop'
-$Hub  = if ($env:SPARROW_HUB) { $env:SPARROW_HUB.TrimEnd('/') } else { 'https://map.sparrowmap.com' }
+$Hub = if ($env:RAVEN_HUB) { $env:RAVEN_HUB.TrimEnd('/') } elseif ($env:SPARROW_HUB) { $env:SPARROW_HUB.TrimEnd('/') } else { $null }
+if (-not $Hub) {
+  Write-Error "No RavenMap hub configured. Set RAVEN_HUB to your hub URL. Legacy SPARROW_HUB is also accepted."
+  exit 1
+}
 $Repo = 'https://github.com/SparrowMap/sparrowmap'
 $Root = Join-Path $env:LOCALAPPDATA 'SparrowMap'
 $App  = Join-Path $Root 'app'
@@ -90,9 +94,9 @@ if (Have nvidia-smi) {
 }
 & $Py -m pip install -r (Join-Path $App 'requirements-node.txt')
 
-# --- point this machine at the public network (self-hosters override) -------
-[Environment]::SetEnvironmentVariable('SPARROW_HUB', $Hub, 'User')
-$env:SPARROW_HUB = $Hub
+# --- point this machine at the configured hub --------------------------------
+[Environment]::SetEnvironmentVariable('RAVEN_HUB', $Hub, 'User')
+$env:RAVEN_HUB = $Hub
 
 # --- shortcut + start at login ----------------------------------------------
 $Launcher = Join-Path $App 'desktop\run-node.ps1'

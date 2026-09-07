@@ -38,7 +38,7 @@ from tkinter import ttk, messagebox
 # downloads on the release page cannot be confused for each other - one
 # is for a shop with an IP camera, the other is not.
 APP = "SparrowMap4Biz"
-HUB_DEFAULT = "https://map.sparrowmap.com"
+HUB_DEFAULT = os.environ.get("RAVEN_HUB") or os.environ.get("SPARROW_HUB") or ""
 CFG = Path.home() / ".sparrowmap" / "desktop.json"
 BG, PANEL, INK, DIM, LINE = "#0a0d12", "#111621", "#e6ecf5", "#8794a8", "#2a3547"
 RED, GREEN = "#ff3b47", "#3ddc97"
@@ -335,6 +335,11 @@ class App(tk.Tk):
             return messagebox.showerror(
                 APP, "This camera needs an id and a token.\n\n"
                      "Use the button below the boxes to create one.")
+        if not v["hub"]:
+            return messagebox.showerror(
+                APP, "No RavenMap hub configured.\n\n"
+                     "Set RAVEN_HUB (or legacy SPARROW_HUB) before starting "
+                     "SparrowMap4Biz.")
         self.cfg.update({k: v[k] for k in ("node", "token", "lat", "lon")})
         self.cfg["source"] = self.e_src.get().strip()
         save_cfg(self.cfg)

@@ -14,12 +14,17 @@
 #   One line:
 #     curl -fsSL https://sparrowmap.com/install-node-linux.sh | bash
 #
-# Re-running updates an existing install. Self-hosters: set SPARROW_HUB to your
-# own hub before running and everything points there instead.
+# Re-running updates an existing install. Set RAVEN_HUB (or legacy
+# SPARROW_HUB) to your hub before running; there is no implicit default.
 
 set -euo pipefail
 
-HUB="${SPARROW_HUB:-https://map.sparrowmap.com}"; HUB="${HUB%/}"
+HUB="${RAVEN_HUB:-${SPARROW_HUB:-}}"; HUB="${HUB%/}"
+if [ -z "$HUB" ]; then
+  echo "No RavenMap hub configured. Set RAVEN_HUB to your hub URL." >&2
+  echo "Legacy SPARROW_HUB is also accepted." >&2
+  exit 1
+fi
 REPO="https://github.com/SparrowMap/sparrowmap"
 ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/sparrowmap"
 APP="$ROOT/app"
@@ -83,11 +88,11 @@ else
 fi
 "$PY" -m pip install -r "$APP/requirements-node.txt"
 
-# --- point this machine at the public network (self-hosters override) -------
-if ! grep -qs "export SPARROW_HUB=" "$HOME/.profile" 2>/dev/null; then
-  echo "export SPARROW_HUB=$HUB" >> "$HOME/.profile"
+# --- point this machine at the configured hub --------------------------------
+if ! grep -qs "export RAVEN_HUB=" "$HOME/.profile" 2>/dev/null; then
+  echo "export RAVEN_HUB=$HUB" >> "$HOME/.profile"
 fi
-export SPARROW_HUB="$HUB"
+export RAVEN_HUB="$HUB"
 
 # --- autostart + launcher ----------------------------------------------------
 chmod +x "$APP/desktop/run-node.sh"
@@ -101,7 +106,7 @@ Description=SparrowMap camera node
 After=graphical-session.target
 
 [Service]
-Environment=SPARROW_HUB=$HUB
+Environment=RAVEN_HUB=$HUB
 ExecStart=$LAUNCH
 Restart=on-failure
 RestartSec=10

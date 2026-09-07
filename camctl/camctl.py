@@ -429,10 +429,21 @@ def save_placement(p: dict) -> None:
     PLACEMENT.write_text(json.dumps(p, indent=2), encoding="utf-8")
 
 
-# Where a camera enrolls by default. SparrowMap is the point, so the public
-# network is the default; a self-hoster sets SPARROW_HUB to their own hub
-# (e.g. http://localhost:8150) and everything else is unchanged.
-PUBLIC_HUB = os.environ.get("SPARROW_HUB", "https://map.sparrowmap.com").rstrip("/")
+# Where a camera enrolls by default. A self-hoster sets RAVEN_HUB (or the
+# legacy SPARROW_HUB) to their own hub (e.g. http://localhost:8150). There is
+# intentionally NO implicit default to any upstream/public hub: an unconfigured
+# install must fail with a clear error rather than silently phoning home.
+PUBLIC_HUB = os.environ.get("RAVEN_HUB") or os.environ.get("SPARROW_HUB") or ""
+
+
+def _require_hub(hub: str | None) -> str:
+    hub = (hub or "").rstrip("/")
+    if not hub:
+        raise RuntimeError(
+            "No RavenMap hub configured. Set RAVEN_HUB to your hub URL. "
+            "Legacy SPARROW_HUB is also accepted."
+        )
+    return hub
 
 
 def enroll_with_hub(p: dict, hub: str = None) -> dict:
@@ -442,7 +453,7 @@ def enroll_with_hub(p: dict, hub: str = None) -> dict:
     so re-saving a placement updates the same node instead of littering the map
     with duplicates every time someone nudges the heading.
     """
-    hub = (hub or PUBLIC_HUB)
+    hub = _require_hub(hub or PUBLIC_HUB)
     import urllib.request
 
     def _post(b):
