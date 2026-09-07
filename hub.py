@@ -2343,47 +2343,6 @@ class Handler(BaseHTTPRequestHandler):
                          ip=privacy.audit_ip(self.client_ip))
                 return self._ingest(b, operator_confirmed=True)
 
-            if p == "/api/heartbeat":
-                # "I am awake and watching." Deliberately separate from a
-                # sighting: a camera pointed at an empty street at 4am is
-                # working perfectly and has nothing to report, and inferring
-                # liveness from traffic reported exactly that camera as down.
-                b = self._body()
-                nd = db.node(str(b.get("node_id") or ""))
-                if not nd:
-                    return self._err(404, "unknown node")
-                if not self._token_ok(nd):
-                    return self._err(401, "bad node token")
-                # ⚠️ A PAUSED OR REVOKED NODE MUST BE TOLD, NOT COUNTED.
-                # It used to beat happily forever: counted as online, inflating
-                # heartbeats_total and the public "hours watched", while
-                # _ingest 403d every sighting it sent. The camera had no way to
-                # learn it had been switched off - the only endpoint it could
-                # reach kept answering {"ok": true}.
-                if nd["status"] != "active":
-                    return self._json({"ok": True, "posting": False,
-                                       "status": nd["status"],
-                                       "note": "this camera is not active, so "
-                                               "its sightings are refused"})
-                db.heartbeat(nd["id"])
-                # 🚨 ASK FOR THE GOOD PICTURE HERE. Everything a camera uploads
-                # is capped at 200px so a private plate cannot survive the trip,
-                # and that must never change. But once the head decides a
-                # vehicle IS a government one it belongs in the public tier,
-                # where the plate is legible on purpose - and the only copy the
-                # server has by then is the deliberately ruined one.
-                #
-                # The camera that took it is the only device that ever had the
-                # original, so it has to be asked, and this beat is already
-                # going back to exactly that device every few seconds.
-                want = []
-                try:
-                    want = db.wants_fullres(nd["id"])
-                except Exception as exc:
-                    print(f"[beat] wants_fullres failed for {nd['id']}: {exc}")
-                return self._json({"ok": True, "posting": True, "ts": now(),
-                                   "want_full": want})
-
             if p == "/api/signals":
                 # 🚨 AN OUTSIDE SENSOR NETWORK REPORTING WHAT A VEHICLE
                 # BROADCASTS. It reports what it HEARD - a time, a place, a

@@ -33,6 +33,7 @@ for sub in ("snaps", "evidence", "held", "review", "inbox", "tiles"):
 import core  # noqa: E402
 import db  # noqa: E402
 import mirror  # noqa: E402
+import node_lifecycle  # noqa: E402
 import review_api  # noqa: E402
 import snapshot  # noqa: E402
 
@@ -129,10 +130,21 @@ def main() -> int:
     check("POST /api/heartbeat unknown node -> 404", st == 404, f"{st} {body}")
     st, body = call("/api/heartbeat", {"node_id": nid}, method="POST", token="wrong")
     check("POST /api/heartbeat wrong token -> 401", st == 401, f"{st} {body}")
+    heartbeat_calls = []
+    real_heartbeat = node_lifecycle.heartbeat
+
+    def recording_heartbeat(handler):
+        heartbeat_calls.append(True)
+        return real_heartbeat(handler)
+
+    node_lifecycle.heartbeat = recording_heartbeat
     st, body = call("/api/heartbeat", {"node_id": nid}, method="POST", token=tok)
+    node_lifecycle.heartbeat = real_heartbeat
     after = get_node(nid)
     check("POST /api/heartbeat correct token -> 200", st == 200 and body.get("ok") is True,
           f"{st} {body}")
+    check("POST /api/heartbeat uses extracted lifecycle handler",
+          heartbeat_calls == [True], f"calls={heartbeat_calls}")
     check("POST /api/heartbeat updates last_beat on active node",
           after["last_beat"] is not None and after["beats"] == (before["beats"] or 0) + 1,
           f"before={before['beats']} after={after['beats']} last_beat={after['last_beat']}")
