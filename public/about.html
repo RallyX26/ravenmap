@@ -18,9 +18,7 @@
     margin:22px 0 26px; padding:16px 20px; border-left:2px solid var(--fleet);
     background:#0f1420; border-radius:0 8px 8px 0;
   }
-  blockquote p{font-size:17px; line-height:1.5; color:var(--ink); margin:0 0 6px}
-  blockquote cite{font:11.5px var(--mono); color:var(--dim2); font-style:normal;
-                  letter-spacing:.1em; text-transform:uppercase}
+  blockquote p{font-size:17px; line-height:1.5; color:var(--ink); margin:0}
   .tiers{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:18px 0}
   .tier{border:1px solid var(--line2); border-radius:9px; padding:14px 15px; background:#0d1219}
   .tier h3{margin:0 0 8px; font:600 12px/1 var(--mono); letter-spacing:.1em; text-transform:uppercase}
@@ -29,129 +27,157 @@
   .back{display:inline-block; margin-bottom:22px; font:11px var(--mono);
         letter-spacing:.12em; text-transform:uppercase; color:var(--dim); text-decoration:none}
   .back:hover{color:var(--ink)}
+  .links{display:flex; flex-wrap:wrap; gap:10px 18px; margin:18px 0}
+  .links a{font:11px var(--mono); letter-spacing:.08em; text-transform:uppercase;
+           color:#5aa9ff; text-decoration:none}
+  .links a:hover{text-decoration:underline}
   @media (max-width:640px){ .tiers{grid-template-columns:1fr} }
 </style>
 </head>
 <body>
 <div class="doc">
   <a class="back" href="/">&larr; back to the map</a>
+
   <h1>RavenMap</h1>
-  <p style="color:var(--dim2)">A camera network the neighbourhood owns.</p>
+  <p style="color:var(--dim2)">A privacy-first, community-owned situational-awareness and public-accountability network.</p>
 
   <blockquote>
-    <p>“And ye shall be brought before governors and kings for my sake,
-       <strong>for a testimony against them</strong>.”</p>
-    <cite>Matthew 10:18</cite>
+    <p><strong>Observe carefully. Remember responsibly. Make public power accountable without turning private lives into public records.</strong></p>
   </blockquote>
 
-  <h2>What this is</h2>
-  <p>Private companies sell automated licence plate readers to police
-     departments. The cameras sit on public roads, record every vehicle that
-     passes, and the resulting history is searchable by the agency that bought
-     the subscription. The public pays for it and cannot see it.</p>
-  <p>RavenMap is the same technology pointed the other way. Volunteers put a
-     camera in a window or on a porch facing a public road. The camera reads
-     what passes. The results go on a map that <strong>anyone</strong> can
-     open, with no account, no agency, and no subscription.</p>
+  <h2>What RavenMap is</h2>
+  <p>RavenMap is an open-source platform for collecting, correlating, reviewing,
+     and publishing observations that have legitimate public-accountability or
+     situational-awareness value. It is designed for communities that want to
+     operate their own sensors and infrastructure rather than depend on a single
+     commercial surveillance provider or central authority.</p>
 
-  <h2>The line we drew</h2>
-  <p>A network like this can be built two ways, and only one of them is worth
-     building. If every plate is public and searchable, then anyone can look up
-     an ex-partner's week with photographs. That is not accountability. That is
-     a stalking service with a civic-sounding name.</p>
-  <p>So RavenMap keeps two tiers, and the split is enforced in code rather than
-     in a policy document.</p>
+  <p>The project began with vehicle observations from community-operated cameras,
+     and that remains an important capability. RavenMap is broader than a license
+     plate map, though: a deployment can combine edge cameras, public traffic
+     cameras, public data sources, manually submitted observations, and other
+     authorized sensor inputs while keeping their provenance and trust boundaries
+     distinct.</p>
+
+  <p>The goal is not to collect as much as possible. The goal is to gather
+     information that serves a defined purpose, preserve what is justified,
+     discard what is not, and make the rules visible enough that a deployment's
+     claims can be checked.</p>
+
+  <h2>Why ravens?</h2>
+  <p>RavenMap takes its name from <strong>Huginn</strong> and
+     <strong>Muninn</strong>, the ravens of Odin. Their names are commonly
+     rendered as <em>Thought</em> and <em>Memory</em>: they range outward,
+     observe the world, and return with what they have learned.</p>
+
+  <p>That is a useful model for a distributed observation network. Sensors and
+     contributors gather observations in many places; RavenMap brings those
+     observations together, adds context, preserves what matters, and returns
+     useful knowledge to the community operating it.</p>
+
+  <p>The second half of the idea matters just as much: observation without
+     restraint becomes surveillance. RavenMap is therefore built around
+     <strong>judgment, minimization, and explicit trust boundaries</strong>,
+     not the assumption that every technically collectible fact should become a
+     permanent record.</p>
+
+  <h2>Watching the watchers without watching everyone</h2>
+  <p>Government agencies and private vendors increasingly use automated sensors,
+     cameras, databases, and analytics to observe public spaces. RavenMap exists
+     in part to make public power observable in return: public vehicles, public
+     operations, and other legitimate accountability subjects can be documented
+     and examined by the communities they affect.</p>
+
+  <p>That mission does not justify building a searchable history of ordinary
+     people's movements. RavenMap therefore treats public-accountability data and
+     private-person data as different classes with different handling rules.</p>
 
   <div class="tiers">
     <div class="tier pub">
-      <h3>Public tier</h3>
+      <h3>Public-accountability tier</h3>
       <ul>
-        <li>Government vehicles, local and federal</li>
-        <li>Plate stored readable and searchable</li>
-        <li>Full history, kept indefinitely</li>
-        <li>Every operator decision on it is logged publicly</li>
-        <li>Searching it is free and never logged</li>
+        <li>Subjects that meet a deployment's public-accountability policy</li>
+        <li>Readable identifiers may be retained when publication criteria are met</li>
+        <li>Evidence and provenance can support public review</li>
+        <li>Retention and publication follow explicit deployment policy</li>
+        <li>Public records are intended to be inspectable rather than secret</li>
       </ul>
     </div>
     <div class="tier priv">
       <h3>Private tier</h3>
       <ul>
-        <li>Everybody else</li>
-        <li>Plate hashed at the camera, never stored readable</li>
-        <li>Deleted after a short window</li>
-        <li>No search path exists, by design</li>
+        <li>Ordinary private persons and vehicles</li>
+        <li>Readable plate text is not intentionally persisted centrally</li>
+        <li>Retained imagery is minimized and identifying plate data is redacted</li>
+        <li>Correlation is temporary and bounded rather than permanent</li>
+        <li>No public plate-lookup path is provided</li>
       </ul>
     </div>
   </div>
 
-  <p>The reasoning is old and simple. A publicly owned vehicle, doing public
-     work, on a public road, is a public record, the same way a council minute
-     is. A private person driving to work is not.</p>
+  <p>Those exact rules are implementation and deployment policy, not a slogan.
+     RavenMap exposes policy and transparency information so they can be examined
+     rather than merely trusted.</p>
 
-  <h2>Four things that are true about how it is built</h2>
-  <p><strong>No video ever leaves the camera.</strong> Recognition runs on the
-     device. What reaches the hub is a few hundred bytes of structured claim and
-     one cropped still. There is no stream to intercept, subpoena or leak,
-     because there is no stream.</p>
-  <p><strong>Snapshots are crops of the vehicle, not the frame.</strong> The
-     pedestrian on the sidewalk, the house number behind, the kid in the yard,
-     none of them are in a tight crop of a car's rear end.</p>
-  <p><strong>The hash key rotates.</strong> Private plates are stored as a keyed
-     hash so the same car still re-identifies across cameras. That key is
-     rotated on a schedule, so after a rotation the same car hashes differently
-     and old trails cannot be joined to new ones. This caps how long anyone can
-     follow a private citizen <em>including whoever runs the database</em>.</p>
-  <p><strong>Nothing gets published on plate text alone.</strong> A vehicle only
-     enters the public tier at high confidence and only when something other
-     than the plate agrees, because a single misread should never be able to
-     make a stranger public.</p>
+  <h2>Privacy is part of the architecture</h2>
+  <p><strong>Raw video stays at the edge by default.</strong> RavenMap's normal
+     model is local processing followed by an authorized observation or
+     sanitized still, not continuous raw video sent to a central archive.</p>
 
-  <h2>What it is not</h2>
-  <p>RavenMap does not identify people, only vehicles. It does not do face
-     recognition, and the crop rule is there specifically to make faces hard to
-     collect even by accident. It has no enforcement function, no alerting to
-     any agency, and no hotlist that a stranger can add your car to.</p>
-  <p>It will also be wrong sometimes. Every classification on the map shows the
-     evidence behind it rather than only the verdict, so a bad call is visible
-     and arguable instead of authoritative.</p>
+  <p><strong>Retained media should contain only what is needed.</strong> Vehicle
+     observations normally use tight crops and private-tier imagery is subject to
+     redaction so unrelated people, homes, and identifiers are not collected
+     simply because they happened to be in the frame.</p>
 
-  <h2>Why a sparrow</h2>
-  <p>RavenMap is a fork and continuation of SparrowMap. The SparrowMap name and
-     history are preserved here as provenance, not as a claim of affiliation with
-     the upstream project. RavenMap's raven name follows the older image of
-     Huginn and Muninn, Odin's ravens: observation carried back with judgment,
-     while the architecture and project identity remain distinct.</p>
-  <p>Matthew 10 is Jesus sending people out with a warning that they will be
-     handed to councils and dragged in front of governors. In the middle of it:
-     <em>“there is nothing covered, that shall not be revealed”</em>, and then
-     <em>“what ye hear in the ear, that preach ye upon the housetops.”</em> A
-     porch camera is close to a literal reading of that instruction.</p>
-  <p>Then the sparrow, which was the cheapest animal in the market, sold two for
-     a farthing and the fifth thrown in free. The point of the line is that even
-     the creature nobody bothered to count is not unwatched when it falls. Which
-     is the argument for the two tiers, in one image: the powerful get watched,
-     and the ordinary person is the one whose fall nobody gets to sell.</p>
+  <p><strong>Private correlation is bounded.</strong> Where temporary
+     re-identification is operationally useful, private identifiers are designed
+     to be pseudonymous and time-limited rather than a permanent trail that can
+     be reconstructed later.</p>
 
-  <h2>Found a bug, or want to help?</h2>
-  <p>The whole system is open source, so a claim you doubt can be checked against
-     the code that makes it. If something is wrong &mdash; a vehicle classified
-     incorrectly, a broken page, a number that does not add up &mdash; that is
-     the most useful thing to report against this deployment's own code and
-     issue tracker.</p>
-  <!-- ⚠️ NAMED AS WHAT IT IS. This page argues that the project is worth
-       believing because it does not hide how it works, so the money cannot be
-       the one vague part. It pays two server bills, it goes to a person rather
-       than a foundation, and /status carries the actual figures. -->
-  <p>Running a deployment like this costs real money in servers. The upstream
-     SparrowMap project historically ran on <b>$200.48 a month</b> in servers,
-     nearly all of it one machine serving the map and reading several thousand
-     public traffic cameras; this deployment's own figures, if it publishes
-     them, are on <a href="/status" style="color:#5aa9ff">the status page</a>
-     and <a href="/support" style="color:#5aa9ff">the support page</a>.</p>
-  <p style="color:var(--dim2);font-size:13px">The code is open source (AGPL-3.0):
-     run your own instance, please do. The <b>SparrowMap</b> name and mark are
-     that upstream project's identity, not part of this licence &mdash; a fork
-     is welcome, under its own name.</p>
+  <p><strong>Publication is conservative.</strong> A single OCR result or weak
+     classifier should not be enough to turn an ordinary person's observation
+     into a public record. Publication decisions require the evidence and
+     confidence appropriate to the deployment's policy.</p>
+
+  <p><strong>Trust is not universal.</strong> Operators, reviewers, nodes,
+     public users, and processing workers are different roles. Access to compute
+     capacity does not automatically grant access to sensitive observations.</p>
+
+  <h2>What RavenMap is not</h2>
+  <p>RavenMap is not intended to become a warehouse of everyone's raw video, an
+     indiscriminate license-plate database, a permanent searchable history of
+     private citizens, or a centralized commercial surveillance service.</p>
+
+  <p>It is also not an enforcement system. RavenMap's purpose is observation,
+     context, review, transparency, and accountability. Data collection is not
+     automatically valuable merely because a sensor or model is capable of it.</p>
+
+  <h2>Open and verifiable</h2>
+  <p>RavenMap is open source. Its privacy rules, publication decisions, APIs,
+     and implementation can be examined rather than accepted as a black box.
+     A deployment should expose enough about its own operation to let users,
+     contributors, and researchers evaluate whether it behaves as claimed
+     without exposing the private information those safeguards exist to protect.</p>
+
+  <div class="links">
+    <a href="/transparency">Transparency</a>
+    <a href="/status">Deployment status</a>
+    <a href="/guides">Guides</a>
+    <a href="/contribute">Contribute</a>
+    <a href="https://github.com/RallyX26/ravenmap" rel="noopener noreferrer">Source code</a>
+    <a href="https://github.com/RallyX26/ravenmap/issues" rel="noopener noreferrer">Report an issue</a>
+  </div>
+
+  <h2>Project lineage</h2>
+  <p>RavenMap began as a fork of <strong>SparrowMap</strong> and retains
+     substantial inherited code and ideas from that project. SparrowMap remains
+     part of RavenMap's provenance and must be credited accordingly, but RavenMap
+     is a separate project with its own name, direction, architecture, and
+     operational identity.</p>
+
+  <p style="color:var(--dim2);font-size:13px">RavenMap is distributed under the
+     repository's open-source licensing terms. Upstream copyright, license, and
+     third-party attribution remain applicable where required.</p>
 
   <p style="margin-top:34px"><a class="back" href="/transparency">See what this
      deployment actually does &rarr;</a></p>
