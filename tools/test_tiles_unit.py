@@ -164,7 +164,7 @@ def t_valid_miss_then_hit(tmp_tiles_dir: Path) -> None:
               captured_request.get("url"))
         check("upstream request carries the documented User-Agent",
               captured_request.get("headers", {}).get("User-agent")
-              == "SparrowMap/0.1 (+https://sparrowmap.com)",
+              == "RavenMap/0.1 (tile fetcher)",
               captured_request.get("headers"))
         check("upstream fetch uses a 15s timeout",
               captured_request.get("timeout") == 15,

@@ -15,12 +15,37 @@ The current route contract is characterized by:
 
 - 57 documented GET routes;
 - 36 documented POST routes;
+- `public_mirror` route filtering remains part of the current contract;
 - route names, payloads, statuses, authentication ordering, and privacy
   behavior preserved from the pre-extraction implementation.
 
 The executable contract inventory is maintained by
 `tools/test_hub_contract.py`; this document intentionally does not duplicate
 the complete route table.
+
+The characterized route names remain:
+
+```text
+GET /
+/about /transparency /status /checksums /support /donate /business /ipcamera
+/IPCamera /relay.py /download /api/download /hardware /build16 /help /app
+/node /key /contribute /admin/bugs /drive /planes /api/aircraft /api/geocode
+/api/scanner /api/places /api/heat /api/node/me /aim /rv /rv/mine /rv/pool
+/rv/admin /api/rv/me /api/rv/queue /api/rv/contributed /rv/retracted
+/api/rv/retracted /rv/photos /api/rv/held /api/rv/progress /api/rv/tokens
+/api/health /api/policy /api/whoami /api/plate /api/stats /sw.js /login /review
+/api/review/queue /api/pending /api/nodes /api/sightings /api/audit /api/live
+
+POST /api/enroll /api/sightings /api/help/vote /api/node/progress
+/api/node/label /api/bug /api/bug/close /api/bug/delete /api/node/whoami
+/api/node/parked /api/node/key /api/node/span /api/node/confirm /api/heartbeat
+/api/signals /api/sighting/fullres /api/heartbeat/bulk /api/review/edit
+/api/report /api/review /api/key/qr /api/key/rotate /api/operator/login
+/api/operator/logout /api/rv/login /api/rv/logout /api/rv/retracted/delete
+/api/rv/held/fix /api/rv/verdict /api/drive/report /api/drive/vote
+/api/rv/my-token /api/rv/tokens/new /api/rv/tokens/revoke /api/review/bulk
+/api/purge
+```
 
 ## 2. Composition root and HTTP layer
 
