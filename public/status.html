@@ -61,7 +61,7 @@
 <div class="doc">
   <a class="back" href="/">&larr; back to the map</a>
   <h1>Status</h1>
-  <p class="sub">Whether SparrowMap is up, and what to do if someone says it is not.</p>
+  <p class="sub">Whether RavenMap is up, and what to do if someone says it is not.</p>
 
   <!-- 🚨 THIS PAGE IS OFTEN SOMEBODY'S FIRST ONE. It gets shared at people who
        have just been told the site is fake or down, so they arrive here rather
@@ -84,8 +84,8 @@
        So the top of this page states the one fact that cannot be argued with:
        you are reading it, therefore you reached the server. -->
   <div class="verdict" id="verdict">
-    <b id="vtitle">You reached SparrowMap.</b>
-    <p id="vbody">This page was served by the SparrowMap server itself. If you can
+    <b id="vtitle">You reached RavenMap.</b>
+    <p id="vbody">This page was served by the RavenMap server itself. If you can
        read this, your device, your network and your DNS all reached it.</p>
     <span class="stamp" id="stamp">checking the live numbers&hellip;</span>
   </div>
@@ -120,17 +120,16 @@
     <li>Turn the VPN or filtering app <b>off</b> and reload.</li>
     <li>Switch from Wi-Fi to <b>mobile data</b> (or the other way round). If it
         works on one and not the other, the network is the filter.</li>
-    <li>Try a different DNS such as <code>1.1.1.1</code>. SparrowMap resolves on
+    <li>Try a different DNS such as <code>1.1.1.1</code>. RavenMap resolves on
         every major resolver including the filtered ones (Cloudflare Family,
         Quad9, OpenDNS, AdGuard), so if yours does not answer, yours is
         filtering it.</li>
   </ol>
 
-  <p class="note"><b>If it still fails after all three, we want to know.</b> That
-     would be a real fault and not a filter. Say what you saw and roughly where
-     you are, at <a href="mailto:sparrowmap@icloud.com">sparrowmap@icloud.com</a>.
-     We cannot look it up for you: this project keeps no record of who visits,
-     which is a deliberate choice and the reason we have to ask.</p>
+  <p class="note"><b>If it still fails after all three, that would be a real
+     fault and not a filter.</b> This project keeps no record of who visits,
+     which is a deliberate choice, so there is no lookup to offer &mdash; report
+     it against this deployment's own contact channel if one is published.</p>
 
   <!-- 🚨 THE COST GOES ON THE PAGE THAT EXISTS FOR CHECKABLE THINGS, AND IT
        GOES WITH A NUMBER. "Support us" with no figure asks people to fund
@@ -161,12 +160,11 @@
      15&nbsp;August and the host does not invoice until a full month has passed, so
      those two are the console's stated monthly price rather than a bill that has
      actually arrived.</p>
-  <p class="body">If you want to help with the bill:
-     <a href="https://buymeacoffee.com/sparrowmap" rel="noopener noreferrer"
-        target="_blank">buymeacoffee.com/sparrowmap</a>.
-     That goes to a person, not a foundation &mdash; it pays the two invoices
-     above. There is no account to make, nothing is tracked back to you, and
-     nothing on SparrowMap works differently if you do or do not.</p>
+  <p class="body">Running this costs real money in servers; this deployment can
+     publish its own current running costs and support channel, if any, on
+     <a href="/about">the about page</a>. There is no account to make, nothing
+     is tracked back to you, and nothing on RavenMap works differently if you
+     do or do not.</p>
 
   <h2>What this page is not</h2>
   <p class="body">It is not a claim that the site can never be down. It is a live
@@ -223,7 +221,7 @@
         $("#verdict").style.background = "#1a0f0b";
         $("#verdict").style.borderColor = "#5a2a1e";
         $("#vtitle").style.color = "#ff9d7a";
-        $("#vtitle").textContent = "You reached SparrowMap, but it is unhealthy.";
+        $("#vtitle").textContent = "You reached RavenMap, but it is unhealthy.";
         $("#vbody").textContent = "Your connection is fine. The server answered and "
           + "reported a problem with itself, which is our fault and not yours.";
       }

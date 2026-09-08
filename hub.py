@@ -1,4 +1,4 @@
-"""SparrowMap hub - HTTP API, live feed and the public map.
+"""RavenMap hub - HTTP API, live feed and the public map.
 
 Standard library only, on purpose. A hub that a neighbourhood can run should
 not need a package index to survive, and every dependency is another thing a
@@ -663,7 +663,7 @@ class Handler(BaseHTTPRequestHandler):
     # Do not advertise the software or the Python build. The default banner
     # read "SparrowMap/0.1.0 Python/3.12.10", which hands an attacker the exact
     # version to look up CVEs against before they try anything.
-    server_version = "SparrowMap"
+    server_version = "RavenMap"
     sys_version = ""
     protocol_version = "HTTP/1.1"
 
@@ -3255,7 +3255,7 @@ def _tls_listener(port: int) -> None:
 
 def main() -> None:
     import argparse
-    ap = argparse.ArgumentParser(description="SparrowMap hub")
+    ap = argparse.ArgumentParser(description="RavenMap hub")
     ap.add_argument("--port", type=int, default=CONFIG.get("http_port", 8150))
     ap.add_argument("--https-port", type=int, default=CONFIG.get("https_port", 8151))
     # ⚠️ THE SIMULATOR IS OFF BY DEFAULT AND MUST STAY THAT WAY.
@@ -3320,7 +3320,7 @@ def main() -> None:
     # computed right after arg-parse, before any listener bound a socket.
     from dualstack import serve
     srv = serve(Handler, args.port, host)
-    print(f"SparrowMap hub {VERSION}  ->  http://localhost:{args.port}/  "
+    print(f"RavenMap hub {VERSION}  ->  http://localhost:{args.port}/  "
           f"(bound to {host})")
     print(f"  policy: civilian plates hashed, {CONFIG['civilian_retention_days']}d "
           f"retention, pepper rotates every {CONFIG['pepper_rotation_days']}d")
